@@ -838,10 +838,11 @@ name = "gnomepy"
 version = "2.3.1"
 description = ""
 optional = false
-python-versions = ">=3.13,<3.14"
+python-versions = "<3.14,>=3.13"
 groups = ["main"]
 files = [
-    {file = "gnomepy-2.3.1-py3-none-any.whl", hash = "sha256:c63139bde002a7516ff24d12c8dd14795ef94ee9b9480c6faeff1f78a245c6cd"},
+    {file = "gnomepy-2.3.1-py3-none-any.whl", hash = "sha256:770a2b3363f4170bf67ee7551c7fd97dfacd5587ff3db5345c6a604a880a6050"},
+    {file = "gnomepy-2.3.1.tar.gz", hash = "sha256:1b005a36ec490e9e452fbee2aff1c94e052ae8ab2a90a9f9ced09497bb19d51b"},
 ]
 
 [package.dependencies]
@@ -854,10 +855,6 @@ zstandard = ">=0.23.0,<0.24.0"
 
 [package.extras]
 backtest = ["anthropic (>=0.40.0,<1.0.0)", "boto3-stubs (>=1.42.73,<1.43.0)", "dash (>=2.18,<3.0)", "dash-bootstrap-components (>=1.6,<2.0)", "jpype1 (>=1.5.0,<2.0.0)", "numpy (>=2.2.4,<3.0.0)", "pandas (>=2.2.3,<3.0.0)", "pandas-stubs (>=2.3.3,<2.4.0)", "plotly (>=6.6.0,<6.7.0)", "pyarrow (>=23.0.1,<24.0.0)"]
-
-[package.source]
-type = "file"
-url = "../gnomepy/dist/gnomepy-2.3.1-py3-none-any.whl"
 
 [[package]]
 name = "h11"
@@ -2498,4 +2495,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<3.14"
-content-hash = "c4a1573470ae97f1f03aaf740fbc74bfbf5cd34fcc142e9154eafe6e3203eee9"
+content-hash = "bf02fbdb66be0529e0c1977128e36de4a6e6502beafd21ffcccc40ab19623d2c"

@@ -6,7 +6,7 @@ packages = [{include = "classifier"}, {include = "scripts"}]
 
 [tool.poetry.dependencies]
 python = ">=3.13,<3.14"
-gnomepy = {path = "/Users/mprey/Programming/gnome-trading-group/gnomepy/dist/gnomepy-2.3.1-py3-none-any.whl"}
+gnomepy = ">=2.3.1"
 boto3 = "*"
 anthropic = "*"
 voyageai = "*"
