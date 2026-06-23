@@ -3,19 +3,12 @@ One-time bootstrap for initial load of ~100k contracts.
 
 The Lambda pipeline (10-min timeout) is designed for incremental updates.
 This script runs without a timeout constraint to seed the registry initially.
-
-Usage:
-    ANTHROPIC_API_KEY=... VOYAGE_API_KEY=... CACHE_BUCKET=... \\
-    REGISTRY_API_URL=... REGISTRY_API_KEY=... \\
-    poetry run bootstrap [--no-classify]
-
-    --no-classify     Skip relationship classification (entity creation only)
 """
 import logging
 import os
-import sys
 
 import anthropic
+import click
 import voyageai
 from gnomepy.registry import RegistryClient
 
@@ -28,14 +21,12 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 logger = logging.getLogger(__name__)
 
 
-def main() -> None:
-    args = sys.argv[1:]
-    no_classify = "--no-classify" in args
-
+@click.command()
+@click.option("--no-classify", is_flag=True, help="Skip relationship classification (entity creation only)")
+def main(no_classify: bool) -> None:
     for var in ("ANTHROPIC_API_KEY", "VOYAGE_API_KEY", "CACHE_BUCKET", "REGISTRY_API_URL", "REGISTRY_API_KEY"):
         if not os.environ.get(var):
-            print(f"Missing required env var: {var}")
-            sys.exit(1)
+            raise click.ClickException(f"Missing required env var: {var}")
 
     registry = RegistryClient(
         base_url=os.environ["REGISTRY_API_URL"],
@@ -79,7 +70,3 @@ def main() -> None:
     )
     written = result.get("relationships_written", 0)
     print(f"\nBootstrap complete. {written} relationships written total.")
-
-
-if __name__ == "__main__":
-    main()

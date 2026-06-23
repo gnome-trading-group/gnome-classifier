@@ -1,19 +1,13 @@
 """
 Fetch live Kalshi data and trace it through the adapter → entity creation pipeline.
-
-Usage:
-    ANTHROPIC_API_KEY=... VOYAGE_API_KEY=... poetry run spot-check [-n N] [--no-canonicalize]
-
-    -n N                Limit to first N contracts (default: all)
-    --no-canonicalize   Skip Claude — keep raw titles, skip embeddings
 """
 import json
 import logging
 import os
-import sys
 from unittest.mock import MagicMock
 
 import anthropic
+import click
 import voyageai
 
 from classifier.adapters.kalshi import KalshiAdapter
@@ -54,19 +48,10 @@ def _no_op_voyage_client():
     return client
 
 
-def main() -> None:
-    args = sys.argv[1:]
-    no_canonicalize = "--no-canonicalize" in args
-
-    max_contracts = None
-    if "-n" in args:
-        idx = args.index("-n")
-        try:
-            max_contracts = int(args[idx + 1])
-        except (IndexError, ValueError):
-            print("Usage: -n N requires an integer argument")
-            sys.exit(1)
-
+@click.command()
+@click.option("-n", "max_contracts", type=int, default=None, help="Limit to first N contracts")
+@click.option("--no-canonicalize", is_flag=True, help="Skip Claude — keep raw titles, skip embeddings")
+def main(max_contracts: int | None, no_canonicalize: bool) -> None:
     # ── Fetch from Kalshi API ─────────────────────────────────────────
     print("Fetching from Kalshi API...", flush=True)
     registry = StubRegistry()
@@ -79,7 +64,7 @@ def main() -> None:
 
     if not contracts:
         print("No contracts returned from Kalshi.")
-        sys.exit(0)
+        return
 
     contracts_by_title: dict[str, list] = {}
     for c in contracts:
@@ -109,9 +94,9 @@ def main() -> None:
         voyage_key = os.environ.get("VOYAGE_API_KEY")
         missing = [k for k, v in [("ANTHROPIC_API_KEY", api_key), ("VOYAGE_API_KEY", voyage_key)] if not v]
         if missing:
-            print(f"Missing env vars: {', '.join(missing)}")
-            print("Pass --no-canonicalize to skip Claude and embeddings.")
-            sys.exit(1)
+            raise click.ClickException(
+                f"Missing env vars: {', '.join(missing)}. Pass --no-canonicalize to skip Claude and embeddings."
+            )
         anthropic_client = anthropic.Anthropic(api_key=api_key)
         voyage_client = voyageai.Client(api_key=voyage_key)
 
@@ -162,7 +147,3 @@ def main() -> None:
             sec = next((s for s in data["securities"] if s["security_id"] == ec["security_id"]), None)
             sym = sec["symbol"] if sec else f"security:{ec['security_id']}"
             print(f"  event:{ec['event_id']}  ×  {sym}  →  outcome: {ec['outcome_label']}")
-
-
-if __name__ == "__main__":
-    main()

@@ -1,24 +1,14 @@
 """
 Run the classifier locally without touching the DB.
-
-Usage:
-    ANTHROPIC_API_KEY=... VOYAGE_API_KEY=... poetry run dry-run [adapter] [--no-canonicalize] [-n N]
-
-    adapter               Optional: polymarket | kalshi | hyperliquid
-    --no-canonicalize     Skip Claude canonicalization — events keep raw titles/categories
-    --skip-semantic       Count embedding pairs that would be sent to Claude without calling it
-    --canonicalize-only   Fetch + canonicalize only; print raw→canonical mapping and exit.
-                          Pass CACHE_BUCKET to read/write S3 cache.
-    -n N                  Limit to first N contracts per adapter
 """
 import json
 import logging
 import os
-import sys
 from collections import defaultdict
 from unittest.mock import MagicMock
 
 import anthropic
+import click
 import voyageai
 
 from classifier.adapters import ADAPTERS
@@ -83,7 +73,6 @@ def _run_canonicalize_only(contracts, client, cache, output_path):
     canonical_by_raw = canonicalize_events(client, events_to_canonicalize, cache=cache)
     print(f"Done. {len(canonical_by_raw)} results.\n")
 
-    # Group raw titles by canonical title to surface potential collisions
     raw_titles_by_canonical: dict[str, list[dict]] = defaultdict(list)
     for raw_title, info in canonical_by_raw.items():
         group = contracts_by_raw_title[raw_title]
@@ -120,49 +109,32 @@ def _run_canonicalize_only(contracts, client, cache, output_path):
     print(f"\nFull mapping written to {output_path}")
 
 
-def main() -> None:
-    args = sys.argv[1:]
-    no_canonicalize = "--no-canonicalize" in args
-    skip_semantic = "--skip-semantic" in args
-    canonicalize_only = "--canonicalize-only" in args
-    if "--debug" in args:
+@click.command()
+@click.argument("adapter", required=False, default=None)
+@click.option("-n", "max_contracts", type=int, default=None, help="Limit to first N contracts per adapter")
+@click.option("-o", "--output", "output_path", default="dry_run_output.json", show_default=True, help="Output JSON path")
+@click.option("--no-canonicalize", is_flag=True, help="Skip Claude canonicalization — events keep raw titles/categories")
+@click.option("--skip-semantic", is_flag=True, help="Count embedding pairs that would be sent to Claude without calling it")
+@click.option("--canonicalize-only", is_flag=True, help="Fetch + canonicalize only; print raw→canonical mapping and exit")
+@click.option("--debug", is_flag=True, help="Enable debug logging")
+def main(
+    adapter: str | None,
+    max_contracts: int | None,
+    output_path: str,
+    no_canonicalize: bool,
+    skip_semantic: bool,
+    canonicalize_only: bool,
+    debug: bool,
+) -> None:
+    if debug:
         logging.getLogger().setLevel(logging.DEBUG)
-
-    max_contracts = None
-    if "-n" in args:
-        idx = args.index("-n")
-        try:
-            max_contracts = int(args[idx + 1])
-        except (IndexError, ValueError):
-            print("Usage: -n N requires an integer argument")
-            sys.exit(1)
-
-    output_path = "dry_run_output.json"
-    for flag in ("-o", "--output"):
-        if flag in args:
-            idx = args.index(flag)
-            try:
-                output_path = args[idx + 1]
-            except IndexError:
-                print(f"Usage: {flag} PATH requires a path argument")
-                sys.exit(1)
-
-    consumed_values: set[str] = set()
-    for flag in ("-n", "-o", "--output"):
-        if flag in args:
-            idx = args.index(flag)
-            if idx + 1 < len(args):
-                consumed_values.add(args[idx + 1])
-    positional = [a for a in args if not a.startswith("-") and a not in consumed_values]
-    adapter_filter = positional[0].lower() if positional else None
 
     if no_canonicalize and not canonicalize_only:
         client = _no_op_anthropic_client()
     else:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
-            print("ANTHROPIC_API_KEY not set — pass --no-canonicalize to skip, or set the key")
-            sys.exit(1)
+            raise click.ClickException("ANTHROPIC_API_KEY not set — pass --no-canonicalize to skip, or set the key")
         client = anthropic.Anthropic(api_key=api_key)
 
     cache = None
@@ -172,55 +144,51 @@ def main() -> None:
 
     voyage_key = os.environ.get("VOYAGE_API_KEY")
     if not voyage_key and not canonicalize_only:
-        print("VOYAGE_API_KEY not set")
-        sys.exit(1)
+        raise click.ClickException("VOYAGE_API_KEY not set")
     voyage_client = voyageai.Client(api_key=voyage_key) if voyage_key else None
 
-    if adapter_filter:
+    original = None
+    if adapter:
         original = ADAPTERS[:]
-        filtered = [a for a in ADAPTERS if a.exchange_name == adapter_filter]
+        filtered = [a for a in ADAPTERS if a.exchange_name == adapter.lower()]
         if not filtered:
-            print(f"Unknown adapter '{adapter_filter}'. Choices: {[a.exchange_name for a in ADAPTERS]}")
-            sys.exit(1)
+            raise click.ClickException(
+                f"Unknown adapter '{adapter}'. Choices: {[a.exchange_name for a in ADAPTERS]}"
+            )
         ADAPTERS[:] = filtered
 
-    registry = StubRegistry()
-    exchanges = registry.get_exchange()
-    exchange_by_name = {e.exchange_name.lower(): e for e in exchanges}
-    contracts = fetch_all(exchange_by_name, max_per_adapter=max_contracts)
+    try:
+        registry = StubRegistry()
+        exchanges = registry.get_exchange()
+        exchange_by_name = {e.exchange_name.lower(): e for e in exchanges}
+        contracts = fetch_all(exchange_by_name, max_per_adapter=max_contracts)
 
-    if canonicalize_only:
-        _run_canonicalize_only(contracts, client, cache, output_path)
-        if adapter_filter:
+        if canonicalize_only:
+            _run_canonicalize_only(contracts, client, cache, output_path)
+            return
+
+        print("\n=== DRY RUN ===\n")
+
+        entity_result = create_entities(registry, voyage_client, client, contracts, exchange_by_name)
+        new_security_ids = entity_result.pop("new_security_ids")
+        new_security_symbols = entity_result.pop("new_security_symbols")
+
+        relationship_result = classify_relationships(
+            registry, client, voyage_client,
+            new_security_ids=new_security_ids,
+            skip_judgment=skip_semantic,
+        )
+
+        summary = {**entity_result, **relationship_result, "new_security_symbols": new_security_symbols}
+
+        print("\n=== SUMMARY ===")
+        for k, v in summary.items():
+            print(f"  {k}: {v}")
+
+        output = {**registry.get_dry_run_data(), "summary": summary}
+        with open(output_path, "w") as f:
+            json.dump(output, f, indent=2)
+        print(f"\nFull output written to {output_path}")
+    finally:
+        if original is not None:
             ADAPTERS[:] = original
-        return
-
-    print("\n=== DRY RUN ===\n")
-
-    entity_result = create_entities(registry, voyage_client, client, contracts, exchange_by_name)
-    new_security_ids = entity_result.pop("new_security_ids")
-    new_security_symbols = entity_result.pop("new_security_symbols")
-
-    relationship_result = classify_relationships(
-        registry, client, voyage_client,
-        new_security_ids=new_security_ids,
-        skip_judgment=skip_semantic,
-    )
-
-    summary = {**entity_result, **relationship_result, "new_security_symbols": new_security_symbols}
-
-    print("\n=== SUMMARY ===")
-    for k, v in summary.items():
-        print(f"  {k}: {v}")
-
-    output = {**registry.get_dry_run_data(), "summary": summary}
-    with open(output_path, "w") as f:
-        json.dump(output, f, indent=2)
-    print(f"\nFull output written to {output_path}")
-
-    if adapter_filter:
-        ADAPTERS[:] = original
-
-
-if __name__ == "__main__":
-    main()

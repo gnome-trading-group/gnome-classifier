@@ -36,7 +36,7 @@ class ClassifierCache:
     def _canon_key(self, model: str, exchange_id: int, native_id: str) -> str:
         content = model + "\x00" + str(exchange_id) + "\x00" + native_id
         digest = hashlib.sha256(content.encode()).hexdigest()
-        return f"cache/canon/{digest}.json"
+        return f"canon/{digest}.json"
 
     def _judge_key(self, model: str, title_a: str, labels_a: list[str], title_b: str, labels_b: list[str]) -> str:
         # Normalize ordering so the same pair always maps to the same key
@@ -50,7 +50,7 @@ class ClassifierCache:
             + pair_b[0] + "\x00" + pair_b[1]
         )
         digest = hashlib.sha256(content.encode()).hexdigest()
-        return f"cache/judge/{digest}.json"
+        return f"judge/{digest}.json"
 
     def get_canonicalization(self, model: str, exchange_id: int, native_id: str) -> dict | None:
         return self._get(self._canon_key(model, exchange_id, native_id))

@@ -36,3 +36,8 @@ build/
 
 dry_run_output.json
 AUDIT.md
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
