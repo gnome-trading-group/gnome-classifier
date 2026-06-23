@@ -6,7 +6,7 @@ WORKDIR /var/task
 
 COPY pyproject.toml poetry.lock ./
 RUN poetry config virtualenvs.create false && \
-    poetry install --with lambda --no-interaction --no-ansi
+    poetry install --with lambda --no-root --no-interaction --no-ansi
 
 COPY classifier/ classifier/
 COPY handler.py .
