@@ -1,7 +1,7 @@
 import { GnomeAccount, Stage } from "@gnome-trading-group/gnome-shared-cdk";
 
 export const GITHUB_REPO = "gnome-trading-group/gnome-classifier";
-export const GITHUB_BRANCH = "release";
+export const GITHUB_BRANCH = "main";
 
 export interface ClassifierConfig {
   account: GnomeAccount;
