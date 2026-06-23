@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "gnome-classifier"
+version = "0.1.0"
+description = "Prediction market classifier pipeline"
+packages = [{include = "classifier"}, {include = "scripts"}]
+
+[tool.poetry.dependencies]
+python = ">=3.13,<3.14"
+gnomepy = {path = "/Users/mprey/Programming/gnome-trading-group/gnomepy/dist/gnomepy-2.3.1-py3-none-any.whl"}
+boto3 = "*"
+anthropic = "*"
+voyageai = "*"
+requests = "*"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
+moto = {version = "*", extras = ["s3"]}
+
+[tool.poetry.group.lambda.dependencies]
+awslambdaric = "*"
+
+[tool.poetry.scripts]
+dry-run = "scripts.dry_run:main"
+spot-check = "scripts.spot_check:main"
+bootstrap = "scripts.bootstrap:main"
