@@ -6,12 +6,15 @@ packages = [{include = "classifier"}, {include = "scripts"}]
 
 [tool.poetry.dependencies]
 python = ">=3.13,<3.14"
-gnomepy = ">=2.3.1"
+gnomepy = "^2.3.3"
 boto3 = "*"
 anthropic = "*"
 voyageai = "*"
 requests = "*"
 click = "^8.4.1"
+redis = "*"
+psycopg2-binary = "*"
+pgvector = "^0.5.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"
@@ -22,5 +25,5 @@ awslambdaric = "*"
 
 [tool.poetry.scripts]
 dry-run = "scripts.dry_run:main"
-spot-check = "scripts.spot_check:main"
 bootstrap = "scripts.bootstrap:main"
+tunnel = "scripts.tunnel:main"

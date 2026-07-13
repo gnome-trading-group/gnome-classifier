@@ -1,13 +1,17 @@
 import json
 import logging
 import os
+import urllib.parse
 import urllib.request
 
 import anthropic
 import boto3
 import voyageai
 
-from classifier.cache import ClassifierCache
+from classifier.cache import RedisClassifierCache
+from classifier.client import BatchAnthropicClient, ModelRateLimit
+from classifier.constants import DEFAULT_RATE_LIMITS
+from classifier.db import ClassifierDB
 from classifier.stages.classify import classify_relationships
 from classifier.stages.entities import create_entities
 from classifier.stages.fetch import fetch_all
@@ -16,6 +20,7 @@ from gnomepy.registry import RegistryClient
 logger = logging.getLogger(__name__)
 
 _slack_token: str | None = None
+_clients = None
 
 
 def _fetch_api_key(key_id: str) -> str:
@@ -30,6 +35,13 @@ def _fetch_secret(secret_name: str) -> str:
     return response["SecretString"]
 
 
+def _build_dsn() -> str:
+    secret = json.loads(_fetch_secret(os.environ["DB_SECRET_NAME"]))
+    password = urllib.parse.quote(secret["password"], safe="")
+    db_name = secret.get("dbname", os.environ.get("DB_NAME", "gnome"))
+    return f"postgresql://{secret['username']}:{password}@{secret['host']}:5432/{db_name}"
+
+
 def _init_clients():
     anthropic_api_key = _fetch_secret(os.environ["ANTHROPIC_API_KEY_SECRET"])
     voyage_api_key = _fetch_secret(os.environ["VOYAGE_API_KEY_SECRET"])
@@ -39,9 +51,21 @@ def _init_clients():
         api_key=registry_api_key,
     )
     anthropic_client = anthropic.Anthropic(api_key=anthropic_api_key)
+    batch_client = BatchAnthropicClient(
+        client=anthropic_client,
+        rate_limits={k: ModelRateLimit(**v) for k, v in DEFAULT_RATE_LIMITS.items()},
+    )
     voyage_client = voyageai.Client(api_key=voyage_api_key)
-    cache = ClassifierCache(bucket=os.environ["CACHE_BUCKET"])
-    return registry, anthropic_client, voyage_client, cache
+    cache = RedisClassifierCache(redis_url=os.environ["REDIS_ENDPOINT"])
+    db = ClassifierDB(dsn=_build_dsn())
+    return registry, batch_client, voyage_client, cache, db
+
+
+def _get_clients():
+    global _clients
+    if _clients is None:
+        _clients = _init_clients()
+    return _clients
 
 
 def fetch_and_create_entities(event, context):
@@ -68,15 +92,18 @@ def fetch_and_create_entities(event, context):
                 "has_new_entities": False,
             }
 
-    registry, anthropic_client, voyage_client, cache = _init_clients()
+    registry, batch_client, voyage_client, cache, db = _get_clients()
 
     exchanges = registry.get_exchange()
     exchange_by_name = {e.exchange_name.lower(): e for e in exchanges}
-    contracts = fetch_all(exchange_by_name)
+    contracts, failed_adapters = fetch_all(exchange_by_name)
+    if failed_adapters:
+        logger.warning("Adapter fetch failures: %s", failed_adapters)
 
     entity_result = create_entities(
-        registry, voyage_client, anthropic_client, contracts, exchange_by_name, cache=cache
+        registry, batch_client, contracts, cache=cache, db=db,
     )
+
     new_security_ids = entity_result.pop("new_security_ids")
     new_security_symbols = entity_result.pop("new_security_symbols")
 
@@ -91,14 +118,15 @@ def fetch_and_create_entities(event, context):
 
 def classify_relationships_handler(event, context):
     logging.basicConfig(level=logging.INFO)
-    registry, anthropic_client, voyage_client, cache = _init_clients()
+    registry, batch_client, voyage_client, cache, db = _get_clients()
 
     new_security_ids = event.get("new_security_ids", [])
 
     result = classify_relationships(
-        registry, anthropic_client, voyage_client,
+        registry, batch_client, voyage_client,
         new_security_ids=new_security_ids,
         cache=cache,
+        db=db,
     )
 
     logger.info("Classification complete: %s", result)

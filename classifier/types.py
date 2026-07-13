@@ -8,6 +8,7 @@ type ExchangeId = int
 type ListingId = int
 type CurrencyId = int
 type EventContractId = int
+type NativeKey = tuple[int, str]
 
 # ── Semantic float aliases ───────────────────────────────────────────
 type Confidence = float

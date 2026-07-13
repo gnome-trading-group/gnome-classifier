@@ -2,10 +2,11 @@ import json
 import logging
 from collections import defaultdict
 
-import anthropic
 import voyageai
 
 from classifier.cache import ClassifierCache
+from classifier.client import BatchAnthropicClient
+from classifier.db import ClassifierDB
 from classifier.types import (
     Embedding,
     EventId,
@@ -14,8 +15,7 @@ from classifier.types import (
     RelationshipType,
     SecurityId,
 )
-from classifier.relationships.structural import build_complement_map
-from classifier.utils import cosine_similarity
+from classifier.relationships.structural import build_complement_map, derive_complement_relationships, primary_contracts
 from gnomepy.registry.types import Event, EventContract
 
 logger = logging.getLogger(__name__)
@@ -45,13 +45,14 @@ Only output the JSON array, nothing else."""
 def embed_events_voyage(
     voyage_client: voyageai.Client,
     events: list[Event],
+    cached_embeddings: dict[int, list[float]] | None = None,
 ) -> dict[EventId, Embedding]:
     embeddings: dict[EventId, Embedding] = {}
     texts = []
     ids_to_embed = []
     for event in events:
-        if event.embedding:
-            embeddings[event.event_id] = event.embedding
+        if cached_embeddings and event.event_id in cached_embeddings:
+            embeddings[event.event_id] = cached_embeddings[event.event_id]
             continue
         text = event.title
         if event.description:
@@ -69,64 +70,13 @@ def embed_events_voyage(
     return embeddings
 
 
-def _make_union_find() -> tuple[dict[EventId, EventId], dict[EventId, set[EventId]]]:
-    parent: dict[EventId, EventId] = {}
-    members: dict[EventId, set[EventId]] = {}
-    return parent, members
-
-
-def _uf_find(parent: dict[EventId, EventId], x: EventId) -> EventId:
-    while parent.get(x, x) != x:
-        parent[x] = parent.get(parent[x], parent[x])
-        x = parent[x]
-    return x
-
-
-def _uf_union(parent: dict[EventId, EventId], members: dict[EventId, set[EventId]], a: EventId, b: EventId) -> None:
-    ra, rb = _uf_find(parent, a), _uf_find(parent, b)
-    if ra == rb:
-        return
-    parent[ra] = rb
-    combined = members.get(ra, {ra}) | members.get(rb, {rb})
-    members[rb] = combined
-    members[ra] = combined
-
-
-def _try_clone_from_equivalent(
-    eid_a: EventId,
-    eid_b: EventId,
-    equiv_parent: dict[EventId, EventId],
-    equiv_members: dict[EventId, set[EventId]],
-    judged_results: dict[tuple[EventId, EventId], list[JudgedRelationship]],
-    by_event: dict[EventId, list[EventContract]],
-) -> list[JudgedRelationship] | None:
-    for orig, other in [(eid_a, eid_b), (eid_b, eid_a)]:
-        peers = equiv_members.get(_uf_find(equiv_parent, orig), set()) - {orig}
-        for peer in peers:
-            key = (min(peer, other), max(peer, other))
-            if key not in judged_results:
-                continue
-            label_to_peer = {ec.outcome_label: ec.security_id for ec in by_event[peer]}
-            label_to_orig = {ec.outcome_label: ec.security_id for ec in by_event[orig]}
-            sid_map = {label_to_peer[l]: label_to_orig[l] for l in label_to_peer if l in label_to_orig}
-            cloned: list[JudgedRelationship] = []
-            for r in judged_results[key]:
-                new_s1 = sid_map.get(r.security_id_a, r.security_id_a)
-                new_s2 = sid_map.get(r.security_id_b, r.security_id_b)
-                if r.relationship_type == RelationshipType.IMPLIES:
-                    cloned.append(JudgedRelationship(new_s1, new_s2, r.relationship_type, r.confidence))
-                else:
-                    cloned.append(JudgedRelationship(new_s1, new_s2, r.relationship_type, r.confidence))
-                    cloned.append(JudgedRelationship(new_s2, new_s1, r.relationship_type, r.confidence))
-            return cloned
-    return None
-
-
 def find_semantic_matches(
-    anthropic_client: anthropic.Anthropic,
+    batch_client: BatchAnthropicClient,
     events: list[Event],
     event_contracts: list[EventContract],
     embeddings: dict[EventId, Embedding],
+    *,
+    db: ClassifierDB,
     new_event_ids: set[EventId] | None = None,
     skip_judgment: bool = False,
     cache: ClassifierCache | None = None,
@@ -136,147 +86,135 @@ def find_semantic_matches(
         by_event[ec.event_id].append(ec)
 
     complement_of = build_complement_map(event_contracts)
-
     event_by_id = {e.event_id: e for e in events}
-    event_ids = [e.event_id for e in events if e.event_id in embeddings and e.event_id in by_event]
-    matches: list[RelationshipMatch] = []
-    would_judge_count = 0
 
-    me_parent, me_members = _make_union_find()
-    equiv_parent, equiv_members = _make_union_find()
-    judged_results: dict[tuple[EventId, EventId], list[JudgedRelationship]] = {}
+    # ── Candidate pair selection via HNSW index — O(N_new × log N_total) ────
+    candidate_pairs: dict[tuple[EventId, EventId], float] = {}
+    for eid in (new_event_ids or set()):
+        if eid not in embeddings or eid not in by_event:
+            continue
+        neighbors = db.find_neighbors(embeddings[eid], EMBEDDING_SIMILARITY_THRESHOLD)
+        for neighbor_eid, sim in neighbors:
+            if neighbor_eid == eid or neighbor_eid not in by_event:
+                continue
+            pair = (min(eid, neighbor_eid), max(eid, neighbor_eid))
+            if pair not in candidate_pairs or sim > candidate_pairs[pair]:
+                candidate_pairs[pair] = sim
 
-    for i in range(len(event_ids)):
-        for j in range(i + 1, len(event_ids)):
-            eid_a, eid_b = event_ids[i], event_ids[j]
+    # ── Cache check + pending collection ────────────────────────────────────
+    cached_judged: list[JudgedRelationship] = []
+    pending: list[tuple[Event, Event, list[EventContract], list[EventContract], float]] = []
 
-            if new_event_ids is not None and eid_a not in new_event_ids and eid_b not in new_event_ids:
+    for (eid_a, eid_b), similarity in candidate_pairs.items():
+        try:
+            ev_a, ev_b = event_by_id.get(eid_a), event_by_id.get(eid_b)
+            if ev_a is None or ev_b is None:
+                continue
+            if ev_a.category and ev_b.category and ev_a.category != ev_b.category:
                 continue
 
-            try:
-                ev_a, ev_b = event_by_id[eid_a], event_by_id[eid_b]
-                if ev_a.category and ev_b.category and ev_a.category != ev_b.category:
+            contracts_a = by_event[eid_a]
+            contracts_b = by_event[eid_b]
+            primary_a = primary_contracts(contracts_a)
+            primary_b = primary_contracts(contracts_b)
+            if not primary_a or not primary_b:
+                continue
+
+            labels_a = [ec.outcome_label for ec in primary_a]
+            labels_b = [ec.outcome_label for ec in primary_b]
+
+            if cache is not None:
+                cached = cache.get_judgment(MODEL, ev_a.title, labels_a, ev_b.title, labels_b)
+                if cached is not None:
+                    cached_items, a_is_first = cached
+                    cached_judged.extend(_parse_cached_judgment(cached_items, primary_a, primary_b, a_is_first))
                     continue
 
-                similarity = cosine_similarity(embeddings[eid_a], embeddings[eid_b])
-
-                if similarity < EMBEDDING_SIMILARITY_THRESHOLD:
-                    continue
-
-                contracts_a = by_event[eid_a]
-                contracts_b = by_event[eid_b]
-
-                if (eid_a in me_parent or eid_b in me_parent) and _uf_find(me_parent, eid_a) == _uf_find(me_parent, eid_b):
-                    yes_a = [ec for ec in contracts_a if ec.outcome_label.lower() != "no"]
-                    yes_b = [ec for ec in contracts_b if ec.outcome_label.lower() != "no"]
-                    for ec_a in yes_a:
-                        for ec_b in yes_b:
-                            matches.append(RelationshipMatch(ec_a.security_id, ec_b.security_id, RelationshipType.MUTUALLY_EXCLUSIVE, 0.95, "embedding"))
-                            matches.append(RelationshipMatch(ec_b.security_id, ec_a.security_id, RelationshipType.MUTUALLY_EXCLUSIVE, 0.95, "embedding"))
-                    logger.debug("Propagated ME: '%s' vs '%s'", ev_a.title, ev_b.title)
-                    continue
-
-                cloned = _try_clone_from_equivalent(
-                    eid_a, eid_b, equiv_parent, equiv_members, judged_results, by_event
+            if skip_judgment:
+                logger.info(
+                    "Would judge: '%s' vs '%s' (similarity=%.3f, %d×%d contracts)",
+                    ev_a.title, ev_b.title, similarity, len(contracts_a), len(contracts_b),
                 )
-                if cloned is not None:
-                    matches.extend(
-                        RelationshipMatch(r.security_id_a, r.security_id_b, r.relationship_type, r.confidence, "embedding")
-                        for r in cloned
-                    )
-                    logger.debug("Cloned from equivalent: '%s' vs '%s'", ev_a.title, ev_b.title)
-                    continue
+                continue
 
-                if skip_judgment:
-                    would_judge_count += 1
-                    logger.info(
-                        "Would judge: '%s' vs '%s' (similarity=%.3f, %d×%d contracts)",
-                        ev_a.title, ev_b.title, similarity, len(contracts_a), len(contracts_b),
-                    )
-                    continue
-
-                contract_matches = _judge_relationship(
-                    anthropic_client, ev_a, ev_b, contracts_a, contracts_b, similarity, cache=cache
-                )
-                judged_results[(min(eid_a, eid_b), max(eid_a, eid_b))] = contract_matches
-
-                if any(r.relationship_type == RelationshipType.MUTUALLY_EXCLUSIVE for r in contract_matches):
-                    _uf_union(me_parent, me_members, eid_a, eid_b)
-                if any(r.relationship_type == RelationshipType.EQUIVALENT for r in contract_matches):
-                    _uf_union(equiv_parent, equiv_members, eid_a, eid_b)
-
-                matches.extend(
-                    RelationshipMatch(r.security_id_a, r.security_id_b, r.relationship_type, r.confidence, "embedding")
-                    for r in contract_matches
-                )
-            except Exception as e:
-                logger.error("Failed comparing events %d and %d: %s", eid_a, eid_b, e)
+            pending.append((ev_a, ev_b, contracts_a, contracts_b, similarity))
+        except Exception as e:
+            logger.error("Failed comparing events %d and %d: %s", eid_a, eid_b, e)
 
     if skip_judgment:
-        logger.info("skip_judgment: would have called Claude %d times", would_judge_count)
+        logger.info("skip_judgment: would have called Claude %d times", len(pending))
+        return cached_judged  # type: ignore[return-value]
 
-    derived_implies: list[RelationshipMatch] = []
-    for m in matches:
-        if m.relationship_type != RelationshipType.MUTUALLY_EXCLUSIVE:
-            continue
-        comp_a = complement_of.get(m.security_id_a)
-        comp_b = complement_of.get(m.security_id_b)
-        if comp_b is not None:
-            derived_implies.append(RelationshipMatch(m.security_id_a, comp_b, RelationshipType.IMPLIES, m.confidence, "embedding"))
-        if comp_a is not None:
-            derived_implies.append(RelationshipMatch(m.security_id_b, comp_a, RelationshipType.IMPLIES, m.confidence, "embedding"))
-    matches.extend(derived_implies)
+    # ── LLM judgment ─────────────────────────────────────────────────────────
+    batch_judged = _judge_pairs_batch(batch_client, pending, cache)
 
-    return matches
+    # ── Complement derivation (single pass over all results) ─────────────────
+    all_judged = cached_judged + batch_judged
+    derived = derive_complement_relationships(all_judged, complement_of)
+
+    return [
+        RelationshipMatch(r.security_id_a, r.security_id_b, r.relationship_type, r.confidence, "embedding")
+        for r in all_judged + derived
+    ]
 
 
-def _judge_relationship(
-    client: anthropic.Anthropic,
-    event_a: Event,
-    event_b: Event,
-    contracts_a: list[EventContract],
-    contracts_b: list[EventContract],
-    similarity: float,
-    cache: ClassifierCache | None = None,
+def _judge_pairs_batch(
+    batch_client: BatchAnthropicClient,
+    pending: list[tuple[Event, Event, list[EventContract], list[EventContract], float]],
+    cache: ClassifierCache | None,
 ) -> list[JudgedRelationship]:
-    """Returns judged contract pairs. For IMPLIES, security_id_a is antecedent and security_id_b is consequent.
-    Symmetric types emit both directions."""
-    yes_a = [ec for ec in contracts_a if ec.outcome_label.lower() != "no"]
-    yes_b = [ec for ec in contracts_b if ec.outcome_label.lower() != "no"]
-    if not yes_a or not yes_b:
+    if not pending:
         return []
 
-    complement_of = build_complement_map(contracts_a + contracts_b)
+    requests = []
+    for idx, (ev_a, ev_b, contracts_a, contracts_b, similarity) in enumerate(pending):
+        primary_a = primary_contracts(contracts_a)
+        primary_b = primary_contracts(contracts_b)
+        contracts_a_lines = "  ".join(f"[{i+1}] {ec.outcome_label}" for i, ec in enumerate(primary_a))
+        contracts_b_lines = "  ".join(f"[{i+1}] {ec.outcome_label}" for i, ec in enumerate(primary_b))
+        user_content = (
+            f"Event A: {ev_a.title}\n"
+            f"  Contracts: {contracts_a_lines}\n\n"
+            f"Event B: {ev_b.title}\n"
+            f"  Contracts: {contracts_b_lines}\n\n"
+            f"Embedding similarity: {similarity:.3f}"
+        )
+        requests.append({
+            "custom_id": f"j_{idx}",
+            "params": {
+                "model": MODEL,
+                "max_tokens": 300,
+                "system": [{"type": "text", "text": _JUDGE_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+                "messages": [{"role": "user", "content": user_content}],
+            },
+        })
 
-    labels_a = [ec.outcome_label for ec in yes_a]
-    labels_b = [ec.outcome_label for ec in yes_b]
+    responses = batch_client.create_messages(requests)
+    results: list[JudgedRelationship] = []
 
-    if cache is not None:
-        cached = cache.get_judgment(MODEL, event_a.title, labels_a, event_b.title, labels_b)
-        if cached is not None:
-            cached_items, a_is_first = cached
-            return _parse_cached_judgment(cached_items, yes_a, yes_b, complement_of, a_is_first)
+    for idx, (ev_a, ev_b, contracts_a, contracts_b, _) in enumerate(pending):
+        response = responses.get(f"j_{idx}")
+        if response is None:
+            continue
+        primary_a = primary_contracts(contracts_a)
+        primary_b = primary_contracts(contracts_b)
+        labels_a = [ec.outcome_label for ec in primary_a]
+        labels_b = [ec.outcome_label for ec in primary_b]
+        results.extend(_parse_judgment_response(response, ev_a, ev_b, primary_a, primary_b, labels_a, labels_b, cache))
 
-    contracts_a_lines = "  ".join(f"[{i+1}] {ec.outcome_label}" for i, ec in enumerate(yes_a))
-    contracts_b_lines = "  ".join(f"[{i+1}] {ec.outcome_label}" for i, ec in enumerate(yes_b))
+    return results
 
-    user_content = (
-        f"Event A: {event_a.title}\n"
-        f"  Contracts: {contracts_a_lines}\n\n"
-        f"Event B: {event_b.title}\n"
-        f"  Contracts: {contracts_b_lines}\n\n"
-        f"Embedding similarity: {similarity:.3f}"
-    )
 
-    logger.debug("judge_relationship user message:\n%s", user_content)
-
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=300,
-        system=[{"type": "text", "text": _JUDGE_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-        messages=[{"role": "user", "content": user_content}],
-    )
-
+def _parse_judgment_response(
+    response,
+    event_a: Event,
+    event_b: Event,
+    yes_a: list[EventContract],
+    yes_b: list[EventContract],
+    labels_a: list[str],
+    labels_b: list[str],
+    cache: ClassifierCache | None,
+) -> list[JudgedRelationship]:
     raw = response.content[0].text.strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
@@ -286,7 +224,6 @@ def _judge_relationship(
     idx_to_sid_b = {i + 1: ec.security_id for i, ec in enumerate(yes_b)}
     idx_to_label_a = {i + 1: ec.outcome_label for i, ec in enumerate(yes_a)}
     idx_to_label_b = {i + 1: ec.outcome_label for i, ec in enumerate(yes_b)}
-    logger.debug("idx_to_sid_a: %s  idx_to_sid_b: %s", idx_to_sid_a, idx_to_sid_b)
 
     try:
         items = json.loads(raw)
@@ -338,20 +275,7 @@ def _judge_relationship(
             a_is_first = (event_a.title, "|".join(labels_a)) <= (event_b.title, "|".join(labels_b))
             cache.put_judgment(MODEL, event_a.title, labels_a, event_b.title, labels_b, cache_items, a_is_first)
 
-        derived: list[JudgedRelationship] = []
-        for r in results:
-            comp_a = complement_of.get(r.security_id_a)
-            comp_b = complement_of.get(r.security_id_b)
-            if comp_a is None or comp_b is None:
-                continue
-            if r.relationship_type == RelationshipType.IMPLIES:
-                derived.append(JudgedRelationship(comp_b, comp_a, r.relationship_type, r.confidence))
-            elif r.relationship_type in (RelationshipType.EQUIVALENT, RelationshipType.CORRELATED):
-                derived.append(JudgedRelationship(comp_a, comp_b, r.relationship_type, r.confidence))
-                derived.append(JudgedRelationship(comp_b, comp_a, r.relationship_type, r.confidence))
-        results.extend(derived)
-
-        logger.debug("judge_relationship returning %d results (%d derived)", len(results), len(derived))
+        logger.debug("judge_relationship returning %d results", len(results))
         return results
     except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
         logger.debug("judge_relationship parse error: %s — raw: %r", e, raw)
@@ -362,7 +286,6 @@ def _parse_cached_judgment(
     cached_items: list[dict],
     yes_a: list[EventContract],
     yes_b: list[EventContract],
-    complement_of: dict[SecurityId, SecurityId],
     a_is_first: bool,
 ) -> list[JudgedRelationship]:
     """Reconstruct sid-based results from label-based cache entries."""
@@ -398,18 +321,5 @@ def _parse_cached_judgment(
         else:
             results.append(JudgedRelationship(sid_a, sid_b, rt, confidence))
             results.append(JudgedRelationship(sid_b, sid_a, rt, confidence))
-
-    derived: list[JudgedRelationship] = []
-    for r in results:
-        comp_a = complement_of.get(r.security_id_a)
-        comp_b = complement_of.get(r.security_id_b)
-        if comp_a is None or comp_b is None:
-            continue
-        if r.relationship_type == RelationshipType.IMPLIES:
-            derived.append(JudgedRelationship(comp_b, comp_a, r.relationship_type, r.confidence))
-        elif r.relationship_type in (RelationshipType.EQUIVALENT, RelationshipType.CORRELATED):
-            derived.append(JudgedRelationship(comp_a, comp_b, r.relationship_type, r.confidence))
-            derived.append(JudgedRelationship(comp_b, comp_a, r.relationship_type, r.confidence))
-    results.extend(derived)
 
     return results

@@ -30,20 +30,18 @@ def _make_contract(title: str, outcome: str, exchange_id: int = 1) -> AdapterCon
     )
 
 
-def test_create_entities_empty(stub_registry, mock_anthropic, mock_voyage):
-    exchange_by_name = {"polymarket": MagicMock(exchange_id=1)}
-    result = create_entities(stub_registry, mock_voyage, mock_anthropic, [], exchange_by_name)
+def test_create_entities_empty(stub_registry, stub_db, mock_anthropic):
+    result = create_entities(stub_registry, mock_anthropic, [], db=stub_db)
     assert result["events_created"] == 0
     assert result["securities_created"] == 0
 
 
-def test_create_entities_new_event(stub_registry, mock_anthropic, mock_voyage):
-    exchange_by_name = {"polymarket": MagicMock(exchange_id=1)}
+def test_create_entities_new_event(stub_registry, stub_db, mock_anthropic):
     contracts = [
         _make_contract("Will BTC hit 100k?", "Yes"),
         _make_contract("Will BTC hit 100k?", "No"),
     ]
-    result = create_entities(stub_registry, mock_voyage, mock_anthropic, contracts, exchange_by_name)
+    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
     assert result["events_created"] == 1
     assert result["securities_created"] == 2
     assert result["listings_created"] == 2
@@ -51,18 +49,14 @@ def test_create_entities_new_event(stub_registry, mock_anthropic, mock_voyage):
     assert len(result["new_security_ids"]) == 2
 
 
-def test_create_entities_dedup_same_event(stub_registry, mock_anthropic, mock_voyage):
-    exchange_by_name = {
-        "polymarket": MagicMock(exchange_id=1),
-        "kalshi": MagicMock(exchange_id=2),
-    }
+def test_create_entities_dedup_same_event(stub_registry, stub_db, mock_anthropic):
     contracts = [
         _make_contract("Will BTC hit 100k?", "Yes", exchange_id=1),
         _make_contract("Will BTC hit 100k?", "No", exchange_id=1),
         _make_contract("Will BTC hit 100k?", "Yes", exchange_id=2),
         _make_contract("Will BTC hit 100k?", "No", exchange_id=2),
     ]
-    result = create_entities(stub_registry, mock_voyage, mock_anthropic, contracts, exchange_by_name)
+    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
     assert result["events_created"] == 1
     assert result["securities_created"] == 2
     assert result["listings_created"] == 4

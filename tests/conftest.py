@@ -8,7 +8,8 @@ from moto import mock_aws
 
 import anthropic
 
-from scripts.testing import StubRegistry
+from classifier.client import BatchAnthropicClient
+from scripts.testing import StubDB, StubRegistry
 from gnomepy.registry.types import Event, EventContract
 
 
@@ -18,8 +19,13 @@ def stub_registry():
 
 
 @pytest.fixture
+def stub_db(stub_registry):
+    return StubDB(stub_registry)
+
+
+@pytest.fixture
 def mock_anthropic():
-    client = MagicMock(spec=anthropic.Anthropic)
+    inner = MagicMock(spec=anthropic.Anthropic)
 
     def _fake_create(*args, **kwargs):
         messages = kwargs.get("messages", [])
@@ -46,8 +52,8 @@ def mock_anthropic():
         mock_response.content = [mock_content]
         return mock_response
 
-    client.messages.create.side_effect = _fake_create
-    return client
+    inner.messages.create.side_effect = _fake_create
+    return BatchAnthropicClient(client=inner)
 
 
 @pytest.fixture
@@ -88,7 +94,6 @@ def make_event(event_id: int, title: str, category: str = "POLITICS", expiry: st
         category=category,
         resolution_source=None,
         tags=None,
-        embedding=None,
         resolved=False,
         resolved_at=None,
         expiry=expiry,

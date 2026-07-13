@@ -1,18 +1,12 @@
 import dataclasses
-import math
+import logging
 import re
 from datetime import datetime, timedelta
+from typing import Iterator
 
-from classifier.types import Embedding, Similarity
+from classifier.constants import BULK_CREATE_BATCH_SIZE
 
-
-def cosine_similarity(a: Embedding, b: Embedding) -> Similarity:
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(x * x for x in b))
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
+logger = logging.getLogger(__name__)
 
 
 def from_dict(cls, data: dict):
@@ -37,3 +31,12 @@ def generate_security_symbol(canonical_title: str, outcome_label: str) -> str:
     outcome = re.sub(r'[^a-z0-9\s]', '', outcome_label.lower()).strip()
     outcome = re.sub(r'\s+', '-', outcome)
     return f"{slug}-{outcome}".upper()
+
+
+def bulk_create_chunked(items: list[dict], label: str) -> Iterator[tuple[int, list[dict]]]:
+    total_chunks = -(-len(items) // BULK_CREATE_BATCH_SIZE)
+    for chunk_start in range(0, len(items), BULK_CREATE_BATCH_SIZE):
+        chunk = items[chunk_start:chunk_start + BULK_CREATE_BATCH_SIZE]
+        chunk_num = chunk_start // BULK_CREATE_BATCH_SIZE + 1
+        logger.info("Creating %s: chunk %d/%d (%d-%d of %d)", label, chunk_num, total_chunks, chunk_start + 1, chunk_start + len(chunk), len(items))
+        yield chunk_start, chunk

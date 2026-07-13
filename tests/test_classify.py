@@ -4,7 +4,7 @@ from classifier.stages.classify import classify_relationships
 from tests.conftest import make_event, make_event_contract
 
 
-def test_skip_semantic_produces_structural_relationships(stub_registry, mock_voyage, mock_anthropic):
+def test_skip_semantic_produces_structural_relationships(stub_registry, stub_db, mock_voyage, mock_anthropic):
     event = make_event(event_id=10, title="Will X happen?")
     stub_registry._events.append(event)
 
@@ -18,8 +18,8 @@ def test_skip_semantic_produces_structural_relationships(stub_registry, mock_voy
         result = classify_relationships(
             stub_registry, mock_anthropic, mock_voyage,
             new_security_ids=[100, 101],
-
             skip_semantic=True,
+            db=stub_db,
         )
 
     mock_embed.assert_not_called()
@@ -30,7 +30,7 @@ def test_skip_semantic_produces_structural_relationships(stub_registry, mock_voy
     assert all(r.relationship_type == "COMPLEMENT" for r in rels)
 
 
-def test_skip_semantic_false_calls_voyage(stub_registry, mock_voyage, mock_anthropic):
+def test_skip_semantic_false_calls_voyage(stub_registry, stub_db, mock_voyage, mock_anthropic):
     event = make_event(event_id=10, title="Will X happen?")
     stub_registry._events.append(event)
 
@@ -44,8 +44,8 @@ def test_skip_semantic_false_calls_voyage(stub_registry, mock_voyage, mock_anthr
         classify_relationships(
             stub_registry, mock_anthropic, mock_voyage,
             new_security_ids=[100, 101],
-
             skip_semantic=False,
+            db=stub_db,
         )
 
     mock_embed.assert_called_once()

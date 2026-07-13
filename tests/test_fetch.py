@@ -12,8 +12,9 @@ def _make_exchange(name: str, exchange_id: int = 1) -> Exchange:
 
 def test_fetch_all_skips_unknown_adapter():
     exchange_by_name = {"unknown": _make_exchange("unknown")}
-    contracts = fetch_all(exchange_by_name)
+    contracts, failed = fetch_all(exchange_by_name)
     assert contracts == []
+    assert failed == []
 
 
 def test_fetch_all_limits_per_adapter():
@@ -49,9 +50,10 @@ def test_fetch_all_limits_per_adapter():
     exchange_by_name = {"polymarket": _make_exchange("polymarket")}
 
     with patch("classifier.stages.fetch.ADAPTERS", [mock_adapter]):
-        contracts = fetch_all(exchange_by_name, max_per_adapter=5)
+        contracts, failed = fetch_all(exchange_by_name, max_per_adapter=5)
 
     assert len(contracts) == 5
+    assert failed == []
 
 
 def test_fetch_all_handles_adapter_error():
@@ -62,6 +64,7 @@ def test_fetch_all_handles_adapter_error():
     exchange_by_name = {"polymarket": _make_exchange("polymarket")}
 
     with patch("classifier.stages.fetch.ADAPTERS", [mock_adapter]):
-        contracts = fetch_all(exchange_by_name)
+        contracts, failed = fetch_all(exchange_by_name)
 
     assert contracts == []
+    assert failed == ["polymarket"]

@@ -2,9 +2,18 @@ from collections import defaultdict
 
 from gnomepy.registry.types import EventContract
 
-from classifier.types import EventId, RelationshipMatch, RelationshipType, SecurityId
+from classifier.types import EventId, JudgedRelationship, RelationshipMatch, RelationshipType, SecurityId
 
 STRUCTURAL_CONFIDENCE = 1.0
+
+
+def primary_contracts(contracts: list[EventContract]) -> list[EventContract]:
+    """For a single event's contracts, return the subset to send to the LLM for judgment.
+    Binary events (exactly 2 contracts): return one representative, chosen by lowest event_contract_id.
+    All other events: return all contracts unchanged."""
+    if len(contracts) == 2:
+        return [min(contracts, key=lambda ec: ec.event_contract_id)]
+    return contracts
 
 
 def build_complement_map(
@@ -29,6 +38,35 @@ def find_complement_pairs(
         RelationshipMatch(a, b, RelationshipType.COMPLEMENT, STRUCTURAL_CONFIDENCE, "structural")
         for a, b in complement_of.items()
     ]
+
+
+def derive_complement_relationships(
+    matches: list[JudgedRelationship],
+    complement_of: dict[SecurityId, SecurityId],
+) -> list[JudgedRelationship]:
+    """Derive additional relationships via complement mapping.
+
+    - IMPLIES(A→B)              → IMPLIES(comp(B)→comp(A))
+    - EQUIVALENT/CORRELATED(A,B) → EQUIVALENT/CORRELATED(comp(A),comp(B))
+    - MUTUALLY_EXCLUSIVE(A,B)   → IMPLIES(A→comp(B))  and  IMPLIES(B→comp(A))
+    """
+    derived: list[JudgedRelationship] = []
+    for r in matches:
+        comp_a = complement_of.get(r.security_id_a)
+        comp_b = complement_of.get(r.security_id_b)
+        if r.relationship_type == RelationshipType.IMPLIES:
+            if comp_a is not None and comp_b is not None:
+                derived.append(JudgedRelationship(comp_b, comp_a, r.relationship_type, r.confidence))
+        elif r.relationship_type in (RelationshipType.EQUIVALENT, RelationshipType.CORRELATED):
+            if comp_a is not None and comp_b is not None:
+                derived.append(JudgedRelationship(comp_a, comp_b, r.relationship_type, r.confidence))
+                derived.append(JudgedRelationship(comp_b, comp_a, r.relationship_type, r.confidence))
+        elif r.relationship_type == RelationshipType.MUTUALLY_EXCLUSIVE:
+            if comp_b is not None:
+                derived.append(JudgedRelationship(r.security_id_a, comp_b, RelationshipType.IMPLIES, r.confidence))
+            if comp_a is not None:
+                derived.append(JudgedRelationship(r.security_id_b, comp_a, RelationshipType.IMPLIES, r.confidence))
+    return derived
 
 
 def find_mutually_exclusive_pairs(

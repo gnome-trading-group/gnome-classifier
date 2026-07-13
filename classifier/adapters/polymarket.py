@@ -11,7 +11,7 @@ from classifier.types import ExchangeId
 logger = logging.getLogger(__name__)
 
 GAMMA_API_URL = "https://gamma-api.polymarket.com"
-PAGE_SIZE = 100
+PAGE_SIZE = 500
 
 CONTRACT_MULTIPLIER = 1e9
 TICK_SIZE = 10_000_000
@@ -30,27 +30,28 @@ class PolymarketAdapter:
 
     def _fetch_all_events(self) -> list[dict]:
         events: list[dict] = []
-        offset = 0
+        after_cursor: str | None = None
         while True:
+            params: dict = {
+                "active": "true",
+                "closed": "false",
+                "limit": PAGE_SIZE,
+            }
+            if after_cursor is not None:
+                params["after_cursor"] = after_cursor
+
             try:
-                res = requests.get(f"{GAMMA_API_URL}/events", params={
-                    "active": "true",
-                    "closed": "false",
-                    "limit": PAGE_SIZE,
-                    "offset": offset,
-                }, timeout=30)
+                res = requests.get(f"{GAMMA_API_URL}/events/keyset", params=params, timeout=30)
                 res.raise_for_status()
-                page = res.json()
+                data = res.json()
             except Exception as e:
-                logger.error("Polymarket API error at offset=%d: %s", offset, e)
+                logger.error("Polymarket API error at cursor=%s: %s", after_cursor, e)
                 break
 
-            if not page:
+            events.extend(data.get("events", []))
+            after_cursor = data.get("next_cursor")
+            if after_cursor is None:
                 break
-            events.extend(page)
-            if len(page) < PAGE_SIZE:
-                break
-            offset += PAGE_SIZE
 
         return events
 

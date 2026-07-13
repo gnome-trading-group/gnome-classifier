@@ -2,11 +2,10 @@ import json
 import logging
 from typing import Any
 
-import anthropic
-
 from classifier.cache import ClassifierCache
+from classifier.client import BatchAnthropicClient
 from classifier.constants import CANONICALIZE_BATCH_SIZE, STANDARDIZED_CATEGORIES
-from classifier.types import CanonicalizeInput
+from classifier.types import CanonicalizeInput, NativeKey
 
 logger = logging.getLogger(__name__)
 
@@ -15,46 +14,34 @@ CANONICALIZE_MODEL = "claude-haiku-4-5-20251001"
 _CATEGORIES_STR = ", ".join(sorted(STANDARDIZED_CATEGORIES))
 
 
+def _parse_response(response: Any) -> Any:
+    text = response.content[0].text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    return json.loads(text)
+
+
 def _parse_canonical_result(item: dict, raw_title: str) -> dict:
     category = item.get("category", "OTHER")
     if category not in STANDARDIZED_CATEGORIES:
         category = "OTHER"
     tags = item.get("tags", [])
-    if not isinstance(tags, list) or not (3 <= len(tags) <= 8):
+    if not isinstance(tags, list):
         tags = []
+    else:
+        tags = [t for t in tags if isinstance(t, str)][:8]
     return {"title": item.get("title", raw_title), "category": category, "tags": tags}
 
 
-def canonicalize_events(
-    client: anthropic.Anthropic,
-    events: list[CanonicalizeInput],
-    cache: ClassifierCache | None = None,
-) -> dict[str, dict[str, Any]]:
-    """Canonicalize a list of CanonicalizeInput records.
-    Returns a mapping from raw_title to {"title", "category", "tags"}."""
-    results: dict[str, dict] = {}
-
-    uncached: list[CanonicalizeInput] = []
-    if cache is not None:
-        for ev in events:
-            cached = cache.get_canonicalization(CANONICALIZE_MODEL, ev.exchange_id, ev.native_id)
-            if cached is not None:
-                results[ev.raw_title] = cached
-            else:
-                uncached.append(ev)
-    else:
-        uncached = list(events)
-
-    for i in range(0, len(uncached), CANONICALIZE_BATCH_SIZE):
-        batch = uncached[i:i + CANONICALIZE_BATCH_SIZE]
-        event_lines = "\n".join(
-            f"[{j + 1}] Title: {ev.raw_title} | Description: {(ev.description or '')[:200]} | Category: {ev.category or ''}"
-            for j, ev in enumerate(batch)
-        )
-        prompt = f"""You are standardizing prediction market events for a cross-exchange registry.
+def _build_chunk_prompt(batch: list[CanonicalizeInput]) -> str:
+    event_lines = "\n".join(
+        f"[{j + 1}] Title: {ev.raw_title} | Description: {(ev.description or '')[:200]} | Category: {ev.category or ''}"
+        for j, ev in enumerate(batch)
+    )
+    return f"""You are standardizing prediction market events for a cross-exchange registry.
 
 For each event below, generate:
-1. title: Clean, exchange-neutral, concise title for this prediction market question
+1. title: Clean, exchange-neutral, concise title for this prediction market question. Preserve all dates exactly as stated.
 2. category: One of {_CATEGORIES_STR}
 3. tags: 3-8 lowercase keyword tags
 
@@ -64,49 +51,100 @@ Events:
 Respond with a JSON array in the same order, one object per event:
 [{{"title": "...", "category": "...", "tags": ["..."]}}, ...]"""
 
-        batch_results = None
-        try:
-            response = client.messages.create(
-                model=CANONICALIZE_MODEL,
-                max_tokens=250 * len(batch),
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = response.content[0].text.strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-            parsed = json.loads(text)
-            if isinstance(parsed, list) and len(parsed) == len(batch):
-                batch_results = parsed
-            else:
-                logger.warning(
-                    "Batch canonicalization returned wrong length (expected %d, got %d)",
-                    len(batch), len(parsed) if isinstance(parsed, list) else -1,
-                )
-        except Exception as e:
-            logger.warning("Batch canonicalization failed at offset %d: %s", i, e)
 
-        if batch_results is not None:
-            for j, ev in enumerate(batch):
-                result = _parse_canonical_result(batch_results[j], ev.raw_title)
-                results[ev.raw_title] = result
+def canonicalize_events(
+    batch_client: BatchAnthropicClient,
+    events: list[CanonicalizeInput],
+    cache: ClassifierCache | None = None,
+) -> dict[NativeKey, dict[str, Any]]:
+    """Canonicalize a list of CanonicalizeInput records.
+    Returns a mapping from (exchange_id, native_id) to {"title", "category", "tags"}."""
+    results: dict[NativeKey, dict] = {}
+    if not events:
+        return results
+
+    uncached: list[CanonicalizeInput] = []
+    if cache is not None:
+        cached_bulk = cache.get_canonicalization_bulk(
+            CANONICALIZE_MODEL, [(ev.exchange_id, ev.native_id) for ev in events]
+        )
+        for ev in events:
+            cached = cached_bulk.get((ev.exchange_id, ev.native_id))
+            if cached is not None:
+                results[(ev.exchange_id, ev.native_id)] = cached
+            else:
+                uncached.append(ev)
+        logger.info("canonicalize: %d cache hits, %d to call Claude", len(cached_bulk), len(uncached))
+    else:
+        uncached = list(events)
+        logger.info("canonicalize: no cache, %d to call Claude", len(uncached))
+
+    chunks: list[list[CanonicalizeInput]] = [
+        uncached[i:i + CANONICALIZE_BATCH_SIZE]
+        for i in range(0, len(uncached), CANONICALIZE_BATCH_SIZE)
+    ]
+
+    requests = [
+        {
+            "custom_id": f"canon_{i}",
+            "params": {
+                "model": CANONICALIZE_MODEL,
+                "max_tokens": 300 * len(chunk),
+                "messages": [{"role": "user", "content": _build_chunk_prompt(chunk)}],
+            },
+        }
+        for i, chunk in enumerate(chunks)
+    ]
+
+    responses = batch_client.create_messages(requests)
+
+    for i, chunk in enumerate(chunks):
+        custom_id = f"canon_{i}"
+        response = responses.get(custom_id)
+        parsed_chunk: list | None = None
+
+        if response is not None:
+            try:
+                parsed = _parse_response(response)
+                if isinstance(parsed, list) and len(parsed) == len(chunk):
+                    parsed_chunk = parsed
+                else:
+                    logger.warning(
+                        "Chunk %d returned wrong length (expected %d, got %d) stop_reason=%s",
+                        i, len(chunk), len(parsed) if isinstance(parsed, list) else -1, response.stop_reason,
+                    )
+            except Exception as e:
+                raw = response.content[0].text if response.content else "<empty>"
+                logger.warning("Chunk %d parse failed: %s raw=%r", i, e, raw[:500])
+
+        if parsed_chunk is not None:
+            for j, ev in enumerate(chunk):
+                result = _parse_canonical_result(parsed_chunk[j], ev.raw_title)
+                results[(ev.exchange_id, ev.native_id)] = result
                 if cache is not None:
                     cache.put_canonicalization(CANONICALIZE_MODEL, ev.exchange_id, ev.native_id, result)
         else:
-            for ev in batch:
-                result = _canonicalize_single(client, ev.raw_title, ev.description, ev.category)
-                results[ev.raw_title] = result
+            for ev in chunk:
+                result = _canonicalize_single(batch_client._client, ev.raw_title, ev.description, ev.category)
+                if result is None:
+                    continue
+                results[(ev.exchange_id, ev.native_id)] = result
                 if cache is not None:
                     cache.put_canonicalization(CANONICALIZE_MODEL, ev.exchange_id, ev.native_id, result)
+
+    failed = len(events) - len(results)
+    if failed > 0:
+        logger.warning("canonicalize: %d events failed canonicalization, will retry next run", failed)
 
     return results
 
 
 def _canonicalize_single(
-    client: anthropic.Anthropic,
+    client,
     raw_title: str,
     description: str | None,
     exchange_category: str | None,
-) -> dict:
+) -> dict | None:
     prompt = f"""You are standardizing a prediction market event for a cross-exchange registry.
 
 Exchange-provided title: {raw_title}
@@ -114,20 +152,23 @@ Description: {description or ''}
 Exchange category: {exchange_category or ''}
 
 Generate:
-1. title: Clean, exchange-neutral, concise title for this prediction market question.
+1. title: Clean, exchange-neutral, concise title for this prediction market question. Preserve all dates exactly as stated.
 2. category: One of {_CATEGORIES_STR}
 3. tags: 3-8 lowercase keyword tags
 
 Respond with JSON only: {{"title": "...", "category": "...", "tags": ["..."]}}"""
 
+    response = None
     try:
         response = client.messages.create(
             model=CANONICALIZE_MODEL,
             max_tokens=200,
             messages=[{"role": "user", "content": prompt}],
         )
-        result = json.loads(response.content[0].text.strip())
+        result = _parse_response(response)
         return _parse_canonical_result(result, raw_title)
     except Exception as e:
-        logger.warning("Canonicalization failed for '%s': %s", raw_title, e)
-        return {"title": raw_title, "category": "OTHER", "tags": []}
+        raw = response.content[0].text if response is not None else "<no response>"
+        logger.warning("Canonicalization failed for '%s': %s stop_reason=%s raw=%r", raw_title, e,
+                       response.stop_reason if response is not None else None, raw[:500])
+        return None

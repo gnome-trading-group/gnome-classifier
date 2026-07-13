@@ -1,4 +1,9 @@
 import dataclasses
+import json
+import math
+from unittest.mock import MagicMock
+
+import anthropic
 
 from gnomepy.registry import RegistryClient
 from gnomepy.registry.types import (
@@ -12,6 +17,45 @@ from gnomepy.registry.types import (
     ListingSpec,
     Security,
 )
+
+
+def no_op_anthropic_client() -> anthropic.Anthropic:
+    """Mock Anthropic client that echoes raw event titles with category=OTHER, tags=[]."""
+    def _fake_create(*args, **kwargs):
+        messages = kwargs.get("messages", args[1] if len(args) > 1 else [])
+        content = messages[0].get("content", "") if messages else ""
+        titles = []
+        for line in content.splitlines():
+            if line.startswith("[") and "] Title: " in line:
+                title = line.split("] Title: ", 1)[1].split(" | ")[0].strip()
+                titles.append({"title": title, "category": "OTHER", "tags": []})
+            elif line.startswith("Exchange-provided title:"):
+                title = line.split(":", 1)[1].strip()
+                titles.append({"title": title, "category": "OTHER", "tags": []})
+        if not titles:
+            text = json.dumps([])
+        elif len(titles) == 1:
+            text = json.dumps(titles[0])
+        else:
+            text = json.dumps(titles)
+        mock_content = MagicMock()
+        mock_content.text = text
+        mock_response = MagicMock()
+        mock_response.content = [mock_content]
+        return mock_response
+
+    client = MagicMock(spec=anthropic.Anthropic)
+    client.messages.create.side_effect = _fake_create
+    return client
+
+
+def no_op_voyage_client():
+    """Mock Voyage client that returns zero embeddings."""
+    client = MagicMock()
+    result = MagicMock()
+    result.embeddings = []
+    client.embed.return_value = result
+    return client
 
 
 class StubRegistry(RegistryClient):
@@ -52,8 +96,10 @@ class StubRegistry(RegistryClient):
     def get_listing_spec(self) -> list[ListingSpec]:
         return list(self._listing_specs)
 
-    def get_event(self) -> list[Event]:
-        return list(self._events)
+    def get_event(self, resolved: bool | None = None) -> list[Event]:
+        if resolved is None:
+            return list(self._events)
+        return [e for e in self._events if e.resolved == resolved]
 
     def get_event_contracts(self) -> list[EventContract]:
         return list(self._event_contracts)
@@ -75,7 +121,6 @@ class StubRegistry(RegistryClient):
                 "category": item.get("category"),
                 "resolution_source": None,
                 "tags": item.get("tags"),
-                "embedding": item.get("embedding"),
                 "resolved": False,
                 "resolved_at": None,
                 "expiry": item.get("expiry"),
@@ -234,3 +279,97 @@ class StubRegistry(RegistryClient):
             "event_contracts": [dataclasses.asdict(ec) for ec in self._event_contracts],
             "relationships": [dataclasses.asdict(r) for r in self._contract_relationships],
         }
+
+
+class StubDB:
+    """In-memory ClassifierDB that reads from a StubRegistry's internal state.
+
+    Shares state with StubRegistry live — writes made via StubRegistry are
+    immediately visible here, so tests can use both together without sync issues.
+    """
+
+    def __init__(self, registry: StubRegistry):
+        self._r = registry
+        self._embeddings: dict[int, list[float]] = {}
+
+    def get_exchange_event(self, exchange_id: int, native_id: str) -> int | None:
+        for ee in self._r._exchange_events:
+            if ee.exchange_id == exchange_id and ee.native_event_id == native_id:
+                return ee.event_id
+        return None
+
+    def get_events(self, event_ids: list[int]) -> dict[int, dict]:
+        return {
+            ev.event_id: {"title": ev.title, "category": ev.category or "OTHER", "tags": ev.tags or []}
+            for ev in self._r._events
+            if ev.event_id in event_ids
+        }
+
+    def get_events_for_dedup(self) -> list[tuple[str, str | None, int]]:
+        return [(ev.title, ev.expiry, ev.event_id) for ev in self._r._events]
+
+    def get_currencies(self) -> dict[str, int]:
+        return {c.symbol: c.currency_id for c in self._r._currencies}
+
+    def get_existing_securities(self, symbols: list[str]) -> dict[str, int]:
+        sym_set = set(symbols)
+        return {s.symbol: s.security_id for s in self._r._securities if s.symbol in sym_set}
+
+    def get_all_security_ids(self) -> set[int]:
+        return {s.security_id for s in self._r._securities}
+
+    def get_existing_listings(self, keys: list[tuple[int, str]]) -> dict[tuple[int, str], int]:
+        key_set = set(keys)
+        return {
+            (l.exchange_id, l.exchange_security_id): l.listing_id
+            for l in self._r._listings
+            if (l.exchange_id, l.exchange_security_id) in key_set
+        }
+
+    def get_existing_event_contracts(self, keys: list[tuple[int, int]]) -> set[tuple[int, int]]:
+        key_set = set(keys)
+        return {
+            (ec.event_id, ec.security_id) for ec in self._r._event_contracts
+            if (ec.event_id, ec.security_id) in key_set
+        }
+
+    def get_existing_listing_specs(self, listing_ids: list[int]) -> set[int]:
+        id_set = set(listing_ids)
+        return {s.listing_id for s in self._r._listing_specs if s.listing_id in id_set}
+
+    def get_unresolved_events(self) -> list[Event]:
+        return self._r.get_event(resolved=False)
+
+    def get_all_event_contracts(self) -> list[EventContract]:
+        return self._r.get_event_contracts()
+
+    def get_all_securities(self) -> list[Security]:
+        return self._r.get_security()
+
+    def get_all_currencies(self) -> list[Currency]:
+        return self._r.get_currency()
+
+    def get_contract_relationships_for_securities(self, security_ids: list[int]) -> list[ContractRelationship]:
+        sid_set = set(security_ids)
+        return [
+            r for r in self._r._contract_relationships
+            if r.security_id_a in sid_set or r.security_id_b in sid_set
+        ]
+
+    def find_neighbors(
+        self, embedding: list[float], threshold: float, limit: int = 50
+    ) -> list[tuple[int, float]]:
+        results = []
+        for eid, emb in self._embeddings.items():
+            dot = sum(x * y for x, y in zip(embedding, emb))
+            denom = math.sqrt(sum(x * x for x in embedding)) * math.sqrt(sum(x * x for x in emb))
+            sim = dot / denom if denom else 0.0
+            if sim >= threshold:
+                results.append((eid, sim))
+        return sorted(results, key=lambda x: -x[1])[:limit]
+
+    def get_embeddings(self, event_ids: list[int]) -> dict[int, list[float]]:
+        return {eid: self._embeddings[eid] for eid in event_ids if eid in self._embeddings}
+
+    def put_embeddings(self, embeddings: dict[int, list[float]]) -> None:
+        self._embeddings.update(embeddings)

@@ -9,8 +9,9 @@ logger = logging.getLogger(__name__)
 def fetch_all(
     exchange_by_name: dict,
     max_per_adapter: int | None = None,
-) -> list[AdapterContract]:
+) -> tuple[list[AdapterContract], list[str]]:
     all_contracts: list[AdapterContract] = []
+    failed: list[str] = []
     for adapter in ADAPTERS:
         exchange = exchange_by_name.get(adapter.exchange_name)
         if not exchange:
@@ -24,5 +25,6 @@ def fetch_all(
             all_contracts.extend(contracts)
         except Exception as e:
             logger.error("Failed to fetch from %s: %s", adapter.exchange_name, e)
+            failed.append(adapter.exchange_name)
 
-    return all_contracts
+    return all_contracts, failed
