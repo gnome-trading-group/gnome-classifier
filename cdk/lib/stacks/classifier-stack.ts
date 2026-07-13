@@ -65,7 +65,7 @@ export class ClassifierStack extends cdk.Stack {
       vpc,
       description: 'ElastiCache Redis access',
     });
-    redisSg.addIngressRule(lambdaSg, ec2.Port.tcp(6379), 'Allow Lambda → Redis');
+    redisSg.addIngressRule(lambdaSg, ec2.Port.tcp(6379), 'Allow Lambda to Redis');
 
     const redisCluster = new elasticache.CfnCacheCluster(this, 'RedisCluster', {
       cacheNodeType: 'cache.t3.small',
