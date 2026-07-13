@@ -60,12 +60,12 @@ export class ClassifierStack extends cdk.Stack {
       subnetIds: vpc.privateSubnets.map(s => s.subnetId),
     });
 
-    // Security group for Redis — only accept connections from Lambda
     const redisSg = new ec2.SecurityGroup(this, 'RedisSg', {
       vpc,
       description: 'ElastiCache Redis access',
     });
     redisSg.addIngressRule(lambdaSg, ec2.Port.tcp(6379), 'Allow Lambda to Redis');
+    redisSg.addIngressRule(ec2.Peer.ipv4(vpc.vpcCidrBlock), ec2.Port.tcp(6379), 'Allow VPC to Redis for SSM tunnel');
 
     const redisCluster = new elasticache.CfnCacheCluster(this, 'RedisCluster', {
       cacheNodeType: 'cache.t3.small',
