@@ -35,6 +35,14 @@ class ClassifierDB:
                 row = cur.fetchone()
                 return row[0] if row else None
 
+    def get_all_exchange_events(self) -> dict[tuple[int, str], int]:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT exchange_id, native_event_id, event_id FROM sm.exchange_event"
+                )
+                return {(row[0], row[1]): row[2] for row in cur.fetchall()}
+
     def get_events(self, event_ids: list[int]) -> dict[int, dict]:
         """Returns {event_id: {"title", "category", "tags"}} for the given ids."""
         if not event_ids:
@@ -87,12 +95,15 @@ class ClassifierDB:
         """Returns {(exchange_id, exchange_security_id): listing_id}."""
         if not keys:
             return {}
+        exchange_ids = [k[0] for k in keys]
+        security_ids = [k[1] for k in keys]
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT exchange_id, exchange_security_id, listing_id FROM sm.listing"
-                    " WHERE (exchange_id, exchange_security_id) = ANY(%s)",
-                    (keys,),
+                    " WHERE (exchange_id, exchange_security_id)"
+                    " IN (SELECT * FROM unnest(%s::int[], %s::text[]))",
+                    (exchange_ids, security_ids),
                 )
                 return {(row[0], row[1]): row[2] for row in cur.fetchall()}
 
@@ -102,12 +113,15 @@ class ClassifierDB:
         """Returns set of (event_id, security_id) that already exist."""
         if not keys:
             return set()
+        event_ids = [k[0] for k in keys]
+        security_ids = [k[1] for k in keys]
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT event_id, security_id FROM sm.event_contract"
-                    " WHERE (event_id, security_id) = ANY(%s)",
-                    (keys,),
+                    " WHERE (event_id, security_id)"
+                    " IN (SELECT * FROM unnest(%s::int[], %s::int[]))",
+                    (event_ids, security_ids),
                 )
                 return {(row[0], row[1]) for row in cur.fetchall()}
 

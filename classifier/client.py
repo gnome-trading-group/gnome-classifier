@@ -25,7 +25,7 @@ class BatchAnthropicClient:
         client: anthropic.Anthropic,
         rate_limits: dict[str, ModelRateLimit] | None = None,
         poll_interval: int = 30,
-        max_batch_wait: int = 480,
+        max_batch_wait: int = 900,
     ):
         self._client = client
         self._rate_limits = rate_limits or {}

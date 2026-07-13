@@ -11,7 +11,7 @@ Usage:
   export REDIS_URL=...               # printed by tunnel command
   export ANTHROPIC_API_KEY=...
   export VOYAGE_API_KEY=...
-  export CACHE_BUCKET=...            # S3 bucket name (e.g. gnome-classifier-cache-dev)
+  export CACHE_BUCKET=...            # optional S3 bucket (e.g. gnome-classifier-cache-dev)
   export REGISTRY_API_URL=...        # e.g. https://api.example.com
   export REGISTRY_API_KEY=...
   poetry run bootstrap [--no-classify]
@@ -43,7 +43,7 @@ import click
 import voyageai
 from gnomepy.registry import RegistryClient
 
-from classifier.cache import S3ClassifierCache
+from classifier.cache import RedisClassifierCache, S3ClassifierCache
 from classifier.client import BatchAnthropicClient, ModelRateLimit
 from classifier.constants import DEFAULT_RATE_LIMITS
 from classifier.db import ClassifierDB
@@ -56,9 +56,11 @@ logger = logging.getLogger(__name__)
 
 
 @click.command()
+@click.argument("adapter", required=False, default=None)
 @click.option("--no-classify", is_flag=True, help="Skip relationship classification (entity creation only)")
-def main(no_classify: bool) -> None:
-    for var in ("ANTHROPIC_API_KEY", "VOYAGE_API_KEY", "CACHE_BUCKET", "REGISTRY_API_URL", "REGISTRY_API_KEY", "DATABASE_URL"):
+@click.option("--with-judgment", is_flag=True, help="Run Claude judgment calls during classification (slow — use for small adapter runs)")
+def main(adapter: str | None, no_classify: bool, with_judgment: bool) -> None:
+    for var in ("ANTHROPIC_API_KEY", "VOYAGE_API_KEY", "REGISTRY_API_URL", "REGISTRY_API_KEY", "DATABASE_URL"):
         if not os.environ.get(var):
             raise click.ClickException(f"Missing required env var: {var}")
 
@@ -72,7 +74,15 @@ def main(no_classify: bool) -> None:
         rate_limits=_rate_limits,
     )
     voyage_client = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"])
-    cache = S3ClassifierCache(bucket=os.environ["CACHE_BUCKET"])
+    redis_url = os.environ.get("REDIS_URL")
+    cache_bucket = os.environ.get("CACHE_BUCKET")
+    if redis_url:
+        logger.info("Using Redis cache (SSM tunnel mode)")
+        cache = RedisClassifierCache(redis_url=redis_url)
+    elif cache_bucket:
+        cache = S3ClassifierCache(bucket=cache_bucket)
+    else:
+        cache = None
     db = ClassifierDB(dsn=os.environ["DATABASE_URL"])
 
     # ── Phase 1: entity creation ──────────────────────────────────────
@@ -80,6 +90,11 @@ def main(no_classify: bool) -> None:
 
     exchanges = registry.get_exchange()
     exchange_by_name = {e.exchange_name.lower(): e for e in exchanges}
+    if adapter:
+        adapter_lower = adapter.lower()
+        if adapter_lower not in exchange_by_name:
+            raise click.ClickException(f"Unknown adapter '{adapter}'. Choices: {list(exchange_by_name)}")
+        exchange_by_name = {adapter_lower: exchange_by_name[adapter_lower]}
     contracts, failed_adapters = fetch_all(exchange_by_name)
     if failed_adapters:
         logger.warning("Adapter fetch failures: %s", failed_adapters)
@@ -106,7 +121,7 @@ def main(no_classify: bool) -> None:
     result = classify_relationships(
         registry, batch_client, voyage_client,
         new_security_ids=new_security_ids,
-        skip_judgment=True,
+        skip_judgment=not with_judgment,
         cache=cache,
         db=db,
     )

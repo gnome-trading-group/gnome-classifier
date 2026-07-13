@@ -88,3 +88,26 @@ class RedisClassifierCache(ClassifierCache):
     def put_exchange_event(self, exchange_id: int, native_id: str, event_id: int) -> None:
         self._redis.hset("exchange_events", f"{exchange_id}:{native_id}", str(event_id))
 
+    def get_exchange_event_bulk(
+        self, pairs: list[tuple[int, str]]
+    ) -> dict[tuple[int, str], int]:
+        if not pairs:
+            return {}
+        pipeline = self._redis.pipeline()
+        for eid, nid in pairs:
+            pipeline.hget("exchange_events", f"{eid}:{nid}")
+        raw_results = pipeline.execute()
+        out: dict[tuple[int, str], int] = {}
+        for (eid, nid), val in zip(pairs, raw_results):
+            if val is not None:
+                out[(eid, nid)] = int(val)
+        return out
+
+    def put_exchange_event_bulk(self, mapping: dict[tuple[int, str], int]) -> None:
+        if not mapping:
+            return
+        pipeline = self._redis.pipeline()
+        for (eid, nid), event_id in mapping.items():
+            pipeline.hset("exchange_events", f"{eid}:{nid}", str(event_id))
+        pipeline.execute()
+

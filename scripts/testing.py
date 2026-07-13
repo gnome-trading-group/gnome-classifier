@@ -298,6 +298,9 @@ class StubDB:
                 return ee.event_id
         return None
 
+    def get_all_exchange_events(self) -> dict[tuple[int, str], int]:
+        return {(ee.exchange_id, ee.native_event_id): ee.event_id for ee in self._r._exchange_events}
+
     def get_events(self, event_ids: list[int]) -> dict[int, dict]:
         return {
             ev.event_id: {"title": ev.title, "category": ev.category or "OTHER", "tags": ev.tags or []}

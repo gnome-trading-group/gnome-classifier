@@ -61,18 +61,30 @@ def create_entities(
     events_to_canonicalize: list[CanonicalizeInput] = []
     seen_exchange_events: set[NativeKey] = set()
 
+    all_native_keys = list(contracts_by_native.keys())
+
+    cached: dict[NativeKey, int] = {}
+    if cache is not None:
+        cached = cache.get_exchange_event_bulk(all_native_keys)
+
+    cache_miss_keys = [nk for nk in all_native_keys if nk not in cached]
+    if cache_miss_keys:
+        all_exchange_events = db.get_all_exchange_events()
+        db_results = {nk: all_exchange_events[nk] for nk in cache_miss_keys if nk in all_exchange_events}
+    else:
+        db_results = {}
+
+    if cache is not None and db_results:
+        cache.put_exchange_event_bulk(db_results)
+
     for nk, group in contracts_by_native.items():
-        c = group[0]
-        exchange_id, native_id = nk
-        event_id = cache.get_exchange_event(exchange_id, native_id) if cache is not None else None
-        if event_id is None:
-            event_id = db.get_exchange_event(exchange_id, native_id)
-            if event_id is not None and cache is not None:
-                cache.put_exchange_event(exchange_id, native_id, event_id)
+        event_id = cached.get(nk) or db_results.get(nk)
         if event_id is not None:
             event_id_by_native[nk] = event_id
             seen_exchange_events.add(nk)
         else:
+            c = group[0]
+            exchange_id, native_id = nk
             events_to_canonicalize.append(
                 CanonicalizeInput(
                     c.event_title, c.event_description, c.event_category,

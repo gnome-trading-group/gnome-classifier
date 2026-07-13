@@ -203,7 +203,7 @@ export class ClassifierStack extends cdk.Stack {
 
     const rule = new events.Rule(this, 'ClassifierRule', {
       schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
-      enabled: props.stage === Stage.PROD,
+      enabled: false, // temporarily disabled during bootstrap
     });
     rule.addTarget(new targets.SfnStateMachine(this.stateMachine));
 

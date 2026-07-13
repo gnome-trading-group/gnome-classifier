@@ -72,3 +72,11 @@ class ClassifierCache(ABC):
     def put_exchange_event(self, exchange_id: int, native_id: str, event_id: int) -> None:
         pass
 
+    def get_exchange_event_bulk(
+        self, pairs: list[tuple[int, str]]
+    ) -> dict[tuple[int, str], int]:
+        return {}
+
+    def put_exchange_event_bulk(self, mapping: dict[tuple[int, str], int]) -> None:
+        pass
+
