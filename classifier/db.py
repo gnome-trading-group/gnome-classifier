@@ -39,7 +39,10 @@ class ClassifierDB:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT exchange_id, native_event_id, event_id FROM sm.exchange_event"
+                    "SELECT ee.exchange_id, ee.native_event_id, ee.event_id"
+                    " FROM sm.exchange_event ee"
+                    " JOIN sm.event e ON e.event_id = ee.event_id"
+                    " WHERE e.resolved = false"
                 )
                 return {(row[0], row[1]): row[2] for row in cur.fetchall()}
 
@@ -60,10 +63,10 @@ class ClassifierDB:
                 }
 
     def get_events_for_dedup(self) -> list[tuple[str, str | None, int]]:
-        """Returns (title, expiry, event_id) for all events — used for title+expiry dedup."""
+        """Returns (title, expiry, event_id) for unresolved events — used for title+expiry dedup."""
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT title, expiry, event_id FROM sm.event")
+                cur.execute("SELECT title, expiry, event_id FROM sm.event WHERE resolved = false")
                 return [(row[0], str(row[1]) if row[1] else None, row[2]) for row in cur.fetchall()]
 
     def get_currencies(self) -> dict[str, int]:
@@ -86,7 +89,7 @@ class ClassifierDB:
     def get_all_security_ids(self) -> set[int]:
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT security_id FROM sm.security")
+                cur.execute("SELECT security_id FROM sm.security WHERE active = true")
                 return {row[0] for row in cur.fetchall()}
 
     def get_existing_listings(
@@ -160,8 +163,10 @@ class ClassifierDB:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT event_contract_id, event_id, security_id, outcome_label, date_created"
-                    " FROM sm.event_contract"
+                    "SELECT ec.event_contract_id, ec.event_id, ec.security_id, ec.outcome_label, ec.date_created"
+                    " FROM sm.event_contract ec"
+                    " JOIN sm.event e ON e.event_id = ec.event_id"
+                    " WHERE e.resolved = false"
                 )
                 return [
                     EventContract(
@@ -180,7 +185,7 @@ class ClassifierDB:
                     " base_currency_id, quote_currency_id, settle_currency_id,"
                     " inverse, is_quanto, expiry, strike_price, active,"
                     " underlying_security_id, description, date_modified, date_created"
-                    " FROM sm.security"
+                    " FROM sm.security WHERE active = true"
                 )
                 return [
                     Security(
@@ -233,6 +238,59 @@ class ClassifierDB:
                     for row in cur.fetchall()
                 ]
 
+    def get_securities_with_active_listings(self, security_ids: list[int]) -> set[int]:
+        """Returns the subset of security_ids that still have at least one active listing."""
+        if not security_ids:
+            return set()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT DISTINCT security_id FROM sm.listing"
+                    " WHERE active = true AND security_id = ANY(%s)",
+                    (security_ids,),
+                )
+                return {row[0] for row in cur.fetchall()}
+
+    def get_active_listings_by_exchange_security(
+        self, exchange_id: int, exchange_security_ids: list[str],
+    ) -> list[tuple[int, int, str]]:
+        """Returns [(listing_id, security_id, exchange_security_id)] for active listings."""
+        if not exchange_security_ids:
+            return []
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT listing_id, security_id, exchange_security_id"
+                    " FROM sm.listing"
+                    " WHERE active = true"
+                    " AND exchange_id = %s"
+                    " AND exchange_security_id = ANY(%s)",
+                    (exchange_id, exchange_security_ids),
+                )
+                return [(row[0], row[1], row[2]) for row in cur.fetchall()]
+
+    def get_event_ids_for_security(self, security_id: int) -> list[int]:
+        """Returns event_ids linked to this security via event_contract."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT event_id FROM sm.event_contract WHERE security_id = %s",
+                    (security_id,),
+                )
+                return [row[0] for row in cur.fetchall()]
+
+    def get_active_security_count_for_event(self, event_id: int) -> int:
+        """Returns count of active securities linked to this event."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM sm.event_contract ec"
+                    " JOIN sm.security s ON s.security_id = ec.security_id"
+                    " WHERE ec.event_id = %s AND s.active = true",
+                    (event_id,),
+                )
+                return cur.fetchone()[0]
+
     def find_neighbors(
         self, embedding: list[float], threshold: float, limit: int = 50
     ) -> list[tuple[int, float]]:
@@ -240,10 +298,12 @@ class ClassifierDB:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT event_id, 1 - (embedding <=> %s::vector) AS similarity"
-                    " FROM sm.event_embedding"
-                    " WHERE 1 - (embedding <=> %s::vector) >= %s"
-                    " ORDER BY embedding <=> %s::vector"
+                    "SELECT ee.event_id, 1 - (ee.embedding <=> %s::vector) AS similarity"
+                    " FROM sm.event_embedding ee"
+                    " JOIN sm.event e ON e.event_id = ee.event_id"
+                    " WHERE e.resolved = false"
+                    " AND 1 - (ee.embedding <=> %s::vector) >= %s"
+                    " ORDER BY ee.embedding <=> %s::vector"
                     " LIMIT %s",
                     (embedding, embedding, threshold, embedding, limit),
                 )

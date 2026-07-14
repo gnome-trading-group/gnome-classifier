@@ -40,13 +40,14 @@ import click
 import voyageai
 
 from classifier.cache import RedisClassifierCache, S3ClassifierCache
-from classifier.client import BatchAnthropicClient, ModelRateLimit
-from classifier.constants import DEFAULT_RATE_LIMITS
+from classifier.constants import RESOLUTION_LOOKBACK_DAYS
+from classifier.client import BatchAnthropicClient
 from classifier.db import ClassifierDB
 from classifier.stages.canonicalize import canonicalize_events
 from classifier.stages.classify import classify_relationships
 from classifier.stages.entities import create_entities
-from classifier.stages.fetch import fetch_all
+from classifier.stages.fetch import fetch_all, fetch_resolved_outcomes
+from classifier.stages.resolve import detect_resolved_events
 from classifier.types import CanonicalizeInput
 from scripts.testing import StubDB, StubRegistry, no_op_anthropic_client, no_op_voyage_client
 
@@ -69,15 +70,13 @@ def _build_cache(no_cache: bool):
 
 
 def _build_clients(*, no_canonicalize: bool, no_cache: bool, need_voyage: bool = False):
-    _rate_limits = {k: ModelRateLimit(**v) for k, v in DEFAULT_RATE_LIMITS.items()}
-
     if no_canonicalize:
-        batch_client = BatchAnthropicClient(client=no_op_anthropic_client(), rate_limits=_rate_limits)
+        batch_client = BatchAnthropicClient(client=no_op_anthropic_client())
     else:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise click.ClickException("ANTHROPIC_API_KEY not set — pass --no-canonicalize to skip, or set the key")
-        batch_client = BatchAnthropicClient(client=anthropic.Anthropic(api_key=api_key), rate_limits=_rate_limits)
+        batch_client = BatchAnthropicClient(client=anthropic.Anthropic(api_key=api_key))
 
     voyage_client = None
     if need_voyage:
@@ -268,8 +267,7 @@ def canonicalize(ctx, adapter: str | None, max_contracts: int | None, no_cache: 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise click.ClickException("ANTHROPIC_API_KEY not set")
-    _rate_limits = {k: ModelRateLimit(**v) for k, v in DEFAULT_RATE_LIMITS.items()}
-    batch_client = BatchAnthropicClient(client=anthropic.Anthropic(api_key=api_key), rate_limits=_rate_limits)
+    batch_client = BatchAnthropicClient(client=anthropic.Anthropic(api_key=api_key))
 
     _, _, contracts, _ = _fetch_contracts(adapter, max_contracts)
     if not contracts:
@@ -359,4 +357,52 @@ def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
     output = {**registry.get_dry_run_data(), "summary": summary}
     with open(ctx.obj["output_path"], "w") as f:
         json.dump(output, f, indent=2)
+    print(f"\nFull output written to {ctx.obj['output_path']}")
+
+
+@main.command()
+@click.argument("adapter", required=False, default=None)
+@click.option("--lookback", type=int, default=RESOLUTION_LOOKBACK_DAYS, show_default=True, help="Days to look back for resolved events")
+@click.pass_context
+def resolve(ctx, adapter: str | None, lookback: int):
+    """Detect resolved outcomes and show what would be deactivated (dry-run mode)."""
+    registry = StubRegistry()
+    exchanges = registry.get_exchange()
+    exchange_by_name = {e.exchange_name.lower(): e for e in exchanges}
+
+    if adapter:
+        adapter_lower = adapter.lower()
+        if adapter_lower not in exchange_by_name:
+            from classifier.adapters import ADAPTERS
+            raise click.ClickException(
+                f"Unknown adapter '{adapter}'. Choices: {[a.exchange_name for a in ADAPTERS]}"
+            )
+        exchange_by_name = {adapter_lower: exchange_by_name[adapter_lower]}
+
+    database_url = os.environ.get("DATABASE_URL")
+    db = ClassifierDB(dsn=database_url) if database_url else StubDB(registry)
+
+    print(f"\nFetching resolved outcomes from exchanges (lookback={lookback}d)...", flush=True)
+    resolved_by_exchange, failed = fetch_resolved_outcomes(exchange_by_name, lookback_days=lookback)
+    if failed:
+        print(f"Adapter failures: {failed}")
+
+    for exchange_id, ids in resolved_by_exchange.items():
+        exchange_name = next(
+            (name for name, ex in exchange_by_name.items() if ex.exchange_id == exchange_id), str(exchange_id)
+        )
+        print(f"  {exchange_name}: {len(ids)} resolved ids")
+
+    db_label = "real DB" if database_url else "stub DB"
+    print(f"\nRunning resolution detection ({db_label}, dry-run writes)...", flush=True)
+    result = detect_resolved_events(resolved_by_exchange, registry, db)
+
+    print(f"\n{'='*70}")
+    print("RESOLUTION SUMMARY")
+    print(f"{'='*70}")
+    for k, v in result.items():
+        print(f"  {k:<30}: {v}")
+
+    with open(ctx.obj["output_path"], "w") as f:
+        json.dump(result, f, indent=2)
     print(f"\nFull output written to {ctx.obj['output_path']}")

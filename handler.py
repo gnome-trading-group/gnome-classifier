@@ -8,13 +8,14 @@ import anthropic
 import boto3
 import voyageai
 
+import classifier.constants as constants
 from classifier.cache import RedisClassifierCache
-from classifier.client import BatchAnthropicClient, ModelRateLimit
-from classifier.constants import DEFAULT_RATE_LIMITS
+from classifier.client import BatchAnthropicClient
 from classifier.db import ClassifierDB
 from classifier.stages.classify import classify_relationships
 from classifier.stages.entities import create_entities
-from classifier.stages.fetch import fetch_all
+from classifier.stages.fetch import fetch_all, fetch_resolved_outcomes
+from classifier.stages.resolve import detect_resolved_events
 from gnomepy.registry import RegistryClient
 
 logger = logging.getLogger(__name__)
@@ -51,10 +52,7 @@ def _init_clients():
         api_key=registry_api_key,
     )
     anthropic_client = anthropic.Anthropic(api_key=anthropic_api_key)
-    batch_client = BatchAnthropicClient(
-        client=anthropic_client,
-        rate_limits={k: ModelRateLimit(**v) for k, v in DEFAULT_RATE_LIMITS.items()},
-    )
+    batch_client = BatchAnthropicClient(client=anthropic_client)
     voyage_client = voyageai.Client(api_key=voyage_api_key)
     cache = RedisClassifierCache(redis_url=os.environ["REDIS_ENDPOINT"])
     db = ClassifierDB(dsn=_build_dsn())
@@ -106,10 +104,18 @@ def fetch_and_create_entities(event, context):
 
     new_security_ids = entity_result.pop("new_security_ids")
     new_security_symbols = entity_result.pop("new_security_symbols")
-
     logger.info("Entity stage complete: %s", entity_result)
+
+    lookback_days = int(os.environ.get("RESOLUTION_LOOKBACK_DAYS", constants.RESOLUTION_LOOKBACK_DAYS))
+    resolved_by_exchange, failed_resolve = fetch_resolved_outcomes(exchange_by_name, lookback_days=lookback_days)
+    if failed_resolve:
+        logger.warning("Resolution fetch failures: %s", failed_resolve)
+    resolution_result = detect_resolved_events(resolved_by_exchange, registry, db)
+    logger.info("Resolution stage complete: %s", resolution_result)
+
     return {
         **entity_result,
+        **resolution_result,
         "new_security_ids": new_security_ids,
         "new_security_symbols": new_security_symbols,
         "has_new_entities": len(new_security_ids) > 0,
@@ -184,6 +190,12 @@ def send_notification(event, context):
         parts.append(f"{listings_created} listings")
     if relationships_written:
         parts.append(f"{relationships_written} relationships")
+    events_resolved = event.get("events_resolved", 0)
+    securities_deactivated = event.get("securities_deactivated", 0)
+    if events_resolved:
+        parts.append(f"{events_resolved} events resolved")
+    if securities_deactivated:
+        parts.append(f"{securities_deactivated} securities deactivated")
     if parts:
         blocks.append({
             "type": "context",

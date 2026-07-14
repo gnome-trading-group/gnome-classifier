@@ -44,8 +44,7 @@ import voyageai
 from gnomepy.registry import RegistryClient
 
 from classifier.cache import RedisClassifierCache, S3ClassifierCache
-from classifier.client import BatchAnthropicClient, ModelRateLimit
-from classifier.constants import DEFAULT_RATE_LIMITS
+from classifier.client import BatchAnthropicClient
 from classifier.db import ClassifierDB
 from classifier.stages.classify import classify_relationships
 from classifier.stages.entities import create_entities
@@ -68,10 +67,8 @@ def main(adapter: str | None, no_classify: bool, with_judgment: bool) -> None:
         base_url=os.environ["REGISTRY_API_URL"],
         api_key=os.environ["REGISTRY_API_KEY"],
     )
-    _rate_limits = {k: ModelRateLimit(**v) for k, v in DEFAULT_RATE_LIMITS.items()}
     batch_client = BatchAnthropicClient(
         client=anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"]),
-        rate_limits=_rate_limits,
     )
     voyage_client = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"])
     redis_url = os.environ.get("REDIS_URL")

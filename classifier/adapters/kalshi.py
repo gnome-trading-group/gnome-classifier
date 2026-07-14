@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -26,6 +27,50 @@ class KalshiAdapter:
         for event in events:
             contracts.extend(self._map_event(exchange_id, event))
         return contracts
+
+    def fetch_resolved(self, exchange_id: ExchangeId, lookback_days: int) -> set[str]:
+        events = self._fetch_settled_events(lookback_days)
+        resolved: set[str] = set()
+        for event in events:
+            markets = event.get("markets", [])
+            is_multi = event.get("mutually_exclusive", False) and len(markets) > 1
+            for market in markets:
+                ticker = market.get("ticker", "")
+                if not ticker:
+                    continue
+                if is_multi:
+                    resolved.add(ticker)
+                else:
+                    resolved.add(f"{ticker}:yes")
+                    resolved.add(f"{ticker}:no")
+        return resolved
+
+    def _fetch_settled_events(self, lookback_days: int) -> list[dict]:
+        min_ts = int((datetime.now(timezone.utc) - timedelta(days=lookback_days)).timestamp())
+        events: list[dict] = []
+        cursor = ""
+        while True:
+            params: dict = {
+                "with_nested_markets": "true",
+                "status": "settled",
+                "min_close_ts": min_ts,
+                "limit": PAGE_SIZE,
+            }
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                res = requests.get(f"{BASE_URL}/events", params=params, timeout=30)
+                res.raise_for_status()
+                data = res.json()
+            except Exception as e:
+                logger.error("Kalshi settled API error: %s", e)
+                break
+            page = data.get("events", [])
+            events.extend(page)
+            cursor = data.get("cursor", "")
+            if not cursor:
+                break
+        return events
 
     def _fetch_active_events(self) -> list[dict]:
         events: list[dict] = []

@@ -52,6 +52,16 @@ class HyperliquidAdapter:
         questions = data.get("questions", [])
         return self._map_all(exchange_id, outcomes, questions)
 
+    def fetch_resolved(self, exchange_id: ExchangeId, lookback_days: int) -> set[str]:
+        data = self._fetch_outcome_meta()
+        resolved: set[str] = set()
+        for question in data.get("questions", []):
+            for oid in question.get("settledNamedOutcomes", []):
+                resolved.add(f"@{oid}")
+                resolved.add(f"@{oid}:0")
+                resolved.add(f"@{oid}:1")
+        return resolved
+
     def _fetch_outcome_meta(self) -> dict:
         try:
             res = requests.post(BASE_URL, json={"type": "outcomeMeta"}, timeout=30)

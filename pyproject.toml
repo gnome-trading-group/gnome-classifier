@@ -6,7 +6,7 @@ packages = [{include = "classifier"}, {include = "scripts"}]
 
 [tool.poetry.dependencies]
 python = ">=3.13,<3.14"
-gnomepy = "^2.3.3"
+gnomepy = "^2.4.0"
 boto3 = "*"
 anthropic = "*"
 voyageai = "*"

@@ -48,8 +48,8 @@ For each event below, generate:
 Events:
 {event_lines}
 
-Respond with a JSON array in the same order, one object per event:
-[{{"title": "...", "category": "...", "tags": ["..."]}}, ...]"""
+Respond with a JSON array, one object per event, echoing the input number as "id":
+[{{"id": 1, "title": "...", "category": "...", "tags": ["..."]}}, ...]"""
 
 
 def canonicalize_events(
@@ -101,30 +101,34 @@ def canonicalize_events(
     for i, chunk in enumerate(chunks):
         custom_id = f"canon_{i}"
         response = responses.get(custom_id)
-        parsed_chunk: list | None = None
+        by_id: dict[int, dict] = {}
 
         if response is not None:
             try:
                 parsed = _parse_response(response)
-                if isinstance(parsed, list) and len(parsed) == len(chunk):
-                    parsed_chunk = parsed
-                else:
-                    logger.warning(
-                        "Chunk %d returned wrong length (expected %d, got %d) stop_reason=%s",
-                        i, len(chunk), len(parsed) if isinstance(parsed, list) else -1, response.stop_reason,
-                    )
+                if isinstance(parsed, list):
+                    for item in parsed:
+                        if isinstance(item, dict) and isinstance(item.get("id"), int):
+                            by_id[item["id"]] = item
             except Exception as e:
                 raw = response.content[0].text if response.content else "<empty>"
                 logger.warning("Chunk %d parse failed: %s raw=%r", i, e, raw[:500])
 
-        if parsed_chunk is not None:
-            for j, ev in enumerate(chunk):
-                result = _parse_canonical_result(parsed_chunk[j], ev.raw_title)
+        missed: list[CanonicalizeInput] = []
+        for j, ev in enumerate(chunk):
+            item = by_id.get(j + 1)
+            if item is not None:
+                result = _parse_canonical_result(item, ev.raw_title)
                 results[(ev.exchange_id, ev.native_id)] = result
                 if cache is not None:
                     cache.put_canonicalization(CANONICALIZE_MODEL, ev.exchange_id, ev.native_id, result)
-        else:
-            for ev in chunk:
+            else:
+                missed.append(ev)
+
+        if missed:
+            logger.warning("Chunk %d: %d/%d matched, retrying %d individually",
+                           i, len(chunk) - len(missed), len(chunk), len(missed))
+            for ev in missed:
                 result = _canonicalize_single(batch_client._client, ev.raw_title, ev.description, ev.category)
                 if result is None:
                     continue

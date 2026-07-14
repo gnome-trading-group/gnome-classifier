@@ -10,7 +10,4 @@ DEDUP_EXPIRY_TOLERANCE_HOURS = 1
 
 MIN_CONFIDENCE = 0.70
 
-DEFAULT_RATE_LIMITS = {
-    "claude-haiku-4-5-20251001": {"input_tpm": 10_000_000, "output_tpm": 2_000_000},
-    "claude-sonnet-4-6": {"input_tpm": 10_000_000, "output_tpm": 2_000_000},
-}
+RESOLUTION_LOOKBACK_DAYS = 3

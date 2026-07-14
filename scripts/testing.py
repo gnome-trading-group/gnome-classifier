@@ -168,6 +168,7 @@ class StubRegistry(RegistryClient):
                 "exchange_id": item["exchange_id"],
                 "exchange_security_id": item.get("exchange_security_id"),
                 "exchange_security_symbol": item.get("exchange_security_symbol"),
+                "active": item.get("active", True),
                 "date_modified": "",
                 "date_created": "",
             }
@@ -250,6 +251,54 @@ class StubRegistry(RegistryClient):
                 return dataclasses.asdict(updated)
         return {}
 
+    def patch_event(self, event_id: int, **kwargs) -> dict:
+        for i, ev in enumerate(self._events):
+            if ev.event_id == event_id:
+                updated = dataclasses.replace(ev, **kwargs)
+                self._events[i] = updated
+                return dataclasses.asdict(updated)
+        return {}
+
+    def patch_security(self, security_id: int, **kwargs) -> dict:
+        for i, s in enumerate(self._securities):
+            if s.security_id == security_id:
+                updated = dataclasses.replace(s, **kwargs)
+                self._securities[i] = updated
+                return dataclasses.asdict(updated)
+        return {}
+
+    def patch_listing(self, listing_id: int, **kwargs) -> dict:
+        for i, l in enumerate(self._listings):
+            if l.listing_id == listing_id:
+                updated = dataclasses.replace(l, **kwargs)
+                self._listings[i] = updated
+                return dataclasses.asdict(updated)
+        return {}
+
+    def bulk_patch_events(self, items: list[dict]) -> list[dict]:
+        results = []
+        for item in items:
+            event_id = item["event_id"]
+            kwargs = {k: v for k, v in item.items() if k != "event_id"}
+            results.append(self.patch_event(event_id, **kwargs))
+        return results
+
+    def bulk_patch_securities(self, items: list[dict]) -> list[dict]:
+        results = []
+        for item in items:
+            security_id = item["security_id"]
+            kwargs = {k: v for k, v in item.items() if k != "security_id"}
+            results.append(self.patch_security(security_id, **kwargs))
+        return results
+
+    def bulk_patch_listings(self, items: list[dict]) -> list[dict]:
+        results = []
+        for item in items:
+            listing_id = item["listing_id"]
+            kwargs = {k: v for k, v in item.items() if k != "listing_id"}
+            results.append(self.patch_listing(listing_id, **kwargs))
+        return results
+
     def _post(self, path: str, body: dict) -> dict:
         if path == "/currencies":
             currency_id = self._alloc_id()
@@ -299,7 +348,12 @@ class StubDB:
         return None
 
     def get_all_exchange_events(self) -> dict[tuple[int, str], int]:
-        return {(ee.exchange_id, ee.native_event_id): ee.event_id for ee in self._r._exchange_events}
+        resolved_ids = {ev.event_id for ev in self._r._events if ev.resolved}
+        return {
+            (ee.exchange_id, ee.native_event_id): ee.event_id
+            for ee in self._r._exchange_events
+            if ee.event_id not in resolved_ids
+        }
 
     def get_events(self, event_ids: list[int]) -> dict[int, dict]:
         return {
@@ -319,7 +373,7 @@ class StubDB:
         return {s.symbol: s.security_id for s in self._r._securities if s.symbol in sym_set}
 
     def get_all_security_ids(self) -> set[int]:
-        return {s.security_id for s in self._r._securities}
+        return {s.security_id for s in self._r._securities if s.active}
 
     def get_existing_listings(self, keys: list[tuple[int, str]]) -> dict[tuple[int, str], int]:
         key_set = set(keys)
@@ -344,10 +398,39 @@ class StubDB:
         return self._r.get_event(resolved=False)
 
     def get_all_event_contracts(self) -> list[EventContract]:
-        return self._r.get_event_contracts()
+        resolved_ids = {ev.event_id for ev in self._r._events if ev.resolved}
+        return [ec for ec in self._r._event_contracts if ec.event_id not in resolved_ids]
 
     def get_all_securities(self) -> list[Security]:
-        return self._r.get_security()
+        return [s for s in self._r._securities if s.active]
+
+    def get_securities_with_active_listings(self, security_ids: list[int]) -> set[int]:
+        sid_set = set(security_ids)
+        return {
+            l.security_id for l in self._r._listings
+            if l.security_id in sid_set and l.active
+        }
+
+    def get_active_listings_by_exchange_security(
+        self, exchange_id: int, exchange_security_ids: list[str],
+    ) -> list[tuple[int, int, str]]:
+        id_set = set(exchange_security_ids)
+        return [
+            (l.listing_id, l.security_id, l.exchange_security_id)
+            for l in self._r._listings
+            if l.exchange_id == exchange_id
+            and l.exchange_security_id in id_set
+            and l.active
+        ]
+
+    def get_event_ids_for_security(self, security_id: int) -> list[int]:
+        return [ec.event_id for ec in self._r._event_contracts if ec.security_id == security_id]
+
+    def get_active_security_count_for_event(self, event_id: int) -> int:
+        security_ids = {
+            ec.security_id for ec in self._r._event_contracts if ec.event_id == event_id
+        }
+        return sum(1 for s in self._r._securities if s.security_id in security_ids and s.active)
 
     def get_all_currencies(self) -> list[Currency]:
         return self._r.get_currency()

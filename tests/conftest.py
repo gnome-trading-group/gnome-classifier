@@ -53,7 +53,7 @@ def mock_anthropic():
         return mock_response
 
     inner.messages.create.side_effect = _fake_create
-    return BatchAnthropicClient(client=inner)
+    return BatchAnthropicClient(client=inner, max_batch_wait=0)
 
 
 @pytest.fixture
