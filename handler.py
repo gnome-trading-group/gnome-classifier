@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import logging
 import os
@@ -9,13 +10,17 @@ import boto3
 import voyageai
 
 import classifier.constants as constants
+from classifier.adapters.types import AdapterContract
 from classifier.cache import RedisClassifierCache
-from classifier.client import BatchAnthropicClient
+from classifier.client import BatchAnthropicClient, BatchVoyageClient
 from classifier.db import ClassifierDB
-from classifier.stages.classify import classify_relationships
-from classifier.stages.entities import create_entities
+from classifier.pipeline import embed_and_update, fetch_exchanges
+from classifier.stages.canonicalize import parse_canon_results, prepare_canon_batch
+from classifier.stages.classify import classify_structural, prepare_semantic_batch, process_semantic_results
+from classifier.stages.entities import create_entities_from_canonical, prepare_canonicalization_inputs
 from classifier.stages.fetch import fetch_all, fetch_resolved_outcomes
 from classifier.stages.resolve import detect_resolved_events
+from classifier.types import EntityResult
 from gnomepy.registry import RegistryClient
 
 logger = logging.getLogger(__name__)
@@ -53,7 +58,7 @@ def _init_clients():
     )
     anthropic_client = anthropic.Anthropic(api_key=anthropic_api_key)
     batch_client = BatchAnthropicClient(client=anthropic_client)
-    voyage_client = voyageai.Client(api_key=voyage_api_key)
+    voyage_client = BatchVoyageClient(client=voyageai.Client(api_key=voyage_api_key))
     cache = RedisClassifierCache(redis_url=os.environ["REDIS_ENDPOINT"])
     db = ClassifierDB(dsn=_build_dsn())
     return registry, batch_client, voyage_client, cache, db
@@ -66,7 +71,28 @@ def _get_clients():
     return _clients
 
 
-def fetch_and_create_entities(event, context):
+def _entity_result_to_dict(entity_result: EntityResult) -> dict:
+    return {
+        **entity_result.counts,
+        "new_security_ids": entity_result.new_security_ids,
+        "new_security_symbols": entity_result.new_security_symbols,
+        "has_new_entities": entity_result.has_new_entities,
+    }
+
+
+def _serialize_cached_results(cached_results: dict) -> dict:
+    return {f"{nk[0]}:{nk[1]}": v for nk, v in cached_results.items()}
+
+
+def _deserialize_cached_results(serialized: dict) -> dict:
+    result = {}
+    for key, v in serialized.items():
+        parts = key.split(":", 1)
+        result[(int(parts[0]), parts[1])] = v
+    return result
+
+
+def fetch_and_prepare(event, context):
     logging.basicConfig(level=logging.INFO)
 
     state_machine_arn = os.environ.get("STATE_MACHINE_ARN")
@@ -79,32 +105,14 @@ def fetch_and_create_entities(event, context):
         )
         if len(running["executions"]) > 1:
             logger.info("Another execution is already running, skipping this invocation")
-            return {
-                "events_created": 0,
-                "securities_created": 0,
-                "listings_created": 0,
-                "event_contracts_created": 0,
-                "listing_specs_created": 0,
-                "new_security_ids": [],
-                "new_security_symbols": [],
-                "has_new_entities": False,
-            }
+            return {"has_new_contracts": False, "contracts": []}
 
     registry, batch_client, voyage_client, cache, db = _get_clients()
 
-    exchanges = registry.get_exchange()
-    exchange_by_name = {e.exchange_name.lower(): e for e in exchanges}
+    exchange_by_name = fetch_exchanges(registry)
     contracts, failed_adapters = fetch_all(exchange_by_name)
     if failed_adapters:
         logger.warning("Adapter fetch failures: %s", failed_adapters)
-
-    entity_result = create_entities(
-        registry, batch_client, contracts, cache=cache, db=db,
-    )
-
-    new_security_ids = entity_result.pop("new_security_ids")
-    new_security_symbols = entity_result.pop("new_security_symbols")
-    logger.info("Entity stage complete: %s", entity_result)
 
     lookback_days = int(os.environ.get("RESOLUTION_LOOKBACK_DAYS", constants.RESOLUTION_LOOKBACK_DAYS))
     resolved_by_exchange, failed_resolve = fetch_resolved_outcomes(exchange_by_name, lookback_days=lookback_days)
@@ -113,29 +121,144 @@ def fetch_and_create_entities(event, context):
     resolution_result = detect_resolved_events(resolved_by_exchange, registry, db)
     logger.info("Resolution stage complete: %s", resolution_result)
 
+    contracts_json = [dataclasses.asdict(c) for c in contracts]
     return {
-        **entity_result,
+        "has_new_contracts": len(contracts_json) > 0,
+        "contracts": contracts_json,
         **resolution_result,
-        "new_security_ids": new_security_ids,
-        "new_security_symbols": new_security_symbols,
-        "has_new_entities": len(new_security_ids) > 0,
     }
 
 
-def classify_relationships_handler(event, context):
+def submit_canon_handler(event, context):
+    logging.basicConfig(level=logging.INFO)
+    registry, batch_client, voyage_client, cache, db = _get_clients()
+
+    contracts = [AdapterContract(**c) for c in event["contracts"]]
+    events_to_canon, entity_ctx = prepare_canonicalization_inputs(contracts, cache, db)
+    api_requests, canon_context, cached_results = prepare_canon_batch(events_to_canon, cache)
+    result = batch_client.submit_batch(api_requests)
+
+    if result.is_complete:
+        canonical = parse_canon_results(result.responses, canon_context, cache, batch_client._client)
+        canonical.update(cached_results)
+        entity_result = create_entities_from_canonical(registry, canonical, entity_ctx, contracts, cache=cache, db=db)
+        entity_result = embed_and_update(voyage_client, entity_result, db)
+        logger.info("Canon sync complete: %s", entity_result.counts)
+        return {"batch_complete": True, **_entity_result_to_dict(entity_result)}
+
+    return {
+        "batch_complete": False,
+        "batch_id": result.batch_id,
+        "canon_context": canon_context,
+        "cached_results": _serialize_cached_results(cached_results),
+        "contracts": event["contracts"],
+    }
+
+
+def check_batch_handler(event, context):
+    logging.basicConfig(level=logging.INFO)
+    _, batch_client, _, _, _ = _get_clients()
+
+    batch_id = event.get("batch_id")
+    poll_count = event.get("poll_count", 0) + 1
+
+    if batch_id is None:
+        return {**event, "batch_complete": True, "poll_count": poll_count}
+
+    status = batch_client.check_batch(batch_id)
+    batch_complete = status == "ended" or poll_count >= 60
+
+    logger.info("Batch %s status=%s poll=%d complete=%s", batch_id, status, poll_count, batch_complete)
+
+    return {**event, "batch_complete": batch_complete, "poll_count": poll_count}
+
+
+def collect_canon_handler(event, context):
+    logging.basicConfig(level=logging.INFO)
+    registry, batch_client, voyage_client, cache, db = _get_clients()
+
+    contracts = [AdapterContract(**c) for c in event["contracts"]]
+    batch_id = event["batch_id"]
+    canon_context = event["canon_context"]
+    cached_results = _deserialize_cached_results(event["cached_results"])
+
+    responses = batch_client.collect_batch_results(batch_id)
+    events_to_canon, entity_ctx = prepare_canonicalization_inputs(contracts, cache, db)
+    canonical = parse_canon_results(responses, canon_context, cache, batch_client._client)
+    canonical.update(cached_results)
+    entity_result = create_entities_from_canonical(registry, canonical, entity_ctx, contracts, cache=cache, db=db)
+    entity_result = embed_and_update(voyage_client, entity_result, db)
+    logger.info("Canon batch complete: %s", entity_result.counts)
+    return _entity_result_to_dict(entity_result)
+
+
+def classify_structural_handler(event, context):
+    logging.basicConfig(level=logging.INFO)
+    registry, batch_client, voyage_client, cache, db = _get_clients()
+
+    new_security_ids = event.get("new_security_ids", [])
+    skip_semantic = event.get("skip_semantic", True)
+
+    result = classify_structural(registry, new_security_ids, db=db)
+    logger.info("Structural classification complete: %s", result)
+
+    return {
+        **result,
+        "needs_semantic": not skip_semantic,
+        "new_security_ids": new_security_ids,
+    }
+
+
+def submit_semantic_batch_handler(event, context):
     logging.basicConfig(level=logging.INFO)
     registry, batch_client, voyage_client, cache, db = _get_clients()
 
     new_security_ids = event.get("new_security_ids", [])
 
-    result = classify_relationships(
-        registry, batch_client, voyage_client,
-        new_security_ids=new_security_ids,
-        cache=cache,
-        db=db,
+    api_requests, pending_context, cached_results = prepare_semantic_batch(
+        new_security_ids, cache=cache, db=db,
+    )
+    result = batch_client.submit_batch(api_requests)
+
+    if result.is_complete:
+        responses = result.responses
+        semantic_result = process_semantic_results(
+            registry, responses, pending_context, cached_results,
+            new_security_ids, cache=cache, db=db,
+        )
+        logger.info("Semantic sync complete: %s", semantic_result)
+        return {"batch_complete": True, **semantic_result}
+
+    batch_id = result.batch_id
+    logger.info("Submitted semantic batch %s with %d requests", batch_id, len(api_requests))
+    return {
+        "batch_complete": False,
+        "batch_id": batch_id,
+        "pending_context": pending_context,
+        "cached_results": cached_results,
+        "new_security_ids": new_security_ids,
+    }
+
+
+def collect_semantic_results_handler(event, context):
+    logging.basicConfig(level=logging.INFO)
+    registry, batch_client, voyage_client, cache, db = _get_clients()
+
+    batch_id = event.get("batch_id")
+    pending_context = event.get("pending_context", [])
+    cached_results = event.get("cached_results", [])
+    new_security_ids = event.get("new_security_ids", [])
+
+    responses = {}
+    if batch_id is not None:
+        responses = batch_client.collect_batch_results(batch_id)
+
+    result = process_semantic_results(
+        registry, responses, pending_context, cached_results, new_security_ids,
+        cache=cache, db=db,
     )
 
-    logger.info("Classification complete: %s", result)
+    logger.info("Semantic classification complete: %s", result)
     return result
 
 

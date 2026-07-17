@@ -32,8 +32,8 @@ def _make_contract(title: str, outcome: str, exchange_id: int = 1) -> AdapterCon
 
 def test_create_entities_empty(stub_registry, stub_db, mock_anthropic):
     result = create_entities(stub_registry, mock_anthropic, [], db=stub_db)
-    assert result["events_created"] == 0
-    assert result["securities_created"] == 0
+    assert result.events_created == 0
+    assert result.securities_created == 0
 
 
 def test_create_entities_new_event(stub_registry, stub_db, mock_anthropic):
@@ -42,11 +42,11 @@ def test_create_entities_new_event(stub_registry, stub_db, mock_anthropic):
         _make_contract("Will BTC hit 100k?", "No"),
     ]
     result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
-    assert result["events_created"] == 1
-    assert result["securities_created"] == 2
-    assert result["listings_created"] == 2
-    assert result["event_contracts_created"] == 2
-    assert len(result["new_security_ids"]) == 2
+    assert result.events_created == 1
+    assert result.securities_created == 2
+    assert result.listings_created == 2
+    assert result.event_contracts_created == 2
+    assert len(result.new_security_ids) == 2
 
 
 def test_create_entities_dedup_same_event(stub_registry, stub_db, mock_anthropic):
@@ -57,6 +57,6 @@ def test_create_entities_dedup_same_event(stub_registry, stub_db, mock_anthropic
         _make_contract("Will BTC hit 100k?", "No", exchange_id=2),
     ]
     result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
-    assert result["events_created"] == 1
-    assert result["securities_created"] == 2
-    assert result["listings_created"] == 4
+    assert result.events_created == 1
+    assert result.securities_created == 2
+    assert result.listings_created == 4

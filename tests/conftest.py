@@ -92,7 +92,6 @@ def make_event(event_id: int, title: str, category: str = "POLITICS", expiry: st
         title=title,
         description=None,
         category=category,
-        resolution_source=None,
         tags=None,
         resolved=False,
         resolved_at=None,

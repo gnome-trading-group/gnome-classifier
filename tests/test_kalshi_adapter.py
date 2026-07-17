@@ -136,26 +136,26 @@ def kalshi_exchange():
 def test_entity_creation_binary(stub_registry, stub_db, mock_anthropic, kalshi_exchange):
     contracts = _map("KXELONMARS-99")
     result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
-    assert result["events_created"] == 1
-    assert result["securities_created"] == 2
-    assert result["listings_created"] == 2
-    assert result["event_contracts_created"] == 2
+    assert result.events_created == 1
+    assert result.securities_created == 2
+    assert result.listings_created == 2
+    assert result.event_contracts_created == 2
 
 
 def test_entity_creation_multi_outcome(stub_registry, stub_db, mock_anthropic, kalshi_exchange):
     contracts = _map("KXNEWPOPE-70")
     result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
-    assert result["events_created"] == 1
-    assert result["securities_created"] == 7
-    assert result["listings_created"] == 7
-    assert result["event_contracts_created"] == 7
+    assert result.events_created == 1
+    assert result.securities_created == 7
+    assert result.listings_created == 7
+    assert result.event_contracts_created == 7
 
 
 def test_entity_creation_sub_markets(stub_registry, stub_db, mock_anthropic, kalshi_exchange):
     contracts = _map("KXRAMPBREX-40")
     result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
     # 2 sub-events → 2 events, each with Yes+No → 4 securities
-    assert result["events_created"] == 2
-    assert result["securities_created"] == 4
-    assert result["listings_created"] == 4
-    assert result["event_contracts_created"] == 4
+    assert result.events_created == 2
+    assert result.securities_created == 4
+    assert result.listings_created == 4
+    assert result.event_contracts_created == 4

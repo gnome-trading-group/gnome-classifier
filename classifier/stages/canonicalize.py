@@ -52,18 +52,23 @@ Respond with a JSON array, one object per event, echoing the input number as "id
 [{{"id": 1, "title": "...", "category": "...", "tags": ["..."]}}, ...]"""
 
 
-def canonicalize_events(
-    batch_client: BatchAnthropicClient,
+def prepare_canon_batch(
     events: list[CanonicalizeInput],
     cache: ClassifierCache | None = None,
-) -> dict[NativeKey, dict[str, Any]]:
-    """Canonicalize a list of CanonicalizeInput records.
-    Returns a mapping from (exchange_id, native_id) to {"title", "category", "tags"}."""
-    results: dict[NativeKey, dict] = {}
-    if not events:
-        return results
+) -> tuple[list[dict], list[dict], dict[NativeKey, dict]]:
+    """Separate cached events and build API requests for uncached ones.
 
+    Returns:
+      api_requests: request dicts for batch_client.submit_batch / create_messages
+      canon_context: JSON-serializable chunk metadata list (for parse_canon_results)
+      cached_results: dict[NativeKey, dict] for cache hits
+    """
+    if not events:
+        return [], [], {}
+
+    cached_results: dict[NativeKey, dict] = {}
     uncached: list[CanonicalizeInput] = []
+
     if cache is not None:
         cached_bulk = cache.get_canonicalization_bulk(
             CANONICALIZE_MODEL, [(ev.exchange_id, ev.native_id) for ev in events]
@@ -71,20 +76,17 @@ def canonicalize_events(
         for ev in events:
             cached = cached_bulk.get((ev.exchange_id, ev.native_id))
             if cached is not None:
-                results[(ev.exchange_id, ev.native_id)] = cached
+                cached_results[(ev.exchange_id, ev.native_id)] = cached
             else:
                 uncached.append(ev)
-        logger.info("canonicalize: %d cache hits, %d to call Claude", len(cached_bulk), len(uncached))
+        logger.info("prepare_canon_batch: %d cache hits, %d to call Claude", len(cached_results), len(uncached))
     else:
         uncached = list(events)
-        logger.info("canonicalize: no cache, %d to call Claude", len(uncached))
+        logger.info("prepare_canon_batch: no cache, %d to call Claude", len(uncached))
 
-    chunks: list[list[CanonicalizeInput]] = [
-        uncached[i:i + CANONICALIZE_BATCH_SIZE]
-        for i in range(0, len(uncached), CANONICALIZE_BATCH_SIZE)
-    ]
+    chunks = [uncached[i:i + CANONICALIZE_BATCH_SIZE] for i in range(0, len(uncached), CANONICALIZE_BATCH_SIZE)]
 
-    requests = [
+    api_requests = [
         {
             "custom_id": f"canon_{i}",
             "params": {
@@ -96,10 +98,41 @@ def canonicalize_events(
         for i, chunk in enumerate(chunks)
     ]
 
-    responses = batch_client.create_messages(requests)
+    canon_context = [
+        {
+            "custom_id": f"canon_{i}",
+            "events": [
+                {
+                    "raw_title": ev.raw_title,
+                    "description": ev.description,
+                    "category": ev.category,
+                    "exchange_id": ev.exchange_id,
+                    "native_id": ev.native_id,
+                }
+                for ev in chunk
+            ],
+        }
+        for i, chunk in enumerate(chunks)
+    ]
 
-    for i, chunk in enumerate(chunks):
-        custom_id = f"canon_{i}"
+    return api_requests, canon_context, cached_results
+
+
+def parse_canon_results(
+    responses: dict,
+    canon_context: list[dict],
+    cache: ClassifierCache | None,
+    anthropic_client: Any,
+) -> dict[NativeKey, dict]:
+    """Parse batch API responses using canon_context. Retries missed items individually.
+
+    Returns dict[NativeKey, dict] for uncached events only — caller merges cached_results.
+    """
+    results: dict[NativeKey, dict] = {}
+
+    for chunk_info in canon_context:
+        custom_id = chunk_info["custom_id"]
+        chunk_events = chunk_info["events"]
         response = responses.get(custom_id)
         by_id: dict[int, dict] = {}
 
@@ -112,39 +145,61 @@ def canonicalize_events(
                             by_id[item["id"]] = item
             except Exception as e:
                 raw = response.content[0].text if response.content else "<empty>"
-                logger.warning("Chunk %d parse failed: %s raw=%r", i, e, raw[:500])
+                logger.warning("Chunk %s parse failed: %s raw=%r", custom_id, e, raw[:500])
 
-        missed: list[CanonicalizeInput] = []
-        for j, ev in enumerate(chunk):
+        missed: list[dict] = []
+        for j, ev_info in enumerate(chunk_events):
+            nk: NativeKey = (ev_info["exchange_id"], ev_info["native_id"])
             item = by_id.get(j + 1)
             if item is not None:
-                result = _parse_canonical_result(item, ev.raw_title)
-                results[(ev.exchange_id, ev.native_id)] = result
+                result = _parse_canonical_result(item, ev_info["raw_title"])
+                results[nk] = result
                 if cache is not None:
-                    cache.put_canonicalization(CANONICALIZE_MODEL, ev.exchange_id, ev.native_id, result)
+                    cache.put_canonicalization(CANONICALIZE_MODEL, nk[0], nk[1], result)
             else:
-                missed.append(ev)
+                missed.append(ev_info)
 
         if missed:
-            logger.warning("Chunk %d: %d/%d matched, retrying %d individually",
-                           i, len(chunk) - len(missed), len(chunk), len(missed))
-            for ev in missed:
-                result = _canonicalize_single(batch_client._client, ev.raw_title, ev.description, ev.category)
+            logger.warning("Chunk %s: %d/%d matched, retrying %d individually",
+                           custom_id, len(chunk_events) - len(missed), len(chunk_events), len(missed))
+            for ev_info in missed:
+                nk = (ev_info["exchange_id"], ev_info["native_id"])
+                result = _canonicalize_single(
+                    anthropic_client, ev_info["raw_title"],
+                    ev_info.get("description"), ev_info.get("category"),
+                )
                 if result is None:
                     continue
-                results[(ev.exchange_id, ev.native_id)] = result
+                results[nk] = result
                 if cache is not None:
-                    cache.put_canonicalization(CANONICALIZE_MODEL, ev.exchange_id, ev.native_id, result)
+                    cache.put_canonicalization(CANONICALIZE_MODEL, nk[0], nk[1], result)
 
-    failed = len(events) - len(results)
+    uncached_total = sum(len(c["events"]) for c in canon_context)
+    failed = uncached_total - len(results)
     if failed > 0:
-        logger.warning("canonicalize: %d events failed canonicalization, will retry next run", failed)
+        logger.warning("parse_canon_results: %d events failed, will retry next run", failed)
 
     return results
 
 
+def canonicalize_events(
+    batch_client: BatchAnthropicClient,
+    events: list[CanonicalizeInput],
+    cache: ClassifierCache | None = None,
+) -> dict[NativeKey, dict[str, Any]]:
+    """Canonicalize a list of CanonicalizeInput records.
+    Returns a mapping from (exchange_id, native_id) to {"title", "category", "tags"}."""
+    if not events:
+        return {}
+    api_requests, canon_context, cached_results = prepare_canon_batch(events, cache)
+    responses = batch_client.create_messages(api_requests)
+    results = parse_canon_results(responses, canon_context, cache, batch_client._client)
+    results.update(cached_results)
+    return results
+
+
 def _canonicalize_single(
-    client,
+    client: Any,
     raw_title: str,
     description: str | None,
     exchange_category: str | None,

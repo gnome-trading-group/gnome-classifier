@@ -71,6 +71,7 @@ class StubRegistry(RegistryClient):
         self._exchange_events: list[ExchangeEvent] = []
         self._contract_relationships: list[ContractRelationship] = []
         self._currencies: list[Currency] = []
+        self._hedge_keywords: list[tuple[int, str]] = []
 
     def _alloc_id(self) -> int:
         i = self._next_id
@@ -119,7 +120,6 @@ class StubRegistry(RegistryClient):
                 "title": item.get("title", ""),
                 "description": item.get("description"),
                 "category": item.get("category"),
-                "resolution_source": None,
                 "tags": item.get("tags"),
                 "resolved": False,
                 "resolved_at": None,
@@ -235,8 +235,6 @@ class StubRegistry(RegistryClient):
                 "relationship_type": item["relationship_type"],
                 "confidence": item["confidence"],
                 "method": item["method"],
-                "reviewed": False,
-                "reviewed_at": None,
                 "date_created": "",
             }
             self._contract_relationships.append(ContractRelationship(**d))
@@ -411,6 +409,33 @@ class StubDB:
             if l.security_id in sid_set and l.active
         }
 
+    def get_all_active_listings(self) -> list:
+        return [l for l in self._r._listings if l.active]
+
+    def get_event_ids_for_securities(self, security_ids: list[int]) -> set[int]:
+        sid_set = set(security_ids)
+        resolved_ids = {ev.event_id for ev in self._r._events if ev.resolved}
+        return {
+            ec.event_id for ec in self._r._event_contracts
+            if ec.security_id in sid_set and ec.event_id not in resolved_ids
+        }
+
+    def get_event_contracts_for_events(self, event_ids: list[int]) -> list:
+        id_set = set(event_ids)
+        resolved_ids = {ev.event_id for ev in self._r._events if ev.resolved}
+        return [
+            ec for ec in self._r._event_contracts
+            if ec.event_id in id_set and ec.event_id not in resolved_ids
+        ]
+
+    def get_events_for_ids(self, event_ids: list[int]) -> list:
+        id_set = set(event_ids)
+        return [ev for ev in self._r._events if ev.event_id in id_set]
+
+    def get_tradeable_securities(self) -> list:
+        from gnomepy.registry.types import SecurityType
+        return [s for s in self._r._securities if s.active and s.type != SecurityType.EVENT_CONTRACT]
+
     def get_active_listings_by_exchange_security(
         self, exchange_id: int, exchange_security_ids: list[str],
     ) -> list[tuple[int, int, str]]:
@@ -459,3 +484,13 @@ class StubDB:
 
     def put_embeddings(self, embeddings: dict[int, list[float]]) -> None:
         self._embeddings.update(embeddings)
+
+    def get_events_without_embeddings(self) -> list[Event]:
+        return [ev for ev in self._r._events if not ev.resolved and ev.event_id not in self._embeddings]
+
+    def get_security_ids_for_events(self, event_ids: list[int]) -> set[int]:
+        id_set = set(event_ids)
+        return {ec.security_id for ec in self._r._event_contracts if ec.event_id in id_set}
+
+    def get_hedge_keywords(self) -> list[tuple[int, str]]:
+        return list(self._r._hedge_keywords)

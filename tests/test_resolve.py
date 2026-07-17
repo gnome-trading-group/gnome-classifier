@@ -65,7 +65,6 @@ def _seed_event(registry: StubRegistry, event_id: int, title: str = "Test Event"
         title=title,
         description=None,
         category=None,
-        resolution_source=None,
         tags=None,
         resolved=False,
         resolved_at=None,

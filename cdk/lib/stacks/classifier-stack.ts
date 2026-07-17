@@ -101,7 +101,7 @@ export class ClassifierStack extends cdk.Stack {
 
     const fetchLambda = new lambda.DockerImageFunction(this, 'fetch-lambda', {
       code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
-        cmd: ['handler.fetch_and_create_entities'],
+        cmd: ['handler.fetch_and_prepare'],
       }),
       timeout: cdk.Duration.minutes(10),
       memorySize: 2048,
@@ -109,11 +109,62 @@ export class ClassifierStack extends cdk.Stack {
       ...vpcConfig,
     });
 
-    const classifyLambda = new lambda.DockerImageFunction(this, 'classify-lambda', {
+    const submitCanonLambda = new lambda.DockerImageFunction(this, 'submit-canon-lambda', {
       code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
-        cmd: ['handler.classify_relationships_handler'],
+        cmd: ['handler.submit_canon_handler'],
+      }),
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 2048,
+      environment: registryEnvironment,
+      ...vpcConfig,
+    });
+
+    // Generic check-batch lambda reused for both canon and semantic poll loops
+    const checkBatchLambda = new lambda.DockerImageFunction(this, 'check-batch-lambda', {
+      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
+        cmd: ['handler.check_batch_handler'],
+      }),
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+      environment: registryEnvironment,
+      ...vpcConfig,
+    });
+
+    const collectCanonLambda = new lambda.DockerImageFunction(this, 'collect-canon-lambda', {
+      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
+        cmd: ['handler.collect_canon_handler'],
       }),
       timeout: cdk.Duration.minutes(10),
+      memorySize: 2048,
+      environment: registryEnvironment,
+      ...vpcConfig,
+    });
+
+    const classifyStructuralLambda = new lambda.DockerImageFunction(this, 'classify-structural-lambda', {
+      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
+        cmd: ['handler.classify_structural_handler'],
+      }),
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 2048,
+      environment: registryEnvironment,
+      ...vpcConfig,
+    });
+
+    const submitSemanticLambda = new lambda.DockerImageFunction(this, 'submit-semantic-lambda', {
+      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
+        cmd: ['handler.submit_semantic_batch_handler'],
+      }),
+      timeout: cdk.Duration.minutes(2),
+      memorySize: 2048,
+      environment: registryEnvironment,
+      ...vpcConfig,
+    });
+
+    const collectSemanticLambda = new lambda.DockerImageFunction(this, 'collect-semantic-lambda', {
+      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
+        cmd: ['handler.collect_semantic_results_handler'],
+      }),
+      timeout: cdk.Duration.minutes(5),
       memorySize: 2048,
       environment: registryEnvironment,
       ...vpcConfig,
@@ -132,7 +183,12 @@ export class ClassifierStack extends cdk.Stack {
       },
     });
 
-    for (const fn of [fetchLambda, classifyLambda]) {
+    const classifyLambdas = [
+      submitCanonLambda, checkBatchLambda, collectCanonLambda,
+      classifyStructuralLambda, submitSemanticLambda, collectSemanticLambda,
+    ];
+
+    for (const fn of [fetchLambda, ...classifyLambdas]) {
       fn.addToRolePolicy(new iam.PolicyStatement({
         actions: ['apigateway:GET'],
         resources: [cdk.Fn.importValue('RegistryApiKeyArn')],
@@ -150,7 +206,9 @@ export class ClassifierStack extends cdk.Stack {
 
     slackBotTokenSecret.grantRead(notifyLambda);
 
-    const fetchTask = new tasks.LambdaInvoke(this, 'FetchAndCreateEntities', {
+    // ── Step Functions tasks ──────────────────────────────────────────────────
+
+    const fetchTask = new tasks.LambdaInvoke(this, 'FetchAndPrepare', {
       lambdaFunction: fetchLambda,
       outputPath: '$.Payload',
       retryOnServiceExceptions: true,
@@ -162,16 +220,72 @@ export class ClassifierStack extends cdk.Stack {
       backoffRate: 2,
     });
 
-    const classifyTask = new tasks.LambdaInvoke(this, 'ClassifyRelationships', {
-      lambdaFunction: classifyLambda,
-      resultPath: '$.classification',
+    const submitCanonTask = new tasks.LambdaInvoke(this, 'SubmitCanon', {
+      lambdaFunction: submitCanonLambda,
+      outputPath: '$.Payload',
       retryOnServiceExceptions: true,
     });
-    classifyTask.addRetry({
+    submitCanonTask.addRetry({
       errors: ['States.TaskFailed'],
       interval: cdk.Duration.seconds(30),
       maxAttempts: 2,
       backoffRate: 2,
+    });
+
+    const waitForCanon = new sfn.Wait(this, 'WaitForCanon', {
+      time: sfn.WaitTime.duration(cdk.Duration.seconds(30)),
+    });
+
+    const checkCanonBatchTask = new tasks.LambdaInvoke(this, 'CheckCanonBatch', {
+      lambdaFunction: checkBatchLambda,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    const collectCanonTask = new tasks.LambdaInvoke(this, 'CollectCanon', {
+      lambdaFunction: collectCanonLambda,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+    collectCanonTask.addRetry({
+      errors: ['States.TaskFailed'],
+      interval: cdk.Duration.seconds(30),
+      maxAttempts: 2,
+      backoffRate: 2,
+    });
+
+    const classifyStructuralTask = new tasks.LambdaInvoke(this, 'ClassifyStructural', {
+      lambdaFunction: classifyStructuralLambda,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+    classifyStructuralTask.addRetry({
+      errors: ['States.TaskFailed'],
+      interval: cdk.Duration.seconds(30),
+      maxAttempts: 2,
+      backoffRate: 2,
+    });
+
+    const submitSemanticTask = new tasks.LambdaInvoke(this, 'SubmitSemanticBatch', {
+      lambdaFunction: submitSemanticLambda,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    const waitForSemantic = new sfn.Wait(this, 'WaitForSemantic', {
+      time: sfn.WaitTime.duration(cdk.Duration.seconds(30)),
+    });
+
+    const checkSemanticBatchTask = new tasks.LambdaInvoke(this, 'CheckSemanticBatch', {
+      lambdaFunction: checkBatchLambda,
+      outputPath: '$.Payload',
+      retryOnServiceExceptions: true,
+    });
+
+    const collectSemanticTask = new tasks.LambdaInvoke(this, 'CollectSemanticResults', {
+      lambdaFunction: collectSemanticLambda,
+      resultPath: '$.semantic_result',
+      retryOnServiceExceptions: true,
     });
 
     const notifyTask = new tasks.LambdaInvoke(this, 'SendNotification', {
@@ -186,19 +300,80 @@ export class ClassifierStack extends cdk.Stack {
       backoffRate: 2,
     });
 
-    const definition = fetchTask.next(
-      new sfn.Choice(this, 'HasNewEntities')
+    // Semantic poll loop: wait → check → done or loop back
+    const semanticPollLoop = waitForSemantic
+      .next(checkSemanticBatchTask)
+      .next(
+        new sfn.Choice(this, 'IsSemanticBatchComplete')
+          .when(
+            sfn.Condition.booleanEquals('$.batch_complete', true),
+            collectSemanticTask.next(notifyTask),
+          )
+          .otherwise(waitForSemantic)
+      );
+
+    // Semantic branch: submit → if sync complete go to notify, else enter poll loop
+    const semanticFlow = submitSemanticTask.next(
+      new sfn.Choice(this, 'IsSemanticSyncComplete')
         .when(
-          sfn.Condition.booleanEquals('$.has_new_entities', true),
-          classifyTask.next(notifyTask),
+          sfn.Condition.booleanEquals('$.batch_complete', true),
+          notifyTask,
         )
-        .otherwise(new sfn.Succeed(this, 'NoNewEntities'))
+        .otherwise(semanticPollLoop)
+    );
+
+    // Classification flow: structural → optionally semantic
+    const classificationFlow = classifyStructuralTask.next(
+      new sfn.Choice(this, 'NeedsSemantic')
+        .when(
+          sfn.Condition.booleanEquals('$.needs_semantic', true),
+          semanticFlow,
+        )
+        .otherwise(notifyTask)
+    );
+
+    // After entity creation (both sync and batch canon paths), gate on has_new_entities
+    const hasNewEntitiesChoice = new sfn.Choice(this, 'HasNewEntities')
+      .when(
+        sfn.Condition.booleanEquals('$.has_new_entities', true),
+        classificationFlow,
+      )
+      .otherwise(notifyTask);
+
+    // Canon batch poll loop: wait → check → done or loop back → collect → HasNewEntities
+    const canonBatchPath = collectCanonTask.next(hasNewEntitiesChoice);
+    const canonPollLoop = waitForCanon
+      .next(checkCanonBatchTask)
+      .next(
+        new sfn.Choice(this, 'IsCanonBatchComplete')
+          .when(
+            sfn.Condition.booleanEquals('$.batch_complete', true),
+            canonBatchPath,
+          )
+          .otherwise(waitForCanon)
+      );
+
+    // Main definition
+    const definition = fetchTask.next(
+      new sfn.Choice(this, 'HasNewContracts')
+        .when(
+          sfn.Condition.booleanEquals('$.has_new_contracts', true),
+          submitCanonTask.next(
+            new sfn.Choice(this, 'IsCanonSyncComplete')
+              .when(
+                sfn.Condition.booleanEquals('$.batch_complete', true),
+                hasNewEntitiesChoice,
+              )
+              .otherwise(canonPollLoop)
+          )
+        )
+        .otherwise(new sfn.Succeed(this, 'NoNewContracts'))
     );
 
     this.stateMachine = new sfn.StateMachine(this, 'ClassifierStateMachine', {
       stateMachineName,
       definitionBody: sfn.DefinitionBody.fromChainable(definition),
-      timeout: cdk.Duration.minutes(25),
+      timeout: cdk.Duration.minutes(45),
     });
 
     const rule = new events.Rule(this, 'ClassifierRule', {

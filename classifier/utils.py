@@ -33,10 +33,10 @@ def generate_security_symbol(canonical_title: str, outcome_label: str) -> str:
     return f"{slug}-{outcome}".upper()
 
 
-def bulk_create_chunked(items: list[dict], label: str) -> Iterator[tuple[int, list[dict]]]:
-    total_chunks = -(-len(items) // BULK_CREATE_BATCH_SIZE)
-    for chunk_start in range(0, len(items), BULK_CREATE_BATCH_SIZE):
-        chunk = items[chunk_start:chunk_start + BULK_CREATE_BATCH_SIZE]
-        chunk_num = chunk_start // BULK_CREATE_BATCH_SIZE + 1
+def bulk_create_chunked(items: list[dict], label: str, batch_size: int = BULK_CREATE_BATCH_SIZE) -> Iterator[tuple[int, list[dict]]]:
+    total_chunks = -(-len(items) // batch_size)
+    for chunk_start in range(0, len(items), batch_size):
+        chunk = items[chunk_start:chunk_start + batch_size]
+        chunk_num = chunk_start // batch_size + 1
         logger.info("Creating %s: chunk %d/%d (%d-%d of %d)", label, chunk_num, total_chunks, chunk_start + 1, chunk_start + len(chunk), len(items))
         yield chunk_start, chunk

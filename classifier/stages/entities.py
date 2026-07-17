@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 from collections import defaultdict
 from datetime import timedelta
@@ -6,7 +7,7 @@ from classifier.adapters.types import AdapterContract
 from classifier.cache import ClassifierCache
 from classifier.client import BatchAnthropicClient
 from classifier.db import ClassifierDB
-from classifier.types import CanonicalizeInput, EventId, NativeKey, SecurityId
+from classifier.types import CanonicalizeInput, EntityResult, EventId, NativeKey, SecurityId
 from classifier.constants import DEDUP_EXPIRY_TOLERANCE_HOURS
 from classifier.stages.canonicalize import canonicalize_events
 from classifier.utils import bulk_create_chunked, expiry_close, from_dict, generate_security_symbol
@@ -34,20 +35,31 @@ def _native_key(c: AdapterContract) -> NativeKey:
     return (c.exchange_id, c.exchange_event_native_id)
 
 
-def create_entities(
-    registry: RegistryClient,
-    batch_client: BatchAnthropicClient,
+@dataclasses.dataclass
+class EntityContext:
+    contracts_by_native: dict[NativeKey, list[AdapterContract]]
+    event_id_by_native: dict[NativeKey, EventId]
+    seen_exchange_events: set[NativeKey]
+    known_event_info: dict[NativeKey, dict]
+
+
+def prepare_canonicalization_inputs(
     contracts: list[AdapterContract],
-    *,
-    cache: ClassifierCache | None = None,
+    cache: ClassifierCache | None,
     db: ClassifierDB,
-) -> dict:
+) -> tuple[list[CanonicalizeInput], EntityContext]:
+    """Determine which events need canonicalization and pre-fetch info for existing events.
+
+    Returns (events_to_canonicalize, entity_context).
+    entity_context carries the state needed by create_entities_from_canonical.
+    """
     if not contracts:
-        return {
-            "events_created": 0, "securities_created": 0, "listings_created": 0,
-            "event_contracts_created": 0, "listing_specs_created": 0,
-            "new_security_ids": [], "new_security_symbols": [],
-        }
+        return [], EntityContext(
+            contracts_by_native={},
+            event_id_by_native={},
+            seen_exchange_events=set(),
+            known_event_info={},
+        )
 
     contracts_by_native: dict[NativeKey, list[AdapterContract]] = {}
     for c in contracts:
@@ -92,22 +104,59 @@ def create_entities(
                 )
             )
 
-    # ── Canonicalize titles ──────────────────────────────────────────
-    # Different exchanges use different titles for the same event
-    # ("BTC $100k?" vs "Will Bitcoin reach $100,000?"). Claude normalizes
-    # these so the title+expiry dedup downstream can match them.
-    canonical_by_native = canonicalize_events(batch_client, events_to_canonicalize, cache=cache)
-
-    # Build event_info_by_native: for known events, load from DB; for new, use canonical result.
+    # Pre-fetch info for already-known events so create_entities_from_canonical
+    # can merge them with canonical results without another DB query.
     mapped_event_ids = list(set(event_id_by_native.values()))
     mapped_event_info = db.get_events(mapped_event_ids) if mapped_event_ids else {}
-    event_info_by_native: dict[NativeKey, dict] = {}
+    known_event_info: dict[NativeKey, dict] = {}
     for nk, event_id in event_id_by_native.items():
         info = mapped_event_info.get(event_id)
         if info:
-            event_info_by_native[nk] = info
-    for nk, info in canonical_by_native.items():
-        event_info_by_native[nk] = info
+            known_event_info[nk] = info
+
+    return events_to_canonicalize, EntityContext(
+        contracts_by_native=contracts_by_native,
+        event_id_by_native=event_id_by_native,
+        seen_exchange_events=seen_exchange_events,
+        known_event_info=known_event_info,
+    )
+
+
+def create_entities_from_canonical(
+    registry: RegistryClient,
+    canonical_by_native: dict[NativeKey, dict],
+    entity_ctx: EntityContext,
+    contracts: list[AdapterContract],
+    *,
+    cache: ClassifierCache | None = None,
+    db: ClassifierDB,
+) -> EntityResult:
+    """Create events, securities, listings from canonical titles.
+
+    Takes canonical_by_native (from prepare_canon_batch + parse_canon_results) and
+    entity_ctx (from prepare_canonicalization_inputs) and writes all entities.
+    """
+    if not contracts:
+        return EntityResult(
+            events_created=0, securities_created=0, listings_created=0,
+            event_contracts_created=0, listing_specs_created=0,
+            new_security_ids=[], new_security_symbols=[],
+        )
+
+    contracts_by_native = entity_ctx.contracts_by_native
+    event_id_by_native = dict(entity_ctx.event_id_by_native)
+    seen_exchange_events = set(entity_ctx.seen_exchange_events)
+
+    # Merge DB info for existing events with newly canonicalized titles
+    event_info_by_native: dict[NativeKey, dict] = {}
+    event_info_by_native.update(entity_ctx.known_event_info)
+    event_info_by_native.update(canonical_by_native)
+
+    # Resolve securities that existed before this run to correctly compute new_security_ids
+    seen_symbols = _collect_seen_symbols(contracts, event_info_by_native)
+    all_symbols_needed = list(seen_symbols.keys())
+    existing_secs = db.get_existing_securities(all_symbols_needed)
+    pre_existing_security_ids = set(existing_secs.values())
 
     # ── Title + expiry dedup ─────────────────────────────────────────
     # Match on Claude's canonical title — deterministic, not probabilistic.
@@ -119,8 +168,6 @@ def create_entities(
     )
 
     # ── Create events in registry ────────────────────────────────────
-    # Only truly new events reach this point. Registry API handles writes;
-    # we store the returned event_ids for future dedup runs.
     events_created, created_event_ids = _create_events(registry, pending_events, created_event_records)
 
     for nk, event_idx in pending_native_to_event_idx.items():
@@ -129,22 +176,9 @@ def create_entities(
             event_id_by_native[nk] = eid
 
     # ── Map exchange events ──────────────────────────────────────────
-    # Links each exchange's native contract ID to our canonical event_id.
-    # seen_exchange_events is pre-populated with already-existing mappings
-    # so we only create entries for genuinely new contracts.
     _create_exchange_events(registry, contracts_by_native, event_id_by_native, seen_exchange_events)
 
     # ── Resolve reference data (currencies, securities, listings) ────
-    # Each entity type is queried from DB before creation to avoid duplicates.
-    # _CurrencyProxy and _ListingProxy wrap DB integer IDs so the shared
-    # creation helpers below can access .currency_id / .listing_id without
-    # needing full ORM objects from the registry API.
-    seen_symbols = _collect_seen_symbols(contracts, event_info_by_native)
-    all_symbols_needed = list(seen_symbols.keys())
-
-    existing_secs = db.get_existing_securities(all_symbols_needed)
-    pre_existing_security_ids = set(existing_secs.values())
-
     currency_by_symbol_ids = db.get_currencies()
     currency_by_symbol: dict[str, object] = {}
     all_currency_symbols = (
@@ -225,8 +259,6 @@ def create_entities(
     listing_specs_created = _create_listing_specs(registry, contracts, listing_by_key, spec_by_listing_id)
 
     # ── Compute new security IDs ─────────────────────────────────────
-    # Returned to the Step Function so the classify stage knows which
-    # securities need relationship classification.
     new_security_ids = [
         sid for sid in security_id_by_outcome.values()
         if sid not in pre_existing_security_ids
@@ -234,15 +266,34 @@ def create_entities(
     all_new_symbols = {v: k for k, v in security_id_by_symbol.items() if k not in existing_secs}
     new_security_symbols = [all_new_symbols.get(sid, "") for sid in new_security_ids]
 
-    return {
-        "events_created": events_created,
-        "securities_created": securities_created,
-        "listings_created": listings_created,
-        "event_contracts_created": event_contracts_created,
-        "listing_specs_created": listing_specs_created,
-        "new_security_ids": new_security_ids,
-        "new_security_symbols": new_security_symbols,
-    }
+    return EntityResult(
+        events_created=events_created,
+        securities_created=securities_created,
+        listings_created=listings_created,
+        event_contracts_created=event_contracts_created,
+        listing_specs_created=listing_specs_created,
+        new_security_ids=new_security_ids,
+        new_security_symbols=new_security_symbols,
+    )
+
+
+def create_entities(
+    registry: RegistryClient,
+    batch_client: BatchAnthropicClient,
+    contracts: list[AdapterContract],
+    *,
+    cache: ClassifierCache | None = None,
+    db: ClassifierDB,
+) -> EntityResult:
+    if not contracts:
+        return EntityResult(
+            events_created=0, securities_created=0, listings_created=0,
+            event_contracts_created=0, listing_specs_created=0,
+            new_security_ids=[], new_security_symbols=[],
+        )
+    events_to_canon, entity_ctx = prepare_canonicalization_inputs(contracts, cache, db)
+    canonical = canonicalize_events(batch_client, events_to_canon, cache=cache)
+    return create_entities_from_canonical(registry, canonical, entity_ctx, contracts, cache=cache, db=db)
 
 
 def _title_expiry_dedup(

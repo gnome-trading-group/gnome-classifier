@@ -16,11 +16,18 @@ Subcommands run progressively deeper pipeline stages:
       --verbose shows every created entity in detail.
       --no-canonicalize skips Claude and keeps raw titles (no API key required).
 
-  dry-run classify [ADAPTER] [-n N] [--no-canonicalize] [--skip-semantic] [--no-cache]
+  dry-run classify [ADAPTER] [-n N] [--no-canonicalize] [--structural-only] [--skip-judgment] [--no-cache]
       Full pipeline: fetch + entities + relationship classification.
-      --skip-semantic counts embedding pairs without calling Claude for judgment.
+      --structural-only skips all semantic work (no embeddings, no Claude calls).
+      --skip-judgment runs embedding search but skips Claude judgment calls.
       Requires ANTHROPIC_API_KEY and VOYAGE_API_KEY (unless --no-canonicalize for
       Anthropic; VOYAGE_API_KEY is always required for embeddings).
+
+  dry-run reclassify [--with-semantic] [--no-cache]
+      Re-run relationship classification on ALL existing events in the DB.
+      Structural + rule-based only by default. --with-semantic adds Claude judgment.
+      Requires DATABASE_URL, REGISTRY_API_URL, REGISTRY_API_KEY (and ANTHROPIC_API_KEY
+      with --with-semantic).
 
 Common options (on every subcommand):
   --debug          Enable debug logging
@@ -41,14 +48,22 @@ import voyageai
 
 from classifier.cache import RedisClassifierCache, S3ClassifierCache
 from classifier.constants import RESOLUTION_LOOKBACK_DAYS
-from classifier.client import BatchAnthropicClient
+from classifier.pipeline import (
+    PipelineResult,
+    classify_semantic_sync,
+    create_entities_and_embed,
+    fetch_exchanges,
+    run_classification_sync,
+    run_full_pipeline_sync,
+)
+from classifier.client import BatchAnthropicClient, BatchVoyageClient
 from classifier.db import ClassifierDB
 from classifier.stages.canonicalize import canonicalize_events
-from classifier.stages.classify import classify_relationships
-from classifier.stages.entities import create_entities
+from classifier.stages.classify import prepare_semantic_batch
 from classifier.stages.fetch import fetch_all, fetch_resolved_outcomes
 from classifier.stages.resolve import detect_resolved_events
 from classifier.types import CanonicalizeInput
+from gnomepy.registry import RegistryClient
 from scripts.testing import StubDB, StubRegistry, no_op_anthropic_client, no_op_voyage_client
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -69,7 +84,7 @@ def _build_cache(no_cache: bool):
     return None
 
 
-def _build_clients(*, no_canonicalize: bool, no_cache: bool, need_voyage: bool = False):
+def _build_clients(*, no_canonicalize: bool, no_cache: bool):
     if no_canonicalize:
         batch_client = BatchAnthropicClient(client=no_op_anthropic_client())
     else:
@@ -78,29 +93,19 @@ def _build_clients(*, no_canonicalize: bool, no_cache: bool, need_voyage: bool =
             raise click.ClickException("ANTHROPIC_API_KEY not set — pass --no-canonicalize to skip, or set the key")
         batch_client = BatchAnthropicClient(client=anthropic.Anthropic(api_key=api_key))
 
-    voyage_client = None
-    if need_voyage:
-        voyage_key = os.environ.get("VOYAGE_API_KEY")
-        if not voyage_key:
-            raise click.ClickException("VOYAGE_API_KEY not set")
-        voyage_client = voyageai.Client(api_key=voyage_key)
+    voyage_key = os.environ.get("VOYAGE_API_KEY")
+    raw_voyage = voyageai.Client(api_key=voyage_key) if voyage_key else no_op_voyage_client()
+    voyage_client = BatchVoyageClient(client=raw_voyage)
 
     return batch_client, voyage_client, _build_cache(no_cache)
 
 
 def _fetch_contracts(adapter: str | None, max_contracts: int | None):
     registry = StubRegistry()
-    exchanges = registry.get_exchange()
-    exchange_by_name = {e.exchange_name.lower(): e for e in exchanges}
-
-    if adapter:
-        adapter_lower = adapter.lower()
-        if adapter_lower not in exchange_by_name:
-            from classifier.adapters import ADAPTERS
-            raise click.ClickException(
-                f"Unknown adapter '{adapter}'. Choices: {[a.exchange_name for a in ADAPTERS]}"
-            )
-        exchange_by_name = {adapter_lower: exchange_by_name[adapter_lower]}
+    try:
+        exchange_by_name = fetch_exchanges(registry, adapter)
+    except ValueError as e:
+        raise click.ClickException(str(e))
 
     database_url = os.environ.get("DATABASE_URL")
     db = ClassifierDB(dsn=database_url) if database_url else StubDB(registry)
@@ -286,29 +291,26 @@ def canonicalize(ctx, adapter: str | None, max_contracts: int | None, no_cache: 
 @click.pass_context
 def entities(ctx, adapter: str | None, max_contracts: int | None, no_canonicalize: bool, no_cache: bool, verbose: bool):
     """Fetch + create entities (events, securities, listings). Prints summary counts."""
-    batch_client, _, cache = _build_clients(no_canonicalize=no_canonicalize, no_cache=no_cache)
+    batch_client, voyage_client, cache = _build_clients(no_canonicalize=no_canonicalize, no_cache=no_cache)
     registry, db, contracts, exchange_by_name = _fetch_contracts(adapter, max_contracts)
     if not contracts:
         print("No contracts returned.")
         return
 
     print(f"\nRunning entity creation ({len(contracts)} contracts)...", flush=True)
-    result = create_entities(registry, batch_client, contracts, cache=cache, db=db)
-
-    new_security_ids = result.pop("new_security_ids")
-    result.pop("new_security_symbols")
+    entity_result = create_entities_and_embed(registry, batch_client, contracts, voyage_client=voyage_client, cache=cache, db=db)
 
     print(f"\n{'='*70}")
     print("ENTITY CREATION SUMMARY")
     print(f"{'='*70}")
-    for k, v in result.items():
+    for k, v in entity_result.counts.items():
         print(f"  {k:<30}: {v}")
-    print(f"  {'new_securities':<30}: {len(new_security_ids)}")
+    print(f"  {'new_securities':<30}: {len(entity_result.new_security_ids)}")
 
     if verbose:
         _display_entities_verbose(registry)
 
-    output = {**registry.get_dry_run_data(), "summary": result}
+    output = {**registry.get_dry_run_data(), "summary": entity_result.counts}
     with open(ctx.obj["output_path"], "w") as f:
         json.dump(output, f, indent=2)
     print(f"\nFull output written to {ctx.obj['output_path']}")
@@ -318,13 +320,14 @@ def entities(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
 @click.argument("adapter", required=False, default=None)
 @click.option("-n", "max_contracts", type=int, default=None, help="Limit to first N contracts")
 @click.option("--no-canonicalize", is_flag=True, help="Skip Claude canonicalization — keep raw titles")
-@click.option("--skip-semantic", is_flag=True, help="Count embedding pairs without calling Claude for judgment")
+@click.option("--structural-only", is_flag=True, help="Skip all semantic work — only structural + rule-based relationships")
+@click.option("--skip-judgment", is_flag=True, help="Run embedding search but skip Claude judgment calls")
 @click.option("--no-cache", is_flag=True, help="Ignore cache even if CACHE_BUCKET / REDIS_URL is set")
 @click.pass_context
-def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicalize: bool, skip_semantic: bool, no_cache: bool):
+def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicalize: bool, structural_only: bool, skip_judgment: bool, no_cache: bool):
     """Full pipeline: fetch + entities + relationship classification."""
     batch_client, voyage_client, cache = _build_clients(
-        no_canonicalize=no_canonicalize, no_cache=no_cache, need_voyage=True,
+        no_canonicalize=no_canonicalize, no_cache=no_cache,
     )
     registry, db, contracts, exchange_by_name = _fetch_contracts(adapter, max_contracts)
     if not contracts:
@@ -332,21 +335,37 @@ def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
         return
 
     print(f"\nRunning entity creation ({len(contracts)} contracts)...", flush=True)
-    entity_result = create_entities(registry, batch_client, contracts, cache=cache, db=db)
-    new_security_ids = entity_result.pop("new_security_ids")
-    new_security_symbols = entity_result.pop("new_security_symbols")
-    logger.info("Entity stage complete: %s", entity_result)
-
     print("Running relationship classification...", flush=True)
-    relationship_result = classify_relationships(
-        registry, batch_client, voyage_client,
-        new_security_ids=new_security_ids,
-        skip_judgment=skip_semantic,
-        db=db,
-        cache=cache,
-    )
 
-    summary = {**entity_result, **relationship_result, "new_security_symbols": new_security_symbols}
+    if skip_judgment and not structural_only:
+        # Embedding search only — run entity creation + structural, then show candidate count
+        result: PipelineResult = run_full_pipeline_sync(
+            registry, batch_client, contracts,
+            voyage_client=voyage_client, cache=cache, db=db,
+            skip_semantic=True,
+        )
+        if result.classification:
+            api_requests, _, _ = prepare_semantic_batch(
+                result.entity_result.new_security_ids, cache=cache, db=db,
+            )
+            if api_requests:
+                logger.info("skip_judgment: would call Claude for %d pairs", len(api_requests))
+    else:
+        result = run_full_pipeline_sync(
+            registry, batch_client, contracts,
+            voyage_client=voyage_client, cache=cache, db=db,
+            skip_semantic=structural_only,
+        )
+
+    entity_result = result.entity_result
+    classification = result.classification
+
+    relationship_result = {
+        "relationships_written": classification.relationships_written if classification else 0,
+        "relationships_skipped_low_confidence": classification.relationships_skipped_low_confidence if classification else 0,
+    }
+
+    summary = {**entity_result.counts, **relationship_result, "new_security_symbols": entity_result.new_security_symbols}
 
     print(f"\n{'='*70}")
     print("SUMMARY")
@@ -367,20 +386,24 @@ def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
 def resolve(ctx, adapter: str | None, lookback: int):
     """Detect resolved outcomes and show what would be deactivated (dry-run mode)."""
     registry = StubRegistry()
-    exchanges = registry.get_exchange()
-    exchange_by_name = {e.exchange_name.lower(): e for e in exchanges}
-
-    if adapter:
-        adapter_lower = adapter.lower()
-        if adapter_lower not in exchange_by_name:
-            from classifier.adapters import ADAPTERS
-            raise click.ClickException(
-                f"Unknown adapter '{adapter}'. Choices: {[a.exchange_name for a in ADAPTERS]}"
-            )
-        exchange_by_name = {adapter_lower: exchange_by_name[adapter_lower]}
+    try:
+        exchange_by_name = fetch_exchanges(registry, adapter)
+    except ValueError as e:
+        raise click.ClickException(str(e))
 
     database_url = os.environ.get("DATABASE_URL")
-    db = ClassifierDB(dsn=database_url) if database_url else StubDB(registry)
+    if not database_url:
+        print("WARNING: DATABASE_URL not set — results will be empty (no listing data to match against).")
+        print("         Set DATABASE_URL (e.g. via `poetry run tunnel`) to see real results.\n")
+
+    if database_url:
+        real_db = ClassifierDB(dsn=database_url)
+        registry._listings = real_db.get_all_active_listings()
+        registry._securities = real_db.get_all_securities()
+        registry._events = real_db.get_unresolved_events()
+        registry._event_contracts = real_db.get_all_event_contracts()
+
+    db = StubDB(registry)
 
     print(f"\nFetching resolved outcomes from exchanges (lookback={lookback}d)...", flush=True)
     resolved_by_exchange, failed = fetch_resolved_outcomes(exchange_by_name, lookback_days=lookback)
@@ -393,12 +416,73 @@ def resolve(ctx, adapter: str | None, lookback: int):
         )
         print(f"  {exchange_name}: {len(ids)} resolved ids")
 
-    db_label = "real DB" if database_url else "stub DB"
+    db_label = "real DB (seeded)" if database_url else "stub DB (empty)"
     print(f"\nRunning resolution detection ({db_label}, dry-run writes)...", flush=True)
     result = detect_resolved_events(resolved_by_exchange, registry, db)
 
     print(f"\n{'='*70}")
     print("RESOLUTION SUMMARY")
+    print(f"{'='*70}")
+    for k, v in result.items():
+        print(f"  {k:<30}: {v}")
+
+    with open(ctx.obj["output_path"], "w") as f:
+        json.dump(result, f, indent=2)
+    print(f"\nFull output written to {ctx.obj['output_path']}")
+
+
+@main.command()
+@click.option("--with-semantic", is_flag=True, help="Also run semantic (embedding search + Claude judgment) in addition to structural")
+@click.option("--no-cache", is_flag=True, help="Ignore cache even if REDIS_URL is set")
+@click.pass_context
+def reclassify(ctx, with_semantic: bool, no_cache: bool):
+    """Re-run relationship classification on ALL existing events.
+
+    Structural + rule-based only by default (no Claude calls). Use --with-semantic
+    to also run the embedding search + judgment pass.
+
+    Requires DATABASE_URL, REGISTRY_API_URL, and REGISTRY_API_KEY env vars.
+    Requires ANTHROPIC_API_KEY when --with-semantic is set.
+    """
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        raise click.ClickException("DATABASE_URL is required for reclassify")
+
+    registry_url = os.environ.get("REGISTRY_API_URL")
+    registry_key = os.environ.get("REGISTRY_API_KEY")
+    if not registry_url or not registry_key:
+        raise click.ClickException("REGISTRY_API_URL and REGISTRY_API_KEY are required for reclassify")
+
+    if with_semantic:
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise click.ClickException("ANTHROPIC_API_KEY is required with --with-semantic")
+        batch_client = BatchAnthropicClient(client=anthropic.Anthropic(api_key=api_key))
+    else:
+        batch_client = BatchAnthropicClient(client=no_op_anthropic_client())
+
+    registry = RegistryClient(base_url=registry_url, api_key=registry_key)
+    db = ClassifierDB(dsn=database_url)
+    cache = _build_cache(no_cache)
+
+    mode = "structural + rule-based + semantic" if with_semantic else "structural + rule-based only"
+    print(f"\nReclassifying all existing events ({mode})...", flush=True)
+
+    classification = run_classification_sync(
+        registry, batch_client, new_security_ids=[],
+        cache=cache, db=db, skip_semantic=not with_semantic,
+    )
+    print(f"  Structural: {classification.structural.get('relationships_written', 0)} written")
+    if classification.semantic:
+        print(f"  Semantic: {classification.semantic.get('relationships_written', 0)} written")
+
+    result = {
+        "relationships_written": classification.relationships_written,
+        "relationships_skipped_low_confidence": classification.relationships_skipped_low_confidence,
+    }
+
+    print(f"\n{'='*70}")
+    print("RECLASSIFY SUMMARY")
     print(f"{'='*70}")
     for k, v in result.items():
         print(f"  {k:<30}: {v}")

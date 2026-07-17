@@ -44,10 +44,9 @@ import voyageai
 from gnomepy.registry import RegistryClient
 
 from classifier.cache import RedisClassifierCache, S3ClassifierCache
-from classifier.client import BatchAnthropicClient
+from classifier.client import BatchAnthropicClient, BatchVoyageClient
 from classifier.db import ClassifierDB
-from classifier.stages.classify import classify_relationships
-from classifier.stages.entities import create_entities
+from classifier.pipeline import PipelineResult, fetch_exchanges, run_full_pipeline_sync
 from classifier.stages.fetch import fetch_all
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -70,7 +69,7 @@ def main(adapter: str | None, no_classify: bool, with_judgment: bool) -> None:
     batch_client = BatchAnthropicClient(
         client=anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"]),
     )
-    voyage_client = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"])
+    voyage_client = BatchVoyageClient(client=voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"]))
     redis_url = os.environ.get("REDIS_URL")
     cache_bucket = os.environ.get("CACHE_BUCKET")
     if redis_url:
@@ -82,45 +81,35 @@ def main(adapter: str | None, no_classify: bool, with_judgment: bool) -> None:
         cache = None
     db = ClassifierDB(dsn=os.environ["DATABASE_URL"])
 
-    # ── Phase 1: entity creation ──────────────────────────────────────
-    print("\n=== PHASE 1: ENTITY CREATION ===\n", flush=True)
-
-    exchanges = registry.get_exchange()
-    exchange_by_name = {e.exchange_name.lower(): e for e in exchanges}
-    if adapter:
-        adapter_lower = adapter.lower()
-        if adapter_lower not in exchange_by_name:
-            raise click.ClickException(f"Unknown adapter '{adapter}'. Choices: {list(exchange_by_name)}")
-        exchange_by_name = {adapter_lower: exchange_by_name[adapter_lower]}
+    try:
+        exchange_by_name = fetch_exchanges(registry, adapter)
+    except ValueError as e:
+        raise click.ClickException(str(e))
     contracts, failed_adapters = fetch_all(exchange_by_name)
     if failed_adapters:
         logger.warning("Adapter fetch failures: %s", failed_adapters)
     print(f"Fetched {len(contracts)} contracts from {len(exchange_by_name)} exchanges", flush=True)
 
-    entity_result = create_entities(
-        registry, batch_client, contracts, cache=cache, db=db,
+    print("\n=== PHASE 1: ENTITY CREATION ===\n", flush=True)
+    result: PipelineResult = run_full_pipeline_sync(
+        registry, batch_client, contracts,
+        voyage_client=voyage_client, cache=cache, db=db,
+        skip_classify=no_classify,
+        skip_semantic=not with_judgment,
     )
-    new_security_ids: list[int] = entity_result.pop("new_security_ids")
-    entity_result.pop("new_security_symbols")
 
     print("\nEntity creation summary:")
-    for k, v in entity_result.items():
+    for k, v in result.entity_result.counts.items():
         print(f"  {k}: {v}")
-    print(f"  new_security_ids: {len(new_security_ids)}")
+    print(f"  new_security_ids: {len(result.entity_result.new_security_ids)}")
 
-    if no_classify or not new_security_ids:
+    if result.classification is None:
         print("\nSkipping relationship classification.")
         return
 
-    # ── Phase 2: structural relationship classification ───────────────
-    print(f"\n=== PHASE 2: RELATIONSHIP CLASSIFICATION ({len(new_security_ids)} securities) ===\n", flush=True)
+    print(f"\n=== PHASE 2: RELATIONSHIP CLASSIFICATION ({len(result.entity_result.new_security_ids)} securities) ===\n", flush=True)
+    print(f"  Structural: {result.classification.structural.get('relationships_written', 0)} written")
+    if result.classification.semantic:
+        print(f"  Semantic: {result.classification.semantic.get('relationships_written', 0)} written")
 
-    result = classify_relationships(
-        registry, batch_client, voyage_client,
-        new_security_ids=new_security_ids,
-        skip_judgment=not with_judgment,
-        cache=cache,
-        db=db,
-    )
-    written = result.get("relationships_written", 0)
-    print(f"\nBootstrap complete. {written} relationships written total.")
+    print(f"\nBootstrap complete. {result.classification.relationships_written} structural relationships written.")
