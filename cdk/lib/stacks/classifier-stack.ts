@@ -327,14 +327,14 @@ export class ClassifierStack extends cdk.Stack {
 
     // ── NotifyWorker ──────────────────────────────────────────────────
 
-    // createWorkerService('Notify', 'notify', {
-    //   SLACK_QUEUE_URL: this.slackQueue.queueUrl,
-    //   SLACK_CHANNEL: props.slackChannel,
-    //   SLACK_BOT_TOKEN_SECRET: 'slack-bot-token',
-    // }, 128, (role) => {
-    //   this.slackQueue.grantConsumeMessages(role);
-    //   slackBotTokenSecret.grantRead(role);
-    // });
+    createWorkerService('Notify', 'notify', {
+      SLACK_QUEUE_URL: this.slackQueue.queueUrl,
+      SLACK_CHANNEL: props.slackChannel,
+      SLACK_BOT_TOKEN_SECRET: 'slack-bot-token',
+    }, 128, (role) => {
+      this.slackQueue.grantConsumeMessages(role);
+      slackBotTokenSecret.grantRead(role);
+    });
 
     new cdk.CfnOutput(this, 'RedisEndpoint', {
       value: redisEndpoint,
