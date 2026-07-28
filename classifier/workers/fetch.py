@@ -157,11 +157,27 @@ def fetch_handler(event, context):
                 "contracts": [dataclasses.asdict(c) for c in group],
             })
 
+    max_send = rc.config.processing.fetch_max_sqs_messages
+    if len(new_messages) > max_send:
+        logger.info("Capping fetch from %d to %d groups", len(new_messages), max_send)
+        new_messages = new_messages[:max_send]
+
     if new_messages:
         sqs_send_batch(sqs, queue_url, new_messages)
         logger.info("Sent %d contract groups to contracts-queue", len(new_messages))
 
-    _save_known_contracts(s3, bucket, _KNOWN_CONTRACTS_KEY, current_hashes)
+    sent_contract_keys = set()
+    for msg in new_messages:
+        for c in msg["contracts"]:
+            sent_contract_keys.add(f"{c['exchange_id']}:{c['exchange_security_id']}")
+
+    final_hashes = {}
+    for ck in current_hashes:
+        if ck in sent_contract_keys:
+            final_hashes[ck] = current_hashes[ck]
+        elif ck in known_contracts:
+            final_hashes[ck] = known_contracts[ck]
+    _save_known_contracts(s3, bucket, _KNOWN_CONTRACTS_KEY, final_hashes)
     return {"new_contracts": len(new_messages)}
 
 
@@ -199,12 +215,17 @@ def resolve_handler(event, context):
             if key not in sent_resolved:
                 new_messages.append({"type": "resolved", "exchange_id": exchange_id, "native_id": native_id})
 
+    max_send = rc.config.processing.resolve_max_sqs_messages
+    if len(new_messages) > max_send:
+        logger.info("Capping resolve from %d to %d messages", len(new_messages), max_send)
+        new_messages = new_messages[:max_send]
+
     if new_messages:
         sqs_send_batch(sqs, queue_url, new_messages)
         logger.info("Sent %d resolved contracts to contracts-queue", len(new_messages))
 
-    # Replace cache entirely — entries naturally expire when they leave the lookback window
-    _save_s3_set(s3, bucket, _SENT_RESOLVED_KEY, current_resolved)
+    sent_keys = {(m["exchange_id"], m["native_id"]) for m in new_messages}
+    _save_s3_set(s3, bucket, _SENT_RESOLVED_KEY, (sent_resolved & current_resolved) | sent_keys)
     return {"resolved_contracts": len(new_messages)}
 
 
@@ -244,7 +265,7 @@ def stale_cleanup_handler(event, context):
     tracker = _load_stale_tracker(s3, bucket, _STALE_TRACKER_KEY)
 
     new_tracker: dict[str, dict] = {}
-    stale_messages: list[dict] = []
+    all_stale: list[dict] = []
 
     for tk, entry in tracker.items():
         exchange_id = entry["exchange_id"]
@@ -260,7 +281,7 @@ def stale_cleanup_handler(event, context):
         else:
             miss_count += 1
             if miss_count >= miss_threshold:
-                stale_messages.append({"type": "stale", "exchange_id": exchange_id, "native_event_id": native_event_id})
+                all_stale.append({"type": "stale", "exchange_id": exchange_id, "native_event_id": native_event_id})
             else:
                 new_tracker[tk] = {"exchange_id": exchange_id, "native_event_id": native_event_id, "miss_count": miss_count}
 
@@ -269,6 +290,15 @@ def stale_cleanup_handler(event, context):
             tk = f"{exchange_id}:{native_event_id}"
             if tk not in new_tracker:
                 new_tracker[tk] = {"exchange_id": exchange_id, "native_event_id": native_event_id, "miss_count": 0}
+
+    max_send = rc.config.processing.stale_max_sqs_messages
+    stale_messages = all_stale[:max_send]
+    if len(all_stale) > max_send:
+        logger.info("Capping stale from %d to %d messages", len(all_stale), max_send)
+
+    for msg in all_stale[max_send:]:
+        tk = f"{msg['exchange_id']}:{msg['native_event_id']}"
+        new_tracker[tk] = {"exchange_id": msg["exchange_id"], "native_event_id": msg["native_event_id"], "miss_count": miss_threshold}
 
     if stale_messages:
         sqs_send_batch(sqs, queue_url, stale_messages)
