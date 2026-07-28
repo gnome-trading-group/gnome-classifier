@@ -235,7 +235,6 @@ export class ClassifierStack extends cdk.Stack {
       }),
       timeout: cdk.Duration.minutes(10),
       memorySize: 2048,
-      reservedConcurrentExecutions: 1,
       environment: fetchLambdaEnv,
     });
     fetchLambdaGrants(fetchLambda);
@@ -247,7 +246,6 @@ export class ClassifierStack extends cdk.Stack {
       }),
       timeout: cdk.Duration.minutes(10),
       memorySize: 2048,
-      reservedConcurrentExecutions: 1,
       environment: fetchLambdaEnv,
     });
     fetchLambdaGrants(resolveLambda);
@@ -259,7 +257,6 @@ export class ClassifierStack extends cdk.Stack {
       }),
       timeout: cdk.Duration.minutes(10),
       memorySize: 2048,
-      reservedConcurrentExecutions: 1,
       environment: fetchLambdaEnv,
     });
     fetchLambdaGrants(staleCleanupLambda);
