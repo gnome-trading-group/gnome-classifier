@@ -45,7 +45,8 @@ def init_runtime_config() -> RuntimeConfig:
 
 def init_registry() -> RegistryClient:
     registry_api_key = fetch_api_key(os.environ["REGISTRY_API_KEY_ID"])
-    return RegistryClient(base_url=os.environ["REGISTRY_API_URL"], api_key=registry_api_key)
+    base_url = os.environ["REGISTRY_API_URL"].rstrip("/").removesuffix("/api")
+    return RegistryClient(base_url=base_url, api_key=registry_api_key)
 
 
 def init_anthropic() -> BatchAnthropicClient:
