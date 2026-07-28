@@ -32,3 +32,7 @@ def relationships():
 @cli.command()
 def notify():
     NotifyWorker(WorkerConfig()).run()
+
+
+if __name__ == "__main__":
+    cli()

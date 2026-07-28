@@ -73,13 +73,13 @@ def init_clients() -> tuple:
 
 @dataclasses.dataclass
 class WorkerConfig:
-    contracts_queue_url: str = dataclasses.field(default_factory=lambda: os.environ["CONTRACTS_QUEUE_URL"])
-    entities_queue_url: str = dataclasses.field(default_factory=lambda: os.environ["ENTITIES_QUEUE_URL"])
-    embeddings_queue_url: str = dataclasses.field(default_factory=lambda: os.environ["EMBEDDINGS_QUEUE_URL"])
-    notifications_topic_arn: str = dataclasses.field(default_factory=lambda: os.environ["NOTIFICATIONS_TOPIC_ARN"])
-    slack_queue_url: str = dataclasses.field(default_factory=lambda: os.environ["SLACK_QUEUE_URL"])
+    contracts_queue_url: str = dataclasses.field(default_factory=lambda: os.environ.get("CONTRACTS_QUEUE_URL", ""))
+    entities_queue_url: str = dataclasses.field(default_factory=lambda: os.environ.get("ENTITIES_QUEUE_URL", ""))
+    embeddings_queue_url: str = dataclasses.field(default_factory=lambda: os.environ.get("EMBEDDINGS_QUEUE_URL", ""))
+    notifications_topic_arn: str = dataclasses.field(default_factory=lambda: os.environ.get("NOTIFICATIONS_TOPIC_ARN", ""))
+    slack_queue_url: str = dataclasses.field(default_factory=lambda: os.environ.get("SLACK_QUEUE_URL", ""))
 
-    cache_bucket: str = dataclasses.field(default_factory=lambda: os.environ["CACHE_BUCKET"])
+    cache_bucket: str = dataclasses.field(default_factory=lambda: os.environ.get("CACHE_BUCKET", ""))
     slack_channel: str = dataclasses.field(default_factory=lambda: os.environ.get("SLACK_CHANNEL", ""))
     slack_bot_token_secret: str = dataclasses.field(
         default_factory=lambda: os.environ.get("SLACK_BOT_TOKEN_SECRET", "")
