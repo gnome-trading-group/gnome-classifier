@@ -170,6 +170,10 @@ def resolve_handler(event, context):
     rc = _get_runtime_config()
     rc.refresh()
 
+    if not rc.config.feature_flags.resolve_enabled:
+        logger.info("resolve_enabled=False, skipping resolve cycle")
+        return {"resolved_contracts": 0}
+
     registry = init_registry()
     sqs = boto3.client("sqs")
     s3 = boto3.client("s3")

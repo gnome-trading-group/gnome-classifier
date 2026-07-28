@@ -38,6 +38,7 @@ _REQUEST_TIMEOUT = 5.0
 @dataclasses.dataclass
 class FeatureFlags:
     fetch_enabled: bool = False
+    resolve_enabled: bool = False
     canonicalization_enabled: bool = False
     semantic_judgements_enabled: bool = False
     stale_cleanup_enabled: bool = False
