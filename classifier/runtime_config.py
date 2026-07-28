@@ -18,6 +18,7 @@ from classifier.constants import (
     DEFAULT_MAX_MESSAGES,
     DEFAULT_MAX_WAIT_SECONDS,
     DEFAULT_MIN_CONFIDENCE,
+    DEFAULT_NOTIFY_MAX_MESSAGES,
     DEFAULT_NOTIFY_MAX_WAIT_SECONDS,
     DEFAULT_NEIGHBOR_SEARCH_LIMIT,
     DEFAULT_RESOLUTION_LOOKBACK_DAYS,
@@ -94,7 +95,7 @@ class WorkerParams:
     embed_max_wait_seconds: int = DEFAULT_MAX_WAIT_SECONDS
     relationships_max_messages: int = 200
     relationships_max_wait_seconds: int = DEFAULT_MAX_WAIT_SECONDS
-    notify_max_messages: int = DEFAULT_MAX_MESSAGES
+    notify_max_messages: int = DEFAULT_NOTIFY_MAX_MESSAGES
     notify_max_wait_seconds: int = DEFAULT_NOTIFY_MAX_WAIT_SECONDS
 
 

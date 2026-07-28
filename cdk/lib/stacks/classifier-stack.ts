@@ -31,6 +31,13 @@ export class ClassifierStack extends cdk.Stack {
   public readonly slackQueue: sqs.Queue;
   public readonly slackDlq: sqs.Queue;
   public readonly notificationsTopic: sns.Topic;
+  public readonly fetchLambda: lambda.DockerImageFunction;
+  public readonly resolveLambda: lambda.DockerImageFunction;
+  public readonly staleCleanupLambda: lambda.DockerImageFunction;
+  public readonly normalizeService: ecs.Ec2Service;
+  public readonly embedService: ecs.Ec2Service;
+  public readonly relationshipsService: ecs.Ec2Service;
+  public readonly notifyService: ecs.Ec2Service;
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
@@ -260,6 +267,9 @@ export class ClassifierStack extends cdk.Stack {
       environment: fetchLambdaEnv,
     });
     fetchLambdaGrants(staleCleanupLambda);
+    this.fetchLambda = fetchLambda;
+    this.resolveLambda = resolveLambda;
+    this.staleCleanupLambda = staleCleanupLambda;
 
     new events.Rule(this, 'FetchSchedule', {
       schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
@@ -275,7 +285,7 @@ export class ClassifierStack extends cdk.Stack {
 
     // ── NormalizeWorker ───────────────────────────────────────────────
 
-    createWorkerService('Normalize', 'normalize', {
+    this.normalizeService = createWorkerService('Normalize', 'normalize', {
       ...sharedEnv,
       SLACK_CHANNEL: props.slackChannel,
     }, 512, (role) => {
@@ -293,7 +303,7 @@ export class ClassifierStack extends cdk.Stack {
 
     // ── EmbedWorker ───────────────────────────────────────────────────
 
-    createWorkerService('Embed', 'embed', {
+    this.embedService = createWorkerService('Embed', 'embed', {
       VOYAGE_API_KEY_SECRET: 'voyage-api-key',
       DB_SECRET_NAME: 'registry-database-root-user',
       ENTITIES_QUEUE_URL: this.entitiesQueue.queueUrl,
@@ -312,7 +322,7 @@ export class ClassifierStack extends cdk.Stack {
 
     // ── RelationshipsWorker ───────────────────────────────────────────
 
-    createWorkerService('Relationships', 'relationships', sharedEnv, 512, (role) => {
+    this.relationshipsService = createWorkerService('Relationships', 'relationships', sharedEnv, 512, (role) => {
       this.embeddingsQueue.grantConsumeMessages(role);
       this.notificationsTopic.grantPublish(role);
       anthropicApiKeySecret.grantRead(role);
@@ -327,7 +337,7 @@ export class ClassifierStack extends cdk.Stack {
 
     // ── NotifyWorker ──────────────────────────────────────────────────
 
-    createWorkerService('Notify', 'notify', {
+    this.notifyService = createWorkerService('Notify', 'notify', {
       SLACK_QUEUE_URL: this.slackQueue.queueUrl,
       SLACK_CHANNEL: props.slackChannel,
       SLACK_BOT_TOKEN_SECRET: 'slack-bot-token',

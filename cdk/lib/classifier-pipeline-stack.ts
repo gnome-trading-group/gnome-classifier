@@ -27,6 +27,13 @@ class AppStage extends cdk.Stage {
       embeddingsDlq: classifierStack.embeddingsDlq,
       slackQueue: classifierStack.slackQueue,
       slackDlq: classifierStack.slackDlq,
+      fetchLambda: classifierStack.fetchLambda,
+      resolveLambda: classifierStack.resolveLambda,
+      staleCleanupLambda: classifierStack.staleCleanupLambda,
+      normalizeService: classifierStack.normalizeService,
+      embedService: classifierStack.embedService,
+      relationshipsService: classifierStack.relationshipsService,
+      notifyService: classifierStack.notifyService,
     });
   }
 }

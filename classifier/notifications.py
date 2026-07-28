@@ -17,9 +17,11 @@ def format_notification_blocks(
     ]
 
     if new_symbols:
-        lines = "\n".join(f"• `{s}`" for s in new_symbols)
         count = len(new_symbols)
         noun = "security" if count == 1 else "securities"
+        lines = "\n".join(f"• `{s}`" for s in new_symbols[:20])
+        if count > 20:
+            lines += f"\n_... and {count - 20} more_"
         blocks.append({
             "type": "section",
             "text": {"type": "mrkdwn", "text": f"*{count} new {noun}*\n{lines}"},
