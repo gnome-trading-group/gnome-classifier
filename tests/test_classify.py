@@ -12,9 +12,9 @@ def test_classify_structural_produces_complement_relationships(stub_registry, st
     ec_no = make_event_contract(2, event_id=10, security_id=101, outcome_label="No")
     stub_registry._event_contracts.extend([ec_yes, ec_no])
 
-    result = classify_structural(stub_registry, new_security_ids=[100, 101], db=stub_db)
+    counts, written_rels = classify_structural(stub_registry, new_security_ids=[100, 101], db=stub_db)
 
-    assert result["relationships_written"] == 2
+    assert counts["relationships_written"] == 2
     rels = stub_registry._contract_relationships
     assert {(r.security_id_a, r.security_id_b) for r in rels} == {(100, 101), (101, 100)}
     assert all(r.relationship_type == "COMPLEMENT" for r in rels)
@@ -54,7 +54,7 @@ def test_process_semantic_results_writes_relationships(stub_registry, stub_db):
         {"security_id_a": 100, "security_id_b": 101, "relationship_type": RelationshipType.EQUIVALENT, "confidence": 0.95},
     ]
 
-    result = process_semantic_results(
+    counts, written_rels = process_semantic_results(
         stub_registry,
         responses={},
         pending_context=[],
@@ -64,4 +64,4 @@ def test_process_semantic_results_writes_relationships(stub_registry, stub_db):
     )
 
     # EQUIVALENT(100→101) + complement derivation produces (100,101) and (101,100)
-    assert result["relationships_written"] == 2
+    assert counts["relationships_written"] == 2

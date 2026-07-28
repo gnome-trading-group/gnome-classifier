@@ -8,7 +8,7 @@ from classifier.cache import ClassifierCache
 from classifier.client import BatchAnthropicClient
 from classifier.db import ClassifierDB
 from classifier.types import CanonicalizeInput, EntityResult, EventId, NativeKey, SecurityId
-from classifier.constants import DEDUP_EXPIRY_TOLERANCE_HOURS
+from classifier.constants import DEFAULT_CANONICALIZE_BATCH_SIZE, DEFAULT_CANONICALIZE_MODEL, DEFAULT_DEDUP_EXPIRY_TOLERANCE_HOURS
 from classifier.stages.canonicalize import canonicalize_events
 from classifier.utils import bulk_create_chunked, expiry_close, from_dict, generate_security_symbol
 from gnomepy.registry import RegistryClient
@@ -258,11 +258,17 @@ def create_entities_from_canonical(
 
     listing_specs_created = _create_listing_specs(registry, contracts, listing_by_key, spec_by_listing_id)
 
+    # ── Deactivate stale listings/securities for pre-existing events ─
+    _reconcile_stale_entities(
+        registry, contracts, contracts_by_native,
+        event_id_by_native, entity_ctx.seen_exchange_events, db,
+    )
+
     # ── Compute new security IDs ─────────────────────────────────────
-    new_security_ids = [
+    new_security_ids = list({
         sid for sid in security_id_by_outcome.values()
         if sid not in pre_existing_security_ids
-    ]
+    })
     all_new_symbols = {v: k for k, v in security_id_by_symbol.items() if k not in existing_secs}
     new_security_symbols = [all_new_symbols.get(sid, "") for sid in new_security_ids]
 
@@ -277,13 +283,65 @@ def create_entities_from_canonical(
     )
 
 
+def _reconcile_stale_entities(
+    registry: RegistryClient,
+    contracts: list[AdapterContract],
+    contracts_by_native: dict[NativeKey, list[AdapterContract]],
+    event_id_by_native: dict[NativeKey, EventId],
+    seen_exchange_events: set[NativeKey],
+    db: ClassifierDB,
+) -> None:
+    pre_existing_nks = [nk for nk in contracts_by_native if nk in seen_exchange_events]
+    if not pre_existing_nks:
+        return
+
+    event_ids = [event_id_by_native[nk] for nk in pre_existing_nks if nk in event_id_by_native]
+    if not event_ids:
+        return
+
+    old_security_ids = db.get_security_ids_for_events(event_ids)
+    if not old_security_ids:
+        return
+
+    existing_listings = db.get_active_listings_for_securities(list(old_security_ids))
+    if not existing_listings:
+        return
+
+    current_esids_by_exchange: dict[int, set[str]] = {}
+    for c in contracts:
+        current_esids_by_exchange.setdefault(c.exchange_id, set()).add(c.exchange_security_id)
+
+    stale_listing_ids: list[int] = []
+    stale_security_ids: set[int] = set()
+    for lid, sid, lex_id, lex_esid in existing_listings:
+        current = current_esids_by_exchange.get(lex_id, set())
+        if lex_esid not in current:
+            stale_listing_ids.append(lid)
+            stale_security_ids.add(sid)
+
+    if stale_listing_ids:
+        registry.bulk_patch_listings([{"listing_id": lid, "active": False} for lid in stale_listing_ids])
+        logger.info("Deactivated %d stale listings", len(stale_listing_ids))
+
+    if stale_security_ids:
+        still_active = db.get_securities_with_active_listings(list(stale_security_ids))
+        sids_to_deactivate = list(stale_security_ids - still_active)
+        if sids_to_deactivate:
+            registry.bulk_patch_securities([{"security_id": sid, "active": False} for sid in sids_to_deactivate])
+            logger.info("Deactivated %d stale securities", len(sids_to_deactivate))
+
+
 def create_entities(
     registry: RegistryClient,
-    batch_client: BatchAnthropicClient,
+    batch_client: BatchAnthropicClient | None,
     contracts: list[AdapterContract],
     *,
     cache: ClassifierCache | None = None,
     db: ClassifierDB,
+    canonicalize_enabled: bool = True,
+    canonicalize_model: str = DEFAULT_CANONICALIZE_MODEL,
+    canonicalize_batch_size: int = DEFAULT_CANONICALIZE_BATCH_SIZE,
+    sync_threshold: int = 10,
 ) -> EntityResult:
     if not contracts:
         return EntityResult(
@@ -292,7 +350,21 @@ def create_entities(
             new_security_ids=[], new_security_symbols=[],
         )
     events_to_canon, entity_ctx = prepare_canonicalization_inputs(contracts, cache, db)
-    canonical = canonicalize_events(batch_client, events_to_canon, cache=cache)
+    if canonicalize_enabled and batch_client is not None:
+        canonical = canonicalize_events(
+            batch_client, events_to_canon, cache=cache,
+            model=canonicalize_model, batch_size=canonicalize_batch_size,
+            sync_threshold=sync_threshold,
+        )
+    else:
+        canonical = {
+            (ev.exchange_id, ev.native_id): {
+                "title": ev.raw_title,
+                "category": ev.category or "OTHER",
+                "tags": [],
+            }
+            for ev in events_to_canon
+        }
     return create_entities_from_canonical(registry, canonical, entity_ctx, contracts, cache=cache, db=db)
 
 
@@ -320,7 +392,7 @@ def _title_expiry_dedup(
 
         existing_match_id = next(
             (eid for exp, eid in records_by_title.get(canonical_title, [])
-             if expiry_close(expiry, exp, timedelta(hours=DEDUP_EXPIRY_TOLERANCE_HOURS))),
+             if expiry_close(expiry, exp, timedelta(hours=DEFAULT_DEDUP_EXPIRY_TOLERANCE_HOURS))),
             None,
         )
         if existing_match_id is not None:
@@ -330,7 +402,7 @@ def _title_expiry_dedup(
         pending_match_idx = next(
             (idx for idx, (title, exp, _) in enumerate(pending_by_title)
              if title == canonical_title
-             and expiry_close(expiry, exp, timedelta(hours=DEDUP_EXPIRY_TOLERANCE_HOURS))),
+             and expiry_close(expiry, exp, timedelta(hours=DEFAULT_DEDUP_EXPIRY_TOLERANCE_HOURS))),
             None,
         )
         if pending_match_idx is not None:

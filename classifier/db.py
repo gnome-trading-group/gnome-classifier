@@ -357,6 +357,21 @@ class ClassifierDB:
                 )
                 return {row[0] for row in cur.fetchall()}
 
+    def get_active_listings_for_securities(
+        self, security_ids: list[int],
+    ) -> list[tuple[int, int, int, str]]:
+        """Returns [(listing_id, security_id, exchange_id, exchange_security_id)] for active listings."""
+        if not security_ids:
+            return []
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT listing_id, security_id, exchange_id, exchange_security_id"
+                    " FROM sm.listing"
+                    " WHERE active = true AND security_id = ANY(%s)",
+                    (security_ids,),
+                )
+                return [(row[0], row[1], row[2], row[3]) for row in cur.fetchall()]
 
     def get_active_listings_by_exchange_security(
         self, exchange_id: int, exchange_security_ids: list[str],

@@ -1,4 +1,4 @@
-from classifier.client.anthropic import BatchAnthropicClient, SubmitResult
+from classifier.client.anthropic import BatchAnthropicClient
 from classifier.client.voyage import BatchVoyageClient
 
-__all__ = ["BatchAnthropicClient", "BatchVoyageClient", "SubmitResult"]
+__all__ = ["BatchAnthropicClient", "BatchVoyageClient"]

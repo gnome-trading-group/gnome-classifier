@@ -1,10 +1,10 @@
 import dataclasses
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
-from classifier.constants import BULK_CREATE_BATCH_SIZE
+from classifier.constants import DEFAULT_BULK_CREATE_BATCH_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -14,13 +14,18 @@ def from_dict(cls, data: dict):
     return cls(**{k: v for k, v in data.items() if k in known})
 
 
+def _parse_utc(s: str) -> datetime:
+    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def expiry_close(a: str | None, b: str | None, tolerance: timedelta) -> bool:
     if a is None or b is None:
         return True
     try:
-        da = datetime.fromisoformat(a.replace("Z", "+00:00"))
-        db = datetime.fromisoformat(b.replace("Z", "+00:00"))
-        return abs((da - db).total_seconds()) <= tolerance.total_seconds()
+        return abs((_parse_utc(a) - _parse_utc(b)).total_seconds()) <= tolerance.total_seconds()
     except ValueError:
         return True
 
@@ -33,7 +38,13 @@ def generate_security_symbol(canonical_title: str, outcome_label: str) -> str:
     return f"{slug}-{outcome}".upper()
 
 
-def bulk_create_chunked(items: list[dict], label: str, batch_size: int = BULK_CREATE_BATCH_SIZE) -> Iterator[tuple[int, list[dict]]]:
+def strip_code_fences(text: str) -> str:
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    return text
+
+
+def bulk_create_chunked(items: list[dict], label: str, batch_size: int = DEFAULT_BULK_CREATE_BATCH_SIZE) -> Iterator[tuple[int, list[dict]]]:
     total_chunks = -(-len(items) // batch_size)
     for chunk_start in range(0, len(items), batch_size):
         chunk = items[chunk_start:chunk_start + batch_size]

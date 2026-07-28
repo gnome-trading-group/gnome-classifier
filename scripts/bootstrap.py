@@ -1,9 +1,9 @@
 """
 One-time bootstrap for initial load against real infrastructure.
 
-The Lambda pipeline has a 10-minute timeout and is designed for incremental
-updates (tens of contracts per run). This script runs without a timeout
-constraint to seed the registry with the full exchange universe initially.
+The ECS worker pipeline is designed for incremental updates (tens of contracts
+per run). This script runs without concurrency constraints to seed the registry
+with the full exchange universe initially.
 
 Usage:
   poetry run tunnel --pg --redis     # open SSM tunnels to RDS + Redis
@@ -25,15 +25,19 @@ Phase 2 — Classification (skipped with --no-classify):
   Runs relationship classification with skip_judgment=True. The structural
   finders (complement pairs, mutually exclusive pairs, hedgeable pairs) run
   and write relationships. Voyage embeddings are generated and stored in the
-  HNSW index so the Lambda's first incremental run has the full index ready.
+  HNSW index so the worker's first incremental run has the full index ready.
   Claude judgment calls are skipped — the cross-product of all initial
-  securities is too large to judge at once. The Lambda handles semantic
+  securities is too large to judge at once. The worker handles semantic
   relationship judgment incrementally going forward.
 
 Options:
   --no-classify   Skip Phase 2 entirely (entity creation only). Useful when
                   re-seeding entities after a schema migration without wanting
                   to re-derive all structural relationships.
+  --batch-size N  Process contracts in chunks of N. Useful for large universes
+                  to avoid memory pressure and long uninterruptible runs.
+                  Entity creation is idempotent so a failed run can be safely
+                  restarted from scratch.
 """
 import logging
 import os
@@ -43,7 +47,7 @@ import click
 import voyageai
 from gnomepy.registry import RegistryClient
 
-from classifier.cache import RedisClassifierCache, S3ClassifierCache
+from classifier.cache import RedisClassifierCache
 from classifier.client import BatchAnthropicClient, BatchVoyageClient
 from classifier.db import ClassifierDB
 from classifier.pipeline import PipelineResult, fetch_exchanges, run_full_pipeline_sync
@@ -57,7 +61,8 @@ logger = logging.getLogger(__name__)
 @click.argument("adapter", required=False, default=None)
 @click.option("--no-classify", is_flag=True, help="Skip relationship classification (entity creation only)")
 @click.option("--with-judgment", is_flag=True, help="Run Claude judgment calls during classification (slow — use for small adapter runs)")
-def main(adapter: str | None, no_classify: bool, with_judgment: bool) -> None:
+@click.option("--batch-size", default=None, type=int, help="Process contracts in batches of this size")
+def main(adapter: str | None, no_classify: bool, with_judgment: bool, batch_size: int | None) -> None:
     for var in ("ANTHROPIC_API_KEY", "VOYAGE_API_KEY", "REGISTRY_API_URL", "REGISTRY_API_KEY", "DATABASE_URL"):
         if not os.environ.get(var):
             raise click.ClickException(f"Missing required env var: {var}")
@@ -71,12 +76,9 @@ def main(adapter: str | None, no_classify: bool, with_judgment: bool) -> None:
     )
     voyage_client = BatchVoyageClient(client=voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"]))
     redis_url = os.environ.get("REDIS_URL")
-    cache_bucket = os.environ.get("CACHE_BUCKET")
     if redis_url:
         logger.info("Using Redis cache (SSM tunnel mode)")
         cache = RedisClassifierCache(redis_url=redis_url)
-    elif cache_bucket:
-        cache = S3ClassifierCache(bucket=cache_bucket)
     else:
         cache = None
     db = ClassifierDB(dsn=os.environ["DATABASE_URL"])
@@ -90,26 +92,41 @@ def main(adapter: str | None, no_classify: bool, with_judgment: bool) -> None:
         logger.warning("Adapter fetch failures: %s", failed_adapters)
     print(f"Fetched {len(contracts)} contracts from {len(exchange_by_name)} exchanges", flush=True)
 
-    print("\n=== PHASE 1: ENTITY CREATION ===\n", flush=True)
-    result: PipelineResult = run_full_pipeline_sync(
-        registry, batch_client, contracts,
-        voyage_client=voyage_client, cache=cache, db=db,
-        skip_classify=no_classify,
-        skip_semantic=not with_judgment,
+    batches = (
+        [contracts[i:i + batch_size] for i in range(0, len(contracts), batch_size)]
+        if batch_size else [contracts]
     )
+    n_batches = len(batches)
 
-    print("\nEntity creation summary:")
-    for k, v in result.entity_result.counts.items():
+    totals: dict[str, int] = {}
+    total_relationships = 0
+
+    for i, batch in enumerate(batches, 1):
+        if n_batches > 1:
+            print(f"\n=== BATCH {i}/{n_batches} ({len(batch)} contracts) ===\n", flush=True)
+
+        result: PipelineResult = run_full_pipeline_sync(
+            registry, batch_client, batch,
+            voyage_client=voyage_client, cache=cache, db=db,
+            skip_classify=no_classify,
+            skip_semantic=not with_judgment,
+        )
+
+        for k, v in result.entity_result.counts.items():
+            totals[k] = totals.get(k, 0) + v
+
+        if result.classification:
+            total_relationships += result.classification.relationships_written
+
+        if n_batches > 1:
+            for k, v in result.entity_result.counts.items():
+                if v:
+                    print(f"  {k}: {v}")
+            if result.classification:
+                print(f"  relationships_written: {result.classification.relationships_written}")
+
+    print("\n=== SUMMARY ===", flush=True)
+    for k, v in totals.items():
         print(f"  {k}: {v}")
-    print(f"  new_security_ids: {len(result.entity_result.new_security_ids)}")
-
-    if result.classification is None:
-        print("\nSkipping relationship classification.")
-        return
-
-    print(f"\n=== PHASE 2: RELATIONSHIP CLASSIFICATION ({len(result.entity_result.new_security_ids)} securities) ===\n", flush=True)
-    print(f"  Structural: {result.classification.structural.get('relationships_written', 0)} written")
-    if result.classification.semantic:
-        print(f"  Semantic: {result.classification.semantic.get('relationships_written', 0)} written")
-
-    print(f"\nBootstrap complete. {result.classification.relationships_written} structural relationships written.")
+    if not no_classify:
+        print(f"  relationships_written: {total_relationships}")

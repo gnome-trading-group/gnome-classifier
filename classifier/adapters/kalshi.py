@@ -10,7 +10,7 @@ from classifier.types import ExchangeId
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
+BASE_URL = "https://external-api.kalshi.com/trade-api/v2"
 PAGE_SIZE = 200
 
 CONTRACT_MULTIPLIER = 1_000_000_000

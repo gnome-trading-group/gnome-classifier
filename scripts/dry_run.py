@@ -46,20 +46,13 @@ import anthropic
 import click
 import voyageai
 
-from classifier.cache import RedisClassifierCache, S3ClassifierCache
+from classifier.cache import RedisClassifierCache
 from classifier.constants import RESOLUTION_LOOKBACK_DAYS
-from classifier.pipeline import (
-    PipelineResult,
-    classify_semantic_sync,
-    create_entities_and_embed,
-    fetch_exchanges,
-    run_classification_sync,
-    run_full_pipeline_sync,
-)
+from classifier.pipeline import PipelineResult, create_entities_and_embed, fetch_exchanges, run_full_pipeline_sync
 from classifier.client import BatchAnthropicClient, BatchVoyageClient
 from classifier.db import ClassifierDB
 from classifier.stages.canonicalize import canonicalize_events
-from classifier.stages.classify import prepare_semantic_batch
+from classifier.stages.classify import classify_semantic_sync, prepare_semantic_batch, run_classification_sync
 from classifier.stages.fetch import fetch_all, fetch_resolved_outcomes
 from classifier.stages.resolve import detect_resolved_events
 from classifier.types import CanonicalizeInput
@@ -74,13 +67,9 @@ def _build_cache(no_cache: bool):
     if no_cache:
         return None
     redis_url = os.environ.get("REDIS_URL")
-    database_url = os.environ.get("DATABASE_URL")
-    cache_bucket = os.environ.get("CACHE_BUCKET")
-    if redis_url and database_url:
-        logger.info("Using Redis cache + Postgres (SSM tunnel mode)")
+    if redis_url:
+        logger.info("Using Redis cache (SSM tunnel mode)")
         return RedisClassifierCache(redis_url=redis_url)
-    if cache_bucket:
-        return S3ClassifierCache(bucket=cache_bucket)
     return None
 
 

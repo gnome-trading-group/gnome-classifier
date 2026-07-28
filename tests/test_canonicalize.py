@@ -53,9 +53,9 @@ def test_canonicalize_events_batch(mock_anthropic):
         assert "tags" in r
 
 
-def test_canonicalize_events_cache_hit(mock_anthropic, s3_bucket):
-    from classifier.cache import S3ClassifierCache
-    cache = S3ClassifierCache(s3_bucket)
+def test_canonicalize_events_cache_hit(mock_anthropic):
+    from scripts.testing import MemoryClassifierCache
+    cache = MemoryClassifierCache()
     cached_result = {"title": "Cached Title", "category": "CRYPTO", "tags": ["btc", "price", "crypto"]}
     cache.put_canonicalization("claude-haiku-4-5-20251001", 1, "native-abc", cached_result)
 
@@ -65,9 +65,9 @@ def test_canonicalize_events_cache_hit(mock_anthropic, s3_bucket):
     assert result[(1, "native-abc")] == cached_result
 
 
-def test_canonicalize_events_cache_miss_then_store(mock_anthropic, s3_bucket):
-    from classifier.cache import S3ClassifierCache
-    cache = S3ClassifierCache(s3_bucket)
+def test_canonicalize_events_cache_miss_then_store(mock_anthropic):
+    from scripts.testing import MemoryClassifierCache
+    cache = MemoryClassifierCache()
 
     canonicalize_events(mock_anthropic, [CanonicalizeInput("raw title 2", None, None, 2, "native-xyz")], cache=cache)
 

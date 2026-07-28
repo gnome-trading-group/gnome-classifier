@@ -1,11 +1,18 @@
 import * as cdk from 'aws-cdk-lib';
-import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
 import * as sns from 'aws-cdk-lib/aws-sns';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
 import { MonitoringFacade, SnsAlarmActionStrategy } from 'cdk-monitoring-constructs';
 
 interface Props extends cdk.StackProps {
-  stateMachine: sfn.IStateMachine;
+  contractsQueue: sqs.Queue;
+  contractsDlq: sqs.Queue;
+  entitiesQueue: sqs.Queue;
+  entitiesDlq: sqs.Queue;
+  embeddingsQueue: sqs.Queue;
+  embeddingsDlq: sqs.Queue;
+  slackQueue: sqs.Queue;
+  slackDlq: sqs.Queue;
 }
 
 export class MonitoringStack extends cdk.Stack {
@@ -25,15 +32,30 @@ export class MonitoringStack extends cdk.Stack {
       },
     });
 
-    monitoring
-      .addLargeHeader('Gnome Classifier')
-      .monitorStepFunction({
-        stateMachine: props.stateMachine,
-        humanReadableName: 'Contract Classifier',
-        alarmFriendlyName: 'ContractClassifier',
-        addFailedExecutionCountAlarm: {
-          Critical: { maxErrorCount: 0 },
+    monitoring.addLargeHeader('Gnome Classifier');
+
+    for (const [name, queue, dlq] of [
+      ['Contracts', props.contractsQueue, props.contractsDlq],
+      ['Entities', props.entitiesQueue, props.entitiesDlq],
+      ['Embeddings', props.embeddingsQueue, props.embeddingsDlq],
+      ['Slack', props.slackQueue, props.slackDlq],
+    ] as [string, sqs.Queue, sqs.Queue][]) {
+      monitoring.monitorSqsQueue({
+        queue,
+        humanReadableName: `${name} Queue`,
+        alarmFriendlyName: name,
+        addQueueMaxMessageAgeAlarm: {
+          Critical: { maxAgeInSeconds: 3600 },
         },
       });
+      monitoring.monitorSqsQueue({
+        queue: dlq,
+        humanReadableName: `${name} DLQ`,
+        alarmFriendlyName: `${name}Dlq`,
+        addQueueMaxSizeAlarm: {
+          Critical: { maxMessageCount: 1 },
+        },
+      });
+    }
   }
 }

@@ -18,12 +18,10 @@ pgvector = "^0.5.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"
-moto = {version = "*", extras = ["s3"]}
-
-[tool.poetry.group.lambda.dependencies]
-awslambdaric = "*"
+moto = {version = "*", extras = ["s3", "sqs", "sns", "secretsmanager"]}
 
 [tool.poetry.scripts]
 dry-run = "scripts.dry_run:main"
 bootstrap = "scripts.bootstrap:main"
 tunnel = "scripts.tunnel:main"
+worker = "classifier.workers.runner:cli"

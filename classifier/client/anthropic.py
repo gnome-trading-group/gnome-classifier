@@ -5,9 +5,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import anthropic
 
-logger = logging.getLogger(__name__)
+from classifier.constants import DEFAULT_SYNC_THRESHOLD
 
-SYNC_THRESHOLD = 10
+logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass
@@ -31,11 +31,13 @@ class BatchAnthropicClient:
         self._poll_interval = poll_interval
         self._max_batch_wait = max_batch_wait
 
-    def create_messages(self, requests: list[dict]) -> dict[str, anthropic.types.Message]:
+    def create_messages(
+        self, requests: list[dict], sync_threshold: int = DEFAULT_SYNC_THRESHOLD,
+    ) -> dict[str, anthropic.types.Message]:
         """Submit N requests, return {custom_id: Message}. Blocks until complete."""
         if not requests:
             return {}
-        result = self.submit_batch(requests)
+        result = self.submit_batch(requests, sync_threshold=sync_threshold)
         if result.is_complete:
             return result.responses
         batch_id = result.batch_id
@@ -52,12 +54,12 @@ class BatchAnthropicClient:
         logger.info("Batch %s complete: %d/%d succeeded", batch_id, len(results), len(requests))
         return results
 
-    def submit_batch(self, requests: list[dict]) -> SubmitResult:
-        """Submit requests. Returns SubmitResult — sync (≤10 requests) or with batch_id (>10)."""
+    def submit_batch(self, requests: list[dict], sync_threshold: int = DEFAULT_SYNC_THRESHOLD) -> SubmitResult:
+        """Submit requests. Returns SubmitResult — sync (≤sync_threshold requests) or with batch_id."""
         if not requests:
             return SubmitResult(responses={})
         model = requests[0]["params"].get("model", "")
-        if len(requests) <= SYNC_THRESHOLD:
+        if len(requests) <= sync_threshold:
             logger.info("Sync processing %d requests (model=%s)", len(requests), model)
             return SubmitResult(responses=self._sync_create(requests))
         logger.info("Submitting batch of %d requests (model=%s)", len(requests), model)

@@ -4,6 +4,7 @@ from collections import defaultdict
 
 from classifier.cache import ClassifierCache
 from classifier.client import BatchAnthropicClient
+from classifier.constants import DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD, DEFAULT_MIN_CONFIDENCE, DEFAULT_SEMANTIC_JUDGMENT_MODEL
 from classifier.db import ClassifierDB
 from classifier.types import (
     Embedding,
@@ -14,13 +15,10 @@ from classifier.types import (
     SecurityId,
 )
 from classifier.relationships.structural import build_complement_map, derive_complement_relationships, primary_contracts
+from classifier.utils import strip_code_fences
 from gnomepy.registry.types import Event, EventContract
 
 logger = logging.getLogger(__name__)
-
-EMBEDDING_SIMILARITY_THRESHOLD = 0.80
-
-MODEL = "claude-sonnet-4-6"
 
 _JUDGE_SYSTEM_PROMPT = """You are classifying relationships between specific prediction market contracts for trading purposes.
 
@@ -37,7 +35,101 @@ Most pairs are unrelated — only include pairs with genuine trading signal. Ret
 Respond with a JSON array only:
 [{"a": 1, "b": 1, "type": "EQUIVALENT", "confidence": 0.95}, ...]
 For IMPLIES entries add "direction": "A_IMPLIES_B" or "B_IMPLIES_A".
-Only output the JSON array, nothing else."""
+Only output the JSON array, nothing else.
+
+---
+
+## Examples
+
+### EQUIVALENT — same question, different phrasing across exchanges
+
+Event A: Will Bitcoin price exceed $100,000 by end of 2025?
+  Contracts: [1] Yes  [2] No
+Event B: Bitcoin above $100k on December 31, 2025?
+  Contracts: [1] Yes  [2] No
+Embedding similarity: 0.943
+Output: [{"a": 1, "b": 1, "type": "EQUIVALENT", "confidence": 0.96}, {"a": 2, "b": 2, "type": "EQUIVALENT", "confidence": 0.96}]
+
+### EQUIVALENT — same election, both outcomes map
+
+Event A: 2024 US Presidential Election winner
+  Contracts: [1] Trump  [2] Harris
+Event B: Will Donald Trump win the 2024 US Presidential Election?
+  Contracts: [1] Yes  [2] No
+Embedding similarity: 0.921
+Output: [{"a": 1, "b": 1, "type": "EQUIVALENT", "confidence": 0.97}, {"a": 2, "b": 2, "type": "EQUIVALENT", "confidence": 0.89}]
+
+### IMPLIES — higher threshold implies lower (A→B)
+
+Event A: Will Bitcoin exceed $200,000 at any point in 2026?
+  Contracts: [1] Yes  [2] No
+Event B: Will Bitcoin exceed $100,000 at any point in 2026?
+  Contracts: [1] Yes  [2] No
+Embedding similarity: 0.891
+Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.98, "direction": "A_IMPLIES_B"}]
+
+### IMPLIES — superset implies subset, direction reversed (B→A)
+
+Event A: Will the Fed cut interest rates at least once in 2026?
+  Contracts: [1] Yes  [2] No
+Event B: Will the Fed cut interest rates at least three times in 2026?
+  Contracts: [1] Yes  [2] No
+Embedding similarity: 0.874
+Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "B_IMPLIES_A"}]
+
+### CORRELATED — same underlying, overlapping but non-deterministic thresholds
+
+Event A: Will the S&P 500 close above 5,500 on December 31, 2026?
+  Contracts: [1] Yes  [2] No
+Event B: Will the S&P 500 close above 6,000 on December 31, 2026?
+  Contracts: [1] Yes  [2] No
+Embedding similarity: 0.882
+Output: [{"a": 1, "b": 1, "type": "CORRELATED", "confidence": 0.84}]
+
+### MUTUALLY_EXCLUSIVE — only one outcome can resolve YES
+
+Event A: 2028 US Presidential Election winner
+  Contracts: [1] Democratic candidate  [2] Republican candidate
+Event B: 2028 US Presidential Election: Will Republicans win?
+  Contracts: [1] Yes  [2] No
+Embedding similarity: 0.903
+Output: [{"a": 1, "b": 2, "type": "MUTUALLY_EXCLUSIVE", "confidence": 0.94}, {"a": 2, "b": 1, "type": "EQUIVALENT", "confidence": 0.95}]
+
+### NOT mutually exclusive — time-bound contracts are often IMPLIES, not ME
+
+Event A: Will the US enter a recession by June 30, 2026?
+  Contracts: [1] Yes  [2] No
+Event B: Will the US enter a recession by December 31, 2026?
+  Contracts: [1] Yes  [2] No
+Embedding similarity: 0.908
+Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "A_IMPLIES_B"}]
+
+### NONE — different underlying assets, never CORRELATED
+
+Event A: Will Ethereum price exceed $5,000 by end of 2026?
+  Contracts: [1] Yes  [2] No
+Event B: Will Bitcoin price exceed $200,000 by end of 2026?
+  Contracts: [1] Yes  [2] No
+Embedding similarity: 0.813
+Output: []
+
+### NONE — same domain, no structural relationship between outcomes
+
+Event A: Who wins the 2026 FIFA World Cup?
+  Contracts: [1] Brazil  [2] France  [3] Germany  [4] Field
+Event B: Will the 2026 FIFA World Cup final have more than 2 goals?
+  Contracts: [1] Yes  [2] No
+Embedding similarity: 0.801
+Output: []
+
+### NONE — superficially related topic but no trading relationship
+
+Event A: Will inflation in the US exceed 3% in 2026?
+  Contracts: [1] Yes  [2] No
+Event B: Will the Fed raise interest rates in 2026?
+  Contracts: [1] Yes  [2] No
+Embedding similarity: 0.821
+Output: []"""
 
 
 def find_semantic_candidates(
@@ -48,6 +140,10 @@ def find_semantic_candidates(
     db: ClassifierDB,
     new_event_ids: set[EventId] | None = None,
     cache: ClassifierCache | None = None,
+    threshold: float = DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD,
+    neighbor_limit: int = 50,
+    allowed_categories: set[str] | None = None,
+    model: str = DEFAULT_SEMANTIC_JUDGMENT_MODEL,
 ) -> tuple[list[tuple[Event, Event, list[EventContract], list[EventContract], float]], list[JudgedRelationship]]:
     """Find candidate event pairs via embedding similarity, splitting into cache hits and pending.
 
@@ -64,7 +160,10 @@ def find_semantic_candidates(
     for eid in (new_event_ids or set()):
         if eid not in embeddings or eid not in by_event:
             continue
-        neighbors = db.find_neighbors(embeddings[eid], EMBEDDING_SIMILARITY_THRESHOLD)
+        event = event_by_id.get(eid)
+        if allowed_categories and event and event.category and event.category not in allowed_categories:
+            continue
+        neighbors = db.find_neighbors(embeddings[eid], threshold, limit=neighbor_limit)
         for neighbor_eid, sim in neighbors:
             if neighbor_eid == eid or neighbor_eid not in by_event:
                 continue
@@ -94,7 +193,7 @@ def find_semantic_candidates(
             labels_b = [ec.outcome_label for ec in primary_b]
 
             if cache is not None:
-                cached = cache.get_judgment(MODEL, ev_a.title, labels_a, ev_b.title, labels_b)
+                cached = cache.get_judgment(model, ev_a.title, labels_a, ev_b.title, labels_b)
                 if cached is not None:
                     cached_items, a_is_first = cached
                     cached_judged.extend(_parse_cached_judgment(cached_items, primary_a, primary_b, a_is_first))
@@ -109,6 +208,7 @@ def find_semantic_candidates(
 
 def build_judgment_requests(
     pending: list[tuple[Event, Event, list[EventContract], list[EventContract], float]],
+    model: str = DEFAULT_SEMANTIC_JUDGMENT_MODEL,
 ) -> tuple[list[dict], list[dict]]:
     """Build Claude API requests and a JSON-serializable context for later result processing.
 
@@ -134,7 +234,7 @@ def build_judgment_requests(
         api_requests.append({
             "custom_id": custom_id,
             "params": {
-                "model": MODEL,
+                "model": model,
                 "max_tokens": 300,
                 "system": [{"type": "text", "text": _JUDGE_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
                 "messages": [{"role": "user", "content": user_content}],
@@ -160,6 +260,7 @@ def parse_judgment_responses(
     responses: dict[str, object],
     pending_context: list[dict],
     cache: ClassifierCache | None,
+    model: str = DEFAULT_SEMANTIC_JUDGMENT_MODEL,
 ) -> list[JudgedRelationship]:
     """Parse Claude batch API responses using the saved pending_context.
 
@@ -186,7 +287,7 @@ def parse_judgment_responses(
         if cache is not None and cache_items:
             a_is_first = (ctx["event_a_title"], "|".join(ctx["labels_a"])) <= (ctx["event_b_title"], "|".join(ctx["labels_b"]))
             cache.put_judgment(
-                MODEL,
+                model,
                 ctx["event_a_title"], ctx["labels_a"],
                 ctx["event_b_title"], ctx["labels_b"],
                 cache_items, a_is_first,
@@ -215,8 +316,7 @@ def _parse_response_text(
     idx_to_label_a: dict[int, str],
     idx_to_label_b: dict[int, str],
 ) -> tuple[list[JudgedRelationship], list[dict]]:
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    raw = strip_code_fences(raw)
     logger.debug("judge_relationship response: %s", raw)
 
     try:
@@ -232,14 +332,14 @@ def _parse_response_text(
             idx_a = item.get("a")
             idx_b = item.get("b")
             rel_type_str = item.get("type", "NONE")
-            confidence = float(item.get("confidence", 0.70))
+            confidence = float(item.get("confidence", DEFAULT_MIN_CONFIDENCE))
             if idx_a not in idx_to_sid_a or idx_b not in idx_to_sid_b:
                 logger.debug("skipping item (index out of range): %s", item)
                 continue
             if rel_type_str not in RelationshipType.__members__:
                 logger.debug("skipping item (invalid type): %s", item)
                 continue
-            if confidence < 0.70:
+            if confidence < DEFAULT_MIN_CONFIDENCE:
                 logger.debug("skipping item (low confidence): %s", item)
                 continue
 

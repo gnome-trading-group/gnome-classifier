@@ -19,7 +19,14 @@ class AppStage extends cdk.Stage {
     });
 
     new MonitoringStack(this, "MonitoringStack", {
-      stateMachine: classifierStack.stateMachine,
+      contractsQueue: classifierStack.contractsQueue,
+      contractsDlq: classifierStack.contractsDlq,
+      entitiesQueue: classifierStack.entitiesQueue,
+      entitiesDlq: classifierStack.entitiesDlq,
+      embeddingsQueue: classifierStack.embeddingsQueue,
+      embeddingsDlq: classifierStack.embeddingsDlq,
+      slackQueue: classifierStack.slackQueue,
+      slackDlq: classifierStack.slackDlq,
     });
   }
 }

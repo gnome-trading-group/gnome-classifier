@@ -1,15 +1,14 @@
 FROM python:3.13-slim
 
-RUN pip install --no-cache-dir "poetry>=2.0.0,<3.0.0"
+RUN pip install --no-cache-dir "poetry>=2.0.0,<3.0.0" awslambdaric
 
-WORKDIR /var/task
+WORKDIR /app
 
 COPY pyproject.toml poetry.lock ./
 RUN poetry config virtualenvs.create false && \
-    poetry install --with lambda --no-root --no-interaction --no-ansi
+    poetry install --no-root --no-interaction --no-ansi
 
 COPY classifier/ classifier/
-COPY handler.py .
+COPY scripts/ scripts/
 
-ENTRYPOINT ["/usr/local/bin/python", "-m", "awslambdaric"]
-CMD ["handler.handler"]
+ENTRYPOINT ["python", "-m", "classifier.workers.runner"]

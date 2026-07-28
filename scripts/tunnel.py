@@ -36,7 +36,7 @@ def _db_secret(client, secret_name: str) -> dict:
     return json.loads(raw)
 
 
-def _start_tunnel(bastion_id: str, remote_host: str, remote_port: int, local_port: int) -> subprocess.Popen:
+def _start_tunnel(bastion_id: str, remote_host: str, remote_port: int, local_port: int, aws_profile: str) -> subprocess.Popen:
     params = json.dumps({
         "host": [remote_host],
         "portNumber": [str(remote_port)],
@@ -44,7 +44,7 @@ def _start_tunnel(bastion_id: str, remote_host: str, remote_port: int, local_por
     })
     return subprocess.Popen(
         [
-            "aws", "ssm", "start-session",
+            "aws", "--profile", aws_profile, "ssm", "start-session",
             "--target", bastion_id,
             "--document-name", "AWS-StartPortForwardingSessionToRemoteHost",
             "--parameters", params,
@@ -56,17 +56,20 @@ def _start_tunnel(bastion_id: str, remote_host: str, remote_port: int, local_por
 
 @click.command()
 @click.option("--stage", default="dev", show_default=True, help="dev or prod")
+@click.option("--profile", default=None, help="AWS profile (defaults to stage name)")
 @click.option("--pg", "pg_only", is_flag=True, help="Postgres tunnel only")
 @click.option("--redis", "redis_only", is_flag=True, help="Redis tunnel only")
 @click.option("--pg-port", default=5432, show_default=True, help="Local port for Postgres")
 @click.option("--redis-port", default=6379, show_default=True, help="Local port for Redis")
-def main(stage: str, pg_only: bool, redis_only: bool, pg_port: int, redis_port: int) -> None:
+def main(stage: str, profile: str | None, pg_only: bool, redis_only: bool, pg_port: int, redis_port: int) -> None:
     stage_title = stage.title()  # "dev" → "Dev"
     db_stack = f"{stage_title}-DatabaseStack"
     classifier_stack = f"{stage_title}-ClassifierStack"
 
-    cfn = boto3.client("cloudformation")
-    sm = boto3.client("secretsmanager")
+    aws_profile = profile or stage
+    session = boto3.Session(profile_name=aws_profile)
+    cfn = session.client("cloudformation")
+    sm = session.client("secretsmanager")
 
     click.echo(f"Discovering endpoints for stage={stage}...")
 
@@ -81,7 +84,7 @@ def main(stage: str, pg_only: bool, redis_only: bool, pg_port: int, redis_port: 
 
     if not redis_only:
         click.echo(f"  Starting Postgres tunnel: localhost:{pg_port} → {db_host}:5432")
-        procs.append(_start_tunnel(bastion_id, db_host, 5432, pg_port))
+        procs.append(_start_tunnel(bastion_id, db_host, 5432, pg_port, aws_profile))
 
     if not pg_only:
         redis_endpoint = _cfn_output(cfn, classifier_stack, "RedisEndpoint")
@@ -90,7 +93,7 @@ def main(stage: str, pg_only: bool, redis_only: bool, pg_port: int, redis_port: 
         redis_host = redis_parts[0]
         redis_port_remote = int(redis_parts[1]) if len(redis_parts) > 1 else 6379
         click.echo(f"  Starting Redis tunnel:    localhost:{redis_port} → {redis_host}:{redis_port_remote}")
-        procs.append(_start_tunnel(bastion_id, redis_host, redis_port_remote, redis_port))
+        procs.append(_start_tunnel(bastion_id, redis_host, redis_port_remote, redis_port, aws_profile))
 
     # Brief pause so SSM sessions can initialise
     time.sleep(2)

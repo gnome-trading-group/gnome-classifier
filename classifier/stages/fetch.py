@@ -2,8 +2,24 @@ import logging
 
 from classifier.adapters import ADAPTERS
 from classifier.adapters.types import AdapterContract
+from gnomepy.registry import RegistryClient
+from gnomepy.registry.types import Exchange
 
 logger = logging.getLogger(__name__)
+
+
+def fetch_exchanges(
+    registry: RegistryClient,
+    adapter_name: str | None = None,
+) -> dict[str, Exchange]:
+    exchanges = registry.get_exchange()
+    exchange_by_name = {e.exchange_name.lower(): e for e in exchanges}
+    if adapter_name:
+        key = adapter_name.lower()
+        if key not in exchange_by_name:
+            raise ValueError(f"Unknown adapter '{adapter_name}'. Choices: {list(exchange_by_name)}")
+        return {key: exchange_by_name[key]}
+    return exchange_by_name
 
 
 def fetch_resolved_outcomes(

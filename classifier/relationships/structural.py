@@ -2,9 +2,8 @@ from collections import defaultdict
 
 from gnomepy.registry.types import EventContract
 
+from classifier.constants import DEFAULT_STRUCTURAL_CONFIDENCE
 from classifier.types import EventId, JudgedRelationship, RelationshipMatch, RelationshipType, SecurityId
-
-STRUCTURAL_CONFIDENCE = 1.0
 
 
 def primary_contracts(contracts: list[EventContract]) -> list[EventContract]:
@@ -32,10 +31,11 @@ def build_complement_map(
 
 def find_complement_pairs(
     event_contracts: list[EventContract],
+    confidence: float = DEFAULT_STRUCTURAL_CONFIDENCE,
 ) -> list[RelationshipMatch]:
     complement_of = build_complement_map(event_contracts)
     return [
-        RelationshipMatch(a, b, RelationshipType.COMPLEMENT, STRUCTURAL_CONFIDENCE, "structural")
+        RelationshipMatch(a, b, RelationshipType.COMPLEMENT, confidence, "structural")
         for a, b in complement_of.items()
     ]
 
@@ -71,6 +71,7 @@ def derive_complement_relationships(
 
 def find_mutually_exclusive_pairs(
     event_contracts: list[EventContract],
+    confidence: float = DEFAULT_STRUCTURAL_CONFIDENCE,
 ) -> list[RelationshipMatch]:
     by_event: dict[EventId, list[SecurityId]] = defaultdict(list)
     for ec in event_contracts:
@@ -84,7 +85,7 @@ def find_mutually_exclusive_pairs(
                     pairs.append(RelationshipMatch(
                         ids[i], ids[j],
                         RelationshipType.MUTUALLY_EXCLUSIVE,
-                        STRUCTURAL_CONFIDENCE,
+                        confidence,
                         "structural",
                     ))
     return pairs

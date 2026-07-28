@@ -1,0 +1,95 @@
+{
+  "events": [
+    {
+      "title": "Harvey Weinstein prison time?",
+      "slug": "harvey-weinstein-prison-time",
+      "description": null,
+      "markets": [
+        {
+          "conditionId": "0xf398b0e5016eeaee9b00000000000000000000000000000000000000000000001",
+          "question": "Will Harvey Weinstein be sentenced to no prison time?",
+          "groupItemTitle": "No Prison Time",
+          "negRisk": true,
+          "closed": false,
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"1001\", \"1002\"]",
+          "endDate": "2025-12-31T12:00:00Z"
+        },
+        {
+          "conditionId": "0xe2b48e3b44de9658ee00000000000000000000000000000000000000000000002",
+          "question": "Will Harvey Weinstein be sentenced to less than 5 years in prison?",
+          "groupItemTitle": "<5 years",
+          "negRisk": true,
+          "closed": false,
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"2001\", \"2002\"]",
+          "endDate": "2025-12-31T12:00:00Z"
+        },
+        {
+          "conditionId": "0x3209617364a0d59843000000000000000000000000000000000000000000000003",
+          "question": "Will Harvey Weinstein be sentenced to between 5 and 10 years in prison?",
+          "groupItemTitle": "5-10 years",
+          "negRisk": true,
+          "closed": false,
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"3001\", \"3002\"]",
+          "endDate": "2025-12-31T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "title": "Kraken IPO by ___?",
+      "slug": "kraken-ipo-by",
+      "description": null,
+      "markets": [
+        {
+          "conditionId": "0x5b70123b2c37355840b00000000000000000000000000000000000000000000001",
+          "question": "Kraken IPO in 2025?",
+          "groupItemTitle": "2025",
+          "negRisk": false,
+          "closed": false,
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"4001\", \"4002\"]",
+          "endDate": "2025-12-31T12:00:00Z"
+        },
+        {
+          "conditionId": "0x9b3c3177fe473124c700000000000000000000000000000000000000000000002",
+          "question": "Kraken IPO by March 31, 2026?",
+          "groupItemTitle": "March 2026",
+          "negRisk": false,
+          "closed": false,
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"5001\", \"5002\"]",
+          "endDate": "2026-04-01T04:00:00Z"
+        },
+        {
+          "conditionId": "0xaabbcc1234567890ab00000000000000000000000000000000000000000000003",
+          "question": "Kraken IPO by December 31, 2026?",
+          "groupItemTitle": "Dec 2026",
+          "negRisk": false,
+          "closed": false,
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"6001\", \"6002\"]",
+          "endDate": "2027-01-01T04:00:00Z"
+        }
+      ]
+    },
+    {
+      "title": "Will Elon Musk visit Mars?",
+      "slug": "elon-mars",
+      "description": null,
+      "markets": [
+        {
+          "conditionId": "0xdeadbeef000000000000000000000000000000000000000000000000000000001",
+          "question": "Will Elon Musk visit Mars before 2030?",
+          "groupItemTitle": null,
+          "negRisk": false,
+          "closed": false,
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"7001\", \"7002\"]",
+          "endDate": "2030-01-01T00:00:00Z"
+        }
+      ]
+    }
+  ]
+}

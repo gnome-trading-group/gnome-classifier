@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import anthropic
 
+from classifier.cache.base import ClassifierCache
 from gnomepy.registry import RegistryClient
 from gnomepy.registry.types import (
     ContractRelationship,
@@ -17,6 +18,39 @@ from gnomepy.registry.types import (
     ListingSpec,
     Security,
 )
+
+
+class MemoryClassifierCache(ClassifierCache):
+    """In-memory cache for use in tests and scripts without Redis."""
+
+    def __init__(self):
+        self._canon: dict[str, dict] = {}
+        self._judge: dict[str, tuple[list, bool]] = {}
+
+    def get_canonicalization(self, model: str, exchange_id: int, native_id: str) -> dict | None:
+        return self._canon.get(self._canon_hash(model, exchange_id, native_id))
+
+    def get_canonicalization_bulk(self, model: str, pairs: list[tuple[int, str]]) -> dict[tuple[int, str], dict]:
+        return {
+            p: self._canon[self._canon_hash(model, *p)]
+            for p in pairs
+            if self._canon_hash(model, *p) in self._canon
+        }
+
+    def put_canonicalization(self, model: str, exchange_id: int, native_id: str, result: dict) -> None:
+        self._canon[self._canon_hash(model, exchange_id, native_id)] = result
+
+    def get_judgment(self, model: str, title_a: str, labels_a: list[str], title_b: str, labels_b: list[str]) -> tuple[list, bool] | None:
+        stored = self._judge.get(self._judge_hash(model, title_a, labels_a, title_b, labels_b))
+        if stored is None:
+            return None
+        return stored["items"], stored["first_title"] == title_a
+
+    def put_judgment(self, model: str, title_a: str, labels_a: list[str], title_b: str, labels_b: list[str], items: list, a_is_first: bool) -> None:
+        self._judge[self._judge_hash(model, title_a, labels_a, title_b, labels_b)] = {
+            "first_title": title_a if a_is_first else title_b,
+            "items": items,
+        }
 
 
 def no_op_anthropic_client() -> anthropic.Anthropic:
@@ -408,6 +442,16 @@ class StubDB:
             l.security_id for l in self._r._listings
             if l.security_id in sid_set and l.active
         }
+
+    def get_active_listings_for_securities(
+        self, security_ids: list[int],
+    ) -> list[tuple[int, int, int, str]]:
+        sid_set = set(security_ids)
+        return [
+            (l.listing_id, l.security_id, l.exchange_id, l.exchange_security_id)
+            for l in self._r._listings
+            if l.security_id in sid_set and l.active
+        ]
 
     def get_all_active_listings(self) -> list:
         return [l for l in self._r._listings if l.active]

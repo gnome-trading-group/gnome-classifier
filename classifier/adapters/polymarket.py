@@ -105,52 +105,118 @@ class PolymarketAdapter:
             return []
 
         event_description = event.get("description") or None
+        event_title = event.get("title", "")
+        event_slug = event.get("slug", "")
+
+        is_neg_risk_group = len(markets) > 1 and all(m.get("negRisk") for m in markets)
+
+        if is_neg_risk_group:
+            return self._map_neg_risk_group(
+                exchange_id, markets, event_title, event_slug, event_description,
+            )
 
         contracts: list[AdapterContract] = []
         for market in markets:
-            question = market.get("question", "")
+            contracts.extend(self._map_binary_market(exchange_id, market, event_description))
+        return contracts
+
+    def _map_neg_risk_group(
+        self,
+        exchange_id: ExchangeId,
+        markets: list[dict],
+        event_title: str,
+        event_slug: str,
+        event_description: str | None,
+    ) -> list[AdapterContract]:
+        symbol_base = f"{event_title[:60]} -- "
+        contracts: list[AdapterContract] = []
+        for market in markets:
             condition_id = market.get("conditionId", "")
             if not condition_id:
                 continue
-            expiry = market.get("endDate")
-
-            raw_outcomes = market.get("outcomes", "[]")
             raw_token_ids = market.get("clobTokenIds", "[]")
             try:
-                outcomes = raw_outcomes if isinstance(raw_outcomes, list) else json.loads(raw_outcomes)
                 token_ids = raw_token_ids if isinstance(raw_token_ids, list) else json.loads(raw_token_ids)
             except Exception:
                 continue
-
-            if not outcomes or not token_ids:
+            if not token_ids:
                 continue
+            yes_token_id = token_ids[0]
+            outcome_label = market.get("groupItemTitle") or market.get("question", "")
+            contracts.append(AdapterContract(
+                exchange_id=exchange_id,
+                exchange_security_id=f"{condition_id}:{yes_token_id}",
+                exchange_security_symbol=f"{symbol_base}{outcome_label}"[:100],
+                base_currency="USDC",
+                quote_currency="USDC",
+                settle_currency="USDC",
+                security_type=SecurityType.EVENT_CONTRACT,
+                contract_type=ContractType.MULTI_OUTCOME,
+                asset_class=AssetClass.PREDICTION,
+                inverse=False,
+                is_quanto=False,
+                tick_size=TICK_SIZE,
+                lot_size=LOT_SIZE,
+                min_notional=0.0,
+                contract_multiplier=CONTRACT_MULTIPLIER,
+                event_title=event_title,
+                outcome_label=outcome_label,
+                event_description=event_description,
+                event_category=None,
+                event_expiry=market.get("endDate"),
+                exchange_event_native_id=event_slug,
+            ))
+        return contracts
 
-            is_binary = len(outcomes) == 2
-            contract_type = ContractType.BINARY if is_binary else ContractType.MULTI_OUTCOME
+    def _map_binary_market(
+        self,
+        exchange_id: ExchangeId,
+        market: dict,
+        event_description: str | None,
+    ) -> list[AdapterContract]:
+        question = market.get("question", "")
+        condition_id = market.get("conditionId", "")
+        if not condition_id:
+            return []
+        expiry = market.get("endDate")
 
-            for outcome, token_id in zip(outcomes, token_ids):
-                contracts.append(AdapterContract(
-                    exchange_id=exchange_id,
-                    exchange_security_id=f"{condition_id}:{token_id}",
-                    exchange_security_symbol=f"{question[:60]} -- {outcome}",
-                    base_currency="USDC",
-                    quote_currency="USDC",
-                    settle_currency="USDC",
-                    security_type=SecurityType.EVENT_CONTRACT,
-                    contract_type=contract_type,
-                    asset_class=AssetClass.PREDICTION,
-                    inverse=False,
-                    is_quanto=False,
-                    tick_size=TICK_SIZE,
-                    lot_size=LOT_SIZE,
-                    min_notional=0.0,
-                    contract_multiplier=CONTRACT_MULTIPLIER,
-                    event_title=question,
-                    outcome_label=outcome,
-                    event_description=event_description,
-                    event_category=None,
-                    event_expiry=expiry,
-                    exchange_event_native_id=condition_id,
-                ))
+        raw_outcomes = market.get("outcomes", "[]")
+        raw_token_ids = market.get("clobTokenIds", "[]")
+        try:
+            outcomes = raw_outcomes if isinstance(raw_outcomes, list) else json.loads(raw_outcomes)
+            token_ids = raw_token_ids if isinstance(raw_token_ids, list) else json.loads(raw_token_ids)
+        except Exception:
+            return []
 
+        if not outcomes or not token_ids:
+            return []
+
+        is_binary = len(outcomes) == 2
+        contract_type = ContractType.BINARY if is_binary else ContractType.MULTI_OUTCOME
+
+        contracts = []
+        for outcome, token_id in zip(outcomes, token_ids):
+            contracts.append(AdapterContract(
+                exchange_id=exchange_id,
+                exchange_security_id=f"{condition_id}:{token_id}",
+                exchange_security_symbol=f"{question[:60]} -- {outcome}",
+                base_currency="USDC",
+                quote_currency="USDC",
+                settle_currency="USDC",
+                security_type=SecurityType.EVENT_CONTRACT,
+                contract_type=contract_type,
+                asset_class=AssetClass.PREDICTION,
+                inverse=False,
+                is_quanto=False,
+                tick_size=TICK_SIZE,
+                lot_size=LOT_SIZE,
+                min_notional=0.0,
+                contract_multiplier=CONTRACT_MULTIPLIER,
+                event_title=question,
+                outcome_label=outcome,
+                event_description=event_description,
+                event_category=None,
+                event_expiry=expiry,
+                exchange_event_native_id=condition_id,
+            ))
         return contracts

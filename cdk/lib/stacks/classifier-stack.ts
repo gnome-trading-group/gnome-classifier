@@ -1,15 +1,18 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
+import * as autoscaling from 'aws-cdk-lib/aws-autoscaling';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elasticache from 'aws-cdk-lib/aws-elasticache';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
-import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secrets from 'aws-cdk-lib/aws-secretsmanager';
-import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
-import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { join } from 'path';
 import { Stage } from '@gnome-trading-group/gnome-shared-cdk';
 
@@ -19,7 +22,15 @@ interface Props extends cdk.StackProps {
 }
 
 export class ClassifierStack extends cdk.Stack {
-  public readonly stateMachine: sfn.StateMachine;
+  public readonly contractsQueue: sqs.Queue;
+  public readonly contractsDlq: sqs.Queue;
+  public readonly entitiesQueue: sqs.Queue;
+  public readonly entitiesDlq: sqs.Queue;
+  public readonly embeddingsQueue: sqs.Queue;
+  public readonly embeddingsDlq: sqs.Queue;
+  public readonly slackQueue: sqs.Queue;
+  public readonly slackDlq: sqs.Queue;
+  public readonly notificationsTopic: sns.Topic;
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
@@ -42,19 +53,55 @@ export class ClassifierStack extends cdk.Stack {
       lifecycleRules: [{ expiration: cdk.Duration.days(90) }],
     });
 
-    // Import the registry VPC so we can place Lambdas alongside RDS/Redis
     const vpc = ec2.Vpc.fromLookup(this, 'RegistryVpc', {
       vpcName: 'registry-database-vpc',
     });
 
-    // Security group for classifier Lambdas
-    const lambdaSg = new ec2.SecurityGroup(this, 'ClassifierLambdaSg', {
+    // ── SQS Queues ────────────────────────────────────────────────────
+
+    this.contractsDlq = new sqs.Queue(this, 'ContractsDlq', {
+      retentionPeriod: cdk.Duration.days(14),
+    });
+    this.contractsQueue = new sqs.Queue(this, 'ContractsQueue', {
+      visibilityTimeout: cdk.Duration.minutes(5),
+      deadLetterQueue: { queue: this.contractsDlq, maxReceiveCount: 3 },
+    });
+
+    this.entitiesDlq = new sqs.Queue(this, 'EntitiesDlq', {
+      retentionPeriod: cdk.Duration.days(14),
+    });
+    this.entitiesQueue = new sqs.Queue(this, 'EntitiesQueue', {
+      visibilityTimeout: cdk.Duration.minutes(30),
+      deadLetterQueue: { queue: this.entitiesDlq, maxReceiveCount: 3 },
+    });
+
+    this.embeddingsDlq = new sqs.Queue(this, 'EmbeddingsDlq', {
+      retentionPeriod: cdk.Duration.days(14),
+    });
+    this.embeddingsQueue = new sqs.Queue(this, 'EmbeddingsQueue', {
+      visibilityTimeout: cdk.Duration.minutes(15),
+      deadLetterQueue: { queue: this.embeddingsDlq, maxReceiveCount: 3 },
+    });
+
+    this.notificationsTopic = new sns.Topic(this, 'NotificationsTopic');
+
+    this.slackDlq = new sqs.Queue(this, 'SlackDlq', {
+      retentionPeriod: cdk.Duration.days(7),
+    });
+    this.slackQueue = new sqs.Queue(this, 'SlackQueue', {
+      visibilityTimeout: cdk.Duration.minutes(2),
+      deadLetterQueue: { queue: this.slackDlq, maxReceiveCount: 5 },
+    });
+    this.notificationsTopic.addSubscription(new snsSubscriptions.SqsSubscription(this.slackQueue));
+
+    // ── ElastiCache Redis ─────────────────────────────────────────────
+
+    const workerSg = new ec2.SecurityGroup(this, 'WorkerSg', {
       vpc,
-      description: 'Classifier Lambda outbound access',
+      description: 'Classifier worker outbound access',
       allowAllOutbound: true,
     });
 
-    // ElastiCache Redis subnet group (reuses the VPC's existing private subnets)
     const redisSubnetGroup = new elasticache.CfnSubnetGroup(this, 'RedisSubnetGroup', {
       description: 'Subnet group for classifier Redis',
       subnetIds: vpc.privateSubnets.map(s => s.subnetId),
@@ -64,11 +111,11 @@ export class ClassifierStack extends cdk.Stack {
       vpc,
       description: 'ElastiCache Redis access',
     });
-    redisSg.addIngressRule(lambdaSg, ec2.Port.tcp(6379), 'Allow Lambda to Redis');
+    redisSg.addIngressRule(workerSg, ec2.Port.tcp(6379), 'Allow workers to Redis');
     redisSg.addIngressRule(ec2.Peer.ipv4(vpc.vpcCidrBlock), ec2.Port.tcp(6379), 'Allow VPC to Redis for SSM tunnel');
 
     const redisCluster = new elasticache.CfnCacheCluster(this, 'RedisCluster', {
-      cacheNodeType: 'cache.t3.small',
+      cacheNodeType: 'cache.t3.micro',
       engine: 'redis',
       numCacheNodes: 1,
       cacheSubnetGroupName: redisSubnetGroup.ref,
@@ -77,7 +124,40 @@ export class ClassifierStack extends cdk.Stack {
 
     const redisEndpoint = `redis://${redisCluster.attrRedisEndpointAddress}:${redisCluster.attrRedisEndpointPort}`;
 
-    const registryEnvironment = {
+    // ── ECS Cluster on EC2 (public subnet, spot) ──────────────────────
+
+    const cluster = new ecs.Cluster(this, 'ClassifierCluster', { vpc });
+
+    const workerAsg = new autoscaling.AutoScalingGroup(this, 'WorkerAsg', {
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MEDIUM),
+      machineImage: ecs.EcsOptimizedImage.amazonLinux2023(),
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      associatePublicIpAddress: true,
+      spotPrice: '0.042',
+      minCapacity: 1,
+      maxCapacity: 2,
+      securityGroup: workerSg,
+    });
+
+    const workerCapacity = new ecs.AsgCapacityProvider(this, 'WorkerCapacity', {
+      autoScalingGroup: workerAsg,
+      enableManagedTerminationProtection: false,
+    });
+    cluster.addAsgCapacityProvider(workerCapacity);
+
+    // ── Shared environment ────────────────────────────────────────────
+
+    const imageAsset = join(__dirname, '..', '..', '..');
+
+    const controllerApiKeyId = cdk.Fn.importValue('ControllerServiceConfigApiKeyId');
+    const controllerApiKeyArn = `arn:aws:apigateway:${this.region}::/apikeys/${controllerApiKeyId}`;
+    const controllerEnv = {
+      CONTROLLER_API_URL: cdk.Fn.importValue('ControllerApiUrl'),
+      CONTROLLER_API_KEY_ID: controllerApiKeyId,
+    };
+
+    const sharedEnv = {
       REGISTRY_API_URL: cdk.Fn.importValue('RegistryApiUrl'),
       REGISTRY_API_KEY_ID: cdk.Fn.importValue('RegistryApiKeyId'),
       ANTHROPIC_API_KEY_SECRET: 'anthropic-api-key',
@@ -85,302 +165,161 @@ export class ClassifierStack extends cdk.Stack {
       CACHE_BUCKET: cacheBucket.bucketName,
       REDIS_ENDPOINT: redisEndpoint,
       DB_SECRET_NAME: 'registry-database-root-user',
+      CONTRACTS_QUEUE_URL: this.contractsQueue.queueUrl,
+      ENTITIES_QUEUE_URL: this.entitiesQueue.queueUrl,
+      EMBEDDINGS_QUEUE_URL: this.embeddingsQueue.queueUrl,
+      NOTIFICATIONS_TOPIC_ARN: this.notificationsTopic.topicArn,
+      SLACK_QUEUE_URL: this.slackQueue.queueUrl,
+      ...controllerEnv,
     };
 
-    const imageAsset = join(__dirname, '..', '..', '..');
+    // ── Helper: create a single-worker ECS service ────────────────────
 
-    // Constructed manually to avoid circular CFN dependency (state machine → Lambda → state machine)
-    const stateMachineName = 'ContractClassifier';
-    const stateMachineArn = `arn:aws:states:${this.region}:${this.account}:stateMachine:${stateMachineName}`;
+    const createWorkerService = (
+      id: string,
+      workerCommand: string,
+      environment: Record<string, string>,
+      memoryLimitMiB: number,
+      taskRoleGrants: (role: iam.Role) => void,
+    ): ecs.Ec2Service => {
+      const taskRole = new iam.Role(this, `${id}TaskRole`, {
+        assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      });
+      taskRoleGrants(taskRole);
 
-    const vpcConfig = {
-      vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [lambdaSg],
+      const taskDef = new ecs.Ec2TaskDefinition(this, `${id}Task`, {
+        taskRole,
+      });
+
+      taskDef.addContainer(`${id}Container`, {
+        image: ecs.ContainerImage.fromAsset(imageAsset),
+        command: [workerCommand],
+        memoryLimitMiB,
+        environment,
+        logging: ecs.LogDrivers.awsLogs({ streamPrefix: workerCommand }),
+      });
+
+      return new ecs.Ec2Service(this, `${id}Service`, {
+        cluster,
+        taskDefinition: taskDef,
+        desiredCount: 1,
+        minHealthyPercent: 0,
+        maxHealthyPercent: 100,
+        capacityProviderStrategies: [{ capacityProvider: workerCapacity.capacityProviderName, weight: 1 }],
+      });
     };
 
-    const fetchLambda = new lambda.DockerImageFunction(this, 'fetch-lambda', {
-      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
-        cmd: ['handler.fetch_and_prepare'],
-      }),
-      timeout: cdk.Duration.minutes(10),
-      memorySize: 2048,
-      environment: { ...registryEnvironment, STATE_MACHINE_ARN: stateMachineArn },
-      ...vpcConfig,
-    });
+    // ── Fetch + Resolve Lambdas (no VPC — only external APIs, SQS, S3) ─
 
-    const submitCanonLambda = new lambda.DockerImageFunction(this, 'submit-canon-lambda', {
-      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
-        cmd: ['handler.submit_canon_handler'],
-      }),
-      timeout: cdk.Duration.minutes(5),
-      memorySize: 2048,
-      environment: registryEnvironment,
-      ...vpcConfig,
-    });
+    const fetchLambdaEnv = {
+      REGISTRY_API_URL: cdk.Fn.importValue('RegistryApiUrl'),
+      REGISTRY_API_KEY_ID: cdk.Fn.importValue('RegistryApiKeyId'),
+      CACHE_BUCKET: cacheBucket.bucketName,
+      CONTRACTS_QUEUE_URL: this.contractsQueue.queueUrl,
+      ...controllerEnv,
+    };
 
-    // Generic check-batch lambda reused for both canon and semantic poll loops
-    const checkBatchLambda = new lambda.DockerImageFunction(this, 'check-batch-lambda', {
-      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
-        cmd: ['handler.check_batch_handler'],
-      }),
-      timeout: cdk.Duration.seconds(30),
-      memorySize: 256,
-      environment: registryEnvironment,
-      ...vpcConfig,
-    });
-
-    const collectCanonLambda = new lambda.DockerImageFunction(this, 'collect-canon-lambda', {
-      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
-        cmd: ['handler.collect_canon_handler'],
-      }),
-      timeout: cdk.Duration.minutes(10),
-      memorySize: 2048,
-      environment: registryEnvironment,
-      ...vpcConfig,
-    });
-
-    const classifyStructuralLambda = new lambda.DockerImageFunction(this, 'classify-structural-lambda', {
-      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
-        cmd: ['handler.classify_structural_handler'],
-      }),
-      timeout: cdk.Duration.minutes(5),
-      memorySize: 2048,
-      environment: registryEnvironment,
-      ...vpcConfig,
-    });
-
-    const submitSemanticLambda = new lambda.DockerImageFunction(this, 'submit-semantic-lambda', {
-      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
-        cmd: ['handler.submit_semantic_batch_handler'],
-      }),
-      timeout: cdk.Duration.minutes(2),
-      memorySize: 2048,
-      environment: registryEnvironment,
-      ...vpcConfig,
-    });
-
-    const collectSemanticLambda = new lambda.DockerImageFunction(this, 'collect-semantic-lambda', {
-      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
-        cmd: ['handler.collect_semantic_results_handler'],
-      }),
-      timeout: cdk.Duration.minutes(5),
-      memorySize: 2048,
-      environment: registryEnvironment,
-      ...vpcConfig,
-    });
-
-    // notify-lambda stays outside VPC — only calls Slack, no DB/Redis needed
-    const notifyLambda = new lambda.DockerImageFunction(this, 'notify-lambda', {
-      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
-        cmd: ['handler.send_notification'],
-      }),
-      timeout: cdk.Duration.seconds(30),
-      memorySize: 256,
-      environment: {
-        SLACK_BOT_TOKEN_SECRET: 'slack-bot-token',
-        SLACK_CHANNEL: props.slackChannel,
-      },
-    });
-
-    const classifyLambdas = [
-      submitCanonLambda, checkBatchLambda, collectCanonLambda,
-      classifyStructuralLambda, submitSemanticLambda, collectSemanticLambda,
-    ];
-
-    for (const fn of [fetchLambda, ...classifyLambdas]) {
+    const fetchLambdaGrants = (fn: lambda.DockerImageFunction) => {
+      this.contractsQueue.grantSendMessages(fn);
+      cacheBucket.grantReadWrite(fn);
       fn.addToRolePolicy(new iam.PolicyStatement({
         actions: ['apigateway:GET'],
-        resources: [cdk.Fn.importValue('RegistryApiKeyArn')],
+        resources: [cdk.Fn.importValue('RegistryApiKeyArn'), controllerApiKeyArn],
       }));
-      anthropicApiKeySecret.grantRead(fn);
-      voyageApiKeySecret.grantRead(fn);
-      dbSecret.grantRead(fn);
-      cacheBucket.grantReadWrite(fn);
-    }
+    };
 
-    fetchLambda.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['states:ListExecutions'],
-      resources: [stateMachineArn],
-    }));
-
-    slackBotTokenSecret.grantRead(notifyLambda);
-
-    // ── Step Functions tasks ──────────────────────────────────────────────────
-
-    const fetchTask = new tasks.LambdaInvoke(this, 'FetchAndPrepare', {
-      lambdaFunction: fetchLambda,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
+    const fetchLambda = new lambda.DockerImageFunction(this, 'FetchLambda', {
+      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
+        entrypoint: ['/usr/local/bin/python', '-m', 'awslambdaric'],
+        cmd: ['classifier.workers.fetch.fetch_handler'],
+      }),
+      timeout: cdk.Duration.minutes(10),
+      memorySize: 2048,
+      environment: fetchLambdaEnv,
     });
-    fetchTask.addRetry({
-      errors: ['States.TaskFailed'],
-      interval: cdk.Duration.seconds(30),
-      maxAttempts: 2,
-      backoffRate: 2,
+    fetchLambdaGrants(fetchLambda);
+
+    const resolveLambda = new lambda.DockerImageFunction(this, 'ResolveLambda', {
+      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
+        entrypoint: ['/usr/local/bin/python', '-m', 'awslambdaric'],
+        cmd: ['classifier.workers.fetch.resolve_handler'],
+      }),
+      timeout: cdk.Duration.minutes(10),
+      memorySize: 2048,
+      environment: fetchLambdaEnv,
     });
+    fetchLambdaGrants(resolveLambda);
 
-    const submitCanonTask = new tasks.LambdaInvoke(this, 'SubmitCanon', {
-      lambdaFunction: submitCanonLambda,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
-    });
-    submitCanonTask.addRetry({
-      errors: ['States.TaskFailed'],
-      interval: cdk.Duration.seconds(30),
-      maxAttempts: 2,
-      backoffRate: 2,
-    });
+    new events.Rule(this, 'FetchSchedule', {
+      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
+    }).addTarget(new targets.LambdaFunction(fetchLambda));
 
-    const waitForCanon = new sfn.Wait(this, 'WaitForCanon', {
-      time: sfn.WaitTime.duration(cdk.Duration.seconds(30)),
-    });
-
-    const checkCanonBatchTask = new tasks.LambdaInvoke(this, 'CheckCanonBatch', {
-      lambdaFunction: checkBatchLambda,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
-    });
-
-    const collectCanonTask = new tasks.LambdaInvoke(this, 'CollectCanon', {
-      lambdaFunction: collectCanonLambda,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
-    });
-    collectCanonTask.addRetry({
-      errors: ['States.TaskFailed'],
-      interval: cdk.Duration.seconds(30),
-      maxAttempts: 2,
-      backoffRate: 2,
-    });
-
-    const classifyStructuralTask = new tasks.LambdaInvoke(this, 'ClassifyStructural', {
-      lambdaFunction: classifyStructuralLambda,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
-    });
-    classifyStructuralTask.addRetry({
-      errors: ['States.TaskFailed'],
-      interval: cdk.Duration.seconds(30),
-      maxAttempts: 2,
-      backoffRate: 2,
-    });
-
-    const submitSemanticTask = new tasks.LambdaInvoke(this, 'SubmitSemanticBatch', {
-      lambdaFunction: submitSemanticLambda,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
-    });
-
-    const waitForSemantic = new sfn.Wait(this, 'WaitForSemantic', {
-      time: sfn.WaitTime.duration(cdk.Duration.seconds(30)),
-    });
-
-    const checkSemanticBatchTask = new tasks.LambdaInvoke(this, 'CheckSemanticBatch', {
-      lambdaFunction: checkBatchLambda,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
-    });
-
-    const collectSemanticTask = new tasks.LambdaInvoke(this, 'CollectSemanticResults', {
-      lambdaFunction: collectSemanticLambda,
-      resultPath: '$.semantic_result',
-      retryOnServiceExceptions: true,
-    });
-
-    const notifyTask = new tasks.LambdaInvoke(this, 'SendNotification', {
-      lambdaFunction: notifyLambda,
-      outputPath: '$.Payload',
-      retryOnServiceExceptions: true,
-    });
-    notifyTask.addRetry({
-      errors: ['States.TaskFailed'],
-      interval: cdk.Duration.seconds(10),
-      maxAttempts: 2,
-      backoffRate: 2,
-    });
-
-    // Semantic poll loop: wait → check → done or loop back
-    const semanticPollLoop = waitForSemantic
-      .next(checkSemanticBatchTask)
-      .next(
-        new sfn.Choice(this, 'IsSemanticBatchComplete')
-          .when(
-            sfn.Condition.booleanEquals('$.batch_complete', true),
-            collectSemanticTask.next(notifyTask),
-          )
-          .otherwise(waitForSemantic)
-      );
-
-    // Semantic branch: submit → if sync complete go to notify, else enter poll loop
-    const semanticFlow = submitSemanticTask.next(
-      new sfn.Choice(this, 'IsSemanticSyncComplete')
-        .when(
-          sfn.Condition.booleanEquals('$.batch_complete', true),
-          notifyTask,
-        )
-        .otherwise(semanticPollLoop)
-    );
-
-    // Classification flow: structural → optionally semantic
-    const classificationFlow = classifyStructuralTask.next(
-      new sfn.Choice(this, 'NeedsSemantic')
-        .when(
-          sfn.Condition.booleanEquals('$.needs_semantic', true),
-          semanticFlow,
-        )
-        .otherwise(notifyTask)
-    );
-
-    // After entity creation (both sync and batch canon paths), gate on has_new_entities
-    const hasNewEntitiesChoice = new sfn.Choice(this, 'HasNewEntities')
-      .when(
-        sfn.Condition.booleanEquals('$.has_new_entities', true),
-        classificationFlow,
-      )
-      .otherwise(notifyTask);
-
-    // Canon batch poll loop: wait → check → done or loop back → collect → HasNewEntities
-    const canonBatchPath = collectCanonTask.next(hasNewEntitiesChoice);
-    const canonPollLoop = waitForCanon
-      .next(checkCanonBatchTask)
-      .next(
-        new sfn.Choice(this, 'IsCanonBatchComplete')
-          .when(
-            sfn.Condition.booleanEquals('$.batch_complete', true),
-            canonBatchPath,
-          )
-          .otherwise(waitForCanon)
-      );
-
-    // Main definition
-    const definition = fetchTask.next(
-      new sfn.Choice(this, 'HasNewContracts')
-        .when(
-          sfn.Condition.booleanEquals('$.has_new_contracts', true),
-          submitCanonTask.next(
-            new sfn.Choice(this, 'IsCanonSyncComplete')
-              .when(
-                sfn.Condition.booleanEquals('$.batch_complete', true),
-                hasNewEntitiesChoice,
-              )
-              .otherwise(canonPollLoop)
-          )
-        )
-        .otherwise(new sfn.Succeed(this, 'NoNewContracts'))
-    );
-
-    this.stateMachine = new sfn.StateMachine(this, 'ClassifierStateMachine', {
-      stateMachineName,
-      definitionBody: sfn.DefinitionBody.fromChainable(definition),
-      timeout: cdk.Duration.minutes(45),
-    });
-
-    const rule = new events.Rule(this, 'ClassifierRule', {
+    new events.Rule(this, 'ResolveSchedule', {
       schedule: events.Schedule.rate(cdk.Duration.minutes(30)),
-      enabled: false, // temporarily disabled during bootstrap
+    }).addTarget(new targets.LambdaFunction(resolveLambda));
+
+    // ── NormalizeWorker ───────────────────────────────────────────────
+
+    createWorkerService('Normalize', 'normalize', {
+      ...sharedEnv,
+      SLACK_CHANNEL: props.slackChannel,
+    }, 512, (role) => {
+      this.contractsQueue.grantConsumeMessages(role);
+      this.entitiesQueue.grantSendMessages(role);
+      this.notificationsTopic.grantPublish(role);
+      anthropicApiKeySecret.grantRead(role);
+      dbSecret.grantRead(role);
+      cacheBucket.grantReadWrite(role);
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['apigateway:GET'],
+        resources: [cdk.Fn.importValue('RegistryApiKeyArn'), controllerApiKeyArn],
+      }));
     });
-    rule.addTarget(new targets.SfnStateMachine(this.stateMachine));
+
+    // ── EmbedWorker ───────────────────────────────────────────────────
+
+    createWorkerService('Embed', 'embed', {
+      VOYAGE_API_KEY_SECRET: 'voyage-api-key',
+      DB_SECRET_NAME: 'registry-database-root-user',
+      ENTITIES_QUEUE_URL: this.entitiesQueue.queueUrl,
+      EMBEDDINGS_QUEUE_URL: this.embeddingsQueue.queueUrl,
+      ...controllerEnv,
+    }, 512, (role) => {
+      this.entitiesQueue.grantConsumeMessages(role);
+      this.embeddingsQueue.grantSendMessages(role);
+      voyageApiKeySecret.grantRead(role);
+      dbSecret.grantRead(role);
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['apigateway:GET'],
+        resources: [controllerApiKeyArn],
+      }));
+    });
+
+    // ── RelationshipsWorker ───────────────────────────────────────────
+
+    createWorkerService('Relationships', 'relationships', sharedEnv, 512, (role) => {
+      this.embeddingsQueue.grantConsumeMessages(role);
+      this.notificationsTopic.grantPublish(role);
+      anthropicApiKeySecret.grantRead(role);
+      voyageApiKeySecret.grantRead(role);
+      dbSecret.grantRead(role);
+      cacheBucket.grantReadWrite(role);
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['apigateway:GET'],
+        resources: [cdk.Fn.importValue('RegistryApiKeyArn'), controllerApiKeyArn],
+      }));
+    });
+
+    // ── NotifyWorker ──────────────────────────────────────────────────
+
+    createWorkerService('Notify', 'notify', {
+      SLACK_QUEUE_URL: this.slackQueue.queueUrl,
+      SLACK_CHANNEL: props.slackChannel,
+      SLACK_BOT_TOKEN_SECRET: 'slack-bot-token',
+    }, 128, (role) => {
+      this.slackQueue.grantConsumeMessages(role);
+      slackBotTokenSecret.grantRead(role);
+    });
 
     new cdk.CfnOutput(this, 'RedisEndpoint', {
       value: redisEndpoint,

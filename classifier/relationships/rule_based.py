@@ -1,15 +1,15 @@
 import re
 
+from classifier.constants import DEFAULT_HEDGEABLE_WITH_CONFIDENCE
 from classifier.types import RelationshipMatch, RelationshipType, SecurityId
 from gnomepy.registry.types import Event, EventContract
-
-HEDGEABLE_WITH_CONFIDENCE = 0.90
 
 
 def find_hedgeable_pairs(
     event_contracts: list[EventContract],
     events: list[Event],
     hedge_keywords: list[tuple[int, str]],
+    confidence: float = DEFAULT_HEDGEABLE_WITH_CONFIDENCE,
 ) -> list[RelationshipMatch]:
     if not hedge_keywords:
         return []
@@ -32,7 +32,7 @@ def find_hedgeable_pairs(
                     matches.append(RelationshipMatch(
                         ec.security_id, tradeable_sid,
                         RelationshipType.HEDGEABLE_WITH,
-                        HEDGEABLE_WITH_CONFIDENCE,
+                        confidence,
                         "rule",
                     ))
 

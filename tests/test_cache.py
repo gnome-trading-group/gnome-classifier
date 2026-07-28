@@ -1,12 +1,11 @@
 import pytest
-from moto import mock_aws
 
-from classifier.cache import S3ClassifierCache
+from scripts.testing import MemoryClassifierCache
 
 
 @pytest.fixture
-def cache(s3_bucket):
-    return S3ClassifierCache(s3_bucket)
+def cache():
+    return MemoryClassifierCache()
 
 
 def test_canonicalization_miss(cache):

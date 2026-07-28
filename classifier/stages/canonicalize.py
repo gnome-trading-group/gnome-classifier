@@ -4,20 +4,17 @@ from typing import Any
 
 from classifier.cache import ClassifierCache
 from classifier.client import BatchAnthropicClient
-from classifier.constants import CANONICALIZE_BATCH_SIZE, STANDARDIZED_CATEGORIES
+from classifier.constants import DEFAULT_CANONICALIZE_BATCH_SIZE, DEFAULT_CANONICALIZE_MODEL, STANDARDIZED_CATEGORIES
 from classifier.types import CanonicalizeInput, NativeKey
+from classifier.utils import strip_code_fences
 
 logger = logging.getLogger(__name__)
-
-CANONICALIZE_MODEL = "claude-haiku-4-5-20251001"
 
 _CATEGORIES_STR = ", ".join(sorted(STANDARDIZED_CATEGORIES))
 
 
 def _parse_response(response: Any) -> Any:
-    text = response.content[0].text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    text = strip_code_fences(response.content[0].text.strip())
     return json.loads(text)
 
 
@@ -55,11 +52,13 @@ Respond with a JSON array, one object per event, echoing the input number as "id
 def prepare_canon_batch(
     events: list[CanonicalizeInput],
     cache: ClassifierCache | None = None,
+    model: str = DEFAULT_CANONICALIZE_MODEL,
+    batch_size: int = DEFAULT_CANONICALIZE_BATCH_SIZE,
 ) -> tuple[list[dict], list[dict], dict[NativeKey, dict]]:
     """Separate cached events and build API requests for uncached ones.
 
     Returns:
-      api_requests: request dicts for batch_client.submit_batch / create_messages
+      api_requests: request dicts for batch_client.create_messages
       canon_context: JSON-serializable chunk metadata list (for parse_canon_results)
       cached_results: dict[NativeKey, dict] for cache hits
     """
@@ -71,7 +70,7 @@ def prepare_canon_batch(
 
     if cache is not None:
         cached_bulk = cache.get_canonicalization_bulk(
-            CANONICALIZE_MODEL, [(ev.exchange_id, ev.native_id) for ev in events]
+            model, [(ev.exchange_id, ev.native_id) for ev in events]
         )
         for ev in events:
             cached = cached_bulk.get((ev.exchange_id, ev.native_id))
@@ -84,13 +83,13 @@ def prepare_canon_batch(
         uncached = list(events)
         logger.info("prepare_canon_batch: no cache, %d to call Claude", len(uncached))
 
-    chunks = [uncached[i:i + CANONICALIZE_BATCH_SIZE] for i in range(0, len(uncached), CANONICALIZE_BATCH_SIZE)]
+    chunks = [uncached[i:i + batch_size] for i in range(0, len(uncached), batch_size)]
 
     api_requests = [
         {
             "custom_id": f"canon_{i}",
             "params": {
-                "model": CANONICALIZE_MODEL,
+                "model": model,
                 "max_tokens": 300 * len(chunk),
                 "messages": [{"role": "user", "content": _build_chunk_prompt(chunk)}],
             },
@@ -123,6 +122,7 @@ def parse_canon_results(
     canon_context: list[dict],
     cache: ClassifierCache | None,
     anthropic_client: Any,
+    model: str = DEFAULT_CANONICALIZE_MODEL,
 ) -> dict[NativeKey, dict]:
     """Parse batch API responses using canon_context. Retries missed items individually.
 
@@ -155,7 +155,7 @@ def parse_canon_results(
                 result = _parse_canonical_result(item, ev_info["raw_title"])
                 results[nk] = result
                 if cache is not None:
-                    cache.put_canonicalization(CANONICALIZE_MODEL, nk[0], nk[1], result)
+                    cache.put_canonicalization(model, nk[0], nk[1], result)
             else:
                 missed.append(ev_info)
 
@@ -167,17 +167,28 @@ def parse_canon_results(
                 result = _canonicalize_single(
                     anthropic_client, ev_info["raw_title"],
                     ev_info.get("description"), ev_info.get("category"),
+                    model=model,
                 )
                 if result is None:
                     continue
                 results[nk] = result
                 if cache is not None:
-                    cache.put_canonicalization(CANONICALIZE_MODEL, nk[0], nk[1], result)
+                    cache.put_canonicalization(model, nk[0], nk[1], result)
 
     uncached_total = sum(len(c["events"]) for c in canon_context)
     failed = uncached_total - len(results)
     if failed > 0:
-        logger.warning("parse_canon_results: %d events failed, will retry next run", failed)
+        failed_keys = [
+            (ev_info["exchange_id"], ev_info["native_id"])
+            for chunk_info in canon_context
+            for ev_info in chunk_info["events"]
+            if (ev_info["exchange_id"], ev_info["native_id"]) not in results
+        ]
+        logger.error(
+            "parse_canon_results: %d events permanently failed canonicalization: %s",
+            failed, failed_keys,
+        )
+        raise RuntimeError(f"{failed} events failed canonicalization after individual retry: {failed_keys}")
 
     return results
 
@@ -186,14 +197,17 @@ def canonicalize_events(
     batch_client: BatchAnthropicClient,
     events: list[CanonicalizeInput],
     cache: ClassifierCache | None = None,
+    model: str = DEFAULT_CANONICALIZE_MODEL,
+    batch_size: int = DEFAULT_CANONICALIZE_BATCH_SIZE,
+    sync_threshold: int = 10,
 ) -> dict[NativeKey, dict[str, Any]]:
     """Canonicalize a list of CanonicalizeInput records.
     Returns a mapping from (exchange_id, native_id) to {"title", "category", "tags"}."""
     if not events:
         return {}
-    api_requests, canon_context, cached_results = prepare_canon_batch(events, cache)
-    responses = batch_client.create_messages(api_requests)
-    results = parse_canon_results(responses, canon_context, cache, batch_client._client)
+    api_requests, canon_context, cached_results = prepare_canon_batch(events, cache, model=model, batch_size=batch_size)
+    responses = batch_client.create_messages(api_requests, sync_threshold=sync_threshold)
+    results = parse_canon_results(responses, canon_context, cache, batch_client._client, model=model)
     results.update(cached_results)
     return results
 
@@ -203,6 +217,7 @@ def _canonicalize_single(
     raw_title: str,
     description: str | None,
     exchange_category: str | None,
+    model: str = DEFAULT_CANONICALIZE_MODEL,
 ) -> dict | None:
     prompt = f"""You are standardizing a prediction market event for a cross-exchange registry.
 
@@ -220,7 +235,7 @@ Respond with JSON only: {{"title": "...", "category": "...", "tags": ["..."]}}""
     response = None
     try:
         response = client.messages.create(
-            model=CANONICALIZE_MODEL,
+            model=model,
             max_tokens=200,
             messages=[{"role": "user", "content": prompt}],
         )
