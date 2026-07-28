@@ -331,9 +331,14 @@ export class ClassifierStack extends cdk.Stack {
       SLACK_QUEUE_URL: this.slackQueue.queueUrl,
       SLACK_CHANNEL: props.slackChannel,
       SLACK_BOT_TOKEN_SECRET: 'slack-bot-token',
+      ...controllerEnv,
     }, 128, (role) => {
       this.slackQueue.grantConsumeMessages(role);
       slackBotTokenSecret.grantRead(role);
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['apigateway:GET'],
+        resources: [controllerApiKeyArn],
+      }));
     });
 
     new cdk.CfnOutput(this, 'RedisEndpoint', {
