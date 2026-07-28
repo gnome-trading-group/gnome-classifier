@@ -21,6 +21,7 @@ from classifier.constants import (
     DEFAULT_NEIGHBOR_SEARCH_LIMIT,
     DEFAULT_RESOLUTION_LOOKBACK_DAYS,
     DEFAULT_SEMANTIC_JUDGMENT_MODEL,
+    DEFAULT_STALE_MISS_THRESHOLD,
     DEFAULT_STRUCTURAL_CONFIDENCE,
     DEFAULT_SYNC_THRESHOLD,
     DEFAULT_VOYAGE_EMBED_CHUNK_SIZE,
@@ -39,6 +40,7 @@ class FeatureFlags:
     fetch_enabled: bool = False
     canonicalization_enabled: bool = False
     semantic_judgements_enabled: bool = False
+    stale_cleanup_enabled: bool = False
 
 
 @dataclasses.dataclass
@@ -73,6 +75,7 @@ class Processing:
     neighbor_search_limit: int = DEFAULT_NEIGHBOR_SEARCH_LIMIT
     voyage_embed_chunk_size: int = DEFAULT_VOYAGE_EMBED_CHUNK_SIZE
     anthropic_sync_threshold: int = DEFAULT_SYNC_THRESHOLD
+    stale_miss_threshold: int = DEFAULT_STALE_MISS_THRESHOLD
 
 
 @dataclasses.dataclass

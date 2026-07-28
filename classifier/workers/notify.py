@@ -33,6 +33,7 @@ class NotifyWorker(BaseWorker):
         new_symbols: list[str] = []
         entity_counts: dict = {}
         resolution_counts: dict = {}
+        stale_counts: dict = {}
         relationships_written = 0
 
         for msg in messages:
@@ -55,9 +56,12 @@ class NotifyWorker(BaseWorker):
             elif msg_type == "resolution":
                 for k in ("events_resolved", "securities_deactivated", "listings_deactivated"):
                     resolution_counts[k] = resolution_counts.get(k, 0) + payload.get(k, 0)
+            elif msg_type == "stale_cleanup":
+                for k in ("events_resolved", "securities_deactivated", "listings_deactivated"):
+                    stale_counts[k] = stale_counts.get(k, 0) + payload.get(k, 0)
             elif msg_type == "relationship":
                 relationships_written += 1
 
-        blocks = format_notification_blocks(new_symbols, entity_counts, resolution_counts, relationships_written)
+        blocks = format_notification_blocks(new_symbols, entity_counts, resolution_counts, stale_counts, relationships_written)
         send_slack_notification(self._slack_token, self._config.slack_channel, blocks)
         return []

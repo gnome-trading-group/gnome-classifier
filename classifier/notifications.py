@@ -9,6 +9,7 @@ def format_notification_blocks(
     new_symbols: list[str],
     entity_counts: dict,
     resolution_counts: dict,
+    stale_counts: dict,
     relationships_written: int,
 ) -> list[dict]:
     blocks: list = [
@@ -37,6 +38,10 @@ def format_notification_blocks(
         parts.append(f"{resolution_counts['events_resolved']} events resolved")
     if resolution_counts.get("securities_deactivated"):
         parts.append(f"{resolution_counts['securities_deactivated']} securities deactivated")
+    if stale_counts.get("events_resolved"):
+        parts.append(f"{stale_counts['events_resolved']} stale events resolved")
+    if stale_counts.get("securities_deactivated"):
+        parts.append(f"{stale_counts['securities_deactivated']} stale securities deactivated")
     if parts:
         blocks.append({
             "type": "context",

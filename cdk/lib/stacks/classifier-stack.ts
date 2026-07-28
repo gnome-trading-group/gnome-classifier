@@ -250,6 +250,17 @@ export class ClassifierStack extends cdk.Stack {
     });
     fetchLambdaGrants(resolveLambda);
 
+    const staleCleanupLambda = new lambda.DockerImageFunction(this, 'StaleCleanupLambda', {
+      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
+        entrypoint: ['/usr/local/bin/python', '-m', 'awslambdaric'],
+        cmd: ['classifier.workers.fetch.stale_cleanup_handler'],
+      }),
+      timeout: cdk.Duration.minutes(10),
+      memorySize: 2048,
+      environment: fetchLambdaEnv,
+    });
+    fetchLambdaGrants(staleCleanupLambda);
+
     new events.Rule(this, 'FetchSchedule', {
       schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
     }).addTarget(new targets.LambdaFunction(fetchLambda));
@@ -257,6 +268,10 @@ export class ClassifierStack extends cdk.Stack {
     new events.Rule(this, 'ResolveSchedule', {
       schedule: events.Schedule.rate(cdk.Duration.minutes(30)),
     }).addTarget(new targets.LambdaFunction(resolveLambda));
+
+    new events.Rule(this, 'StaleCleanupSchedule', {
+      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
+    }).addTarget(new targets.LambdaFunction(staleCleanupLambda));
 
     // ── NormalizeWorker ───────────────────────────────────────────────
 

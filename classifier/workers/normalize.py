@@ -7,6 +7,7 @@ import boto3
 from classifier.adapters.types import AdapterContract
 from classifier.stages.entities import create_entities
 from classifier.stages.resolve import detect_resolved_events
+from classifier.stages.stale import deactivate_stale_events
 from classifier.workers.base import BaseWorker
 from classifier.workers.config import WorkerConfig, init_anthropic, init_cache, init_db, init_registry, init_runtime_config
 
@@ -43,6 +44,7 @@ class NormalizeWorker(BaseWorker):
     def process_batch(self, messages: list[dict]) -> list[dict]:
         new_contracts: list[AdapterContract] = []
         resolved_by_exchange: dict[int, set[str]] = {}
+        stale_events: list[tuple[int, str]] = []
 
         for msg in messages:
             body = json.loads(msg["Body"])
@@ -52,6 +54,8 @@ class NormalizeWorker(BaseWorker):
             elif body["type"] == "resolved":
                 exchange_id = body["exchange_id"]
                 resolved_by_exchange.setdefault(exchange_id, set()).add(body["native_id"])
+            elif body["type"] == "stale":
+                stale_events.append((body["exchange_id"], body["native_event_id"]))
 
         entities_queue_messages: list[dict] = []
 
@@ -60,6 +64,12 @@ class NormalizeWorker(BaseWorker):
             if any(v for v in resolution_counts.values()):
                 self._publish_to_sns({"type": "resolution", **resolution_counts})
                 logger.info("Resolution: %s", resolution_counts)
+
+        if stale_events:
+            stale_counts = deactivate_stale_events(stale_events, self._registry, self._db)
+            if any(v for v in stale_counts.values()):
+                self._publish_to_sns({"type": "stale_cleanup", **stale_counts})
+                logger.info("Stale cleanup: %s", stale_counts)
 
         if new_contracts:
             cfg = self._runtime_config.config
