@@ -8,6 +8,7 @@ import boto3
 
 from classifier.adapters.types import AdapterContract
 from classifier.stages.fetch import fetch_all, fetch_exchanges, fetch_resolved_outcomes
+from classifier.utils import setup_logging
 from classifier.workers.base import sqs_send_batch
 from classifier.workers.config import init_registry, init_runtime_config
 
@@ -114,7 +115,7 @@ def _save_stale_tracker(s3, bucket: str, key: str, data: dict[str, dict]):
 
 
 def fetch_handler(event, context):
-    logging.basicConfig(level=logging.INFO)
+    setup_logging()
     rc = _get_runtime_config()
     rc.refresh()
 
@@ -165,7 +166,7 @@ def fetch_handler(event, context):
 
 
 def resolve_handler(event, context):
-    logging.basicConfig(level=logging.INFO)
+    setup_logging()
     rc = _get_runtime_config()
     rc.refresh()
 
@@ -204,7 +205,7 @@ def resolve_handler(event, context):
 
 
 def stale_cleanup_handler(event, context):
-    logging.basicConfig(level=logging.INFO)
+    setup_logging()
     rc = _get_runtime_config()
     rc.refresh()
 

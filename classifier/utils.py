@@ -9,6 +9,14 @@ from classifier.constants import DEFAULT_BULK_CREATE_BATCH_SIZE
 logger = logging.getLogger(__name__)
 
 
+def setup_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        force=True,
+    )
+
+
 def from_dict(cls, data: dict):
     known = {f.name for f in dataclasses.fields(cls)}
     return cls(**{k: v for k, v in data.items() if k in known})
