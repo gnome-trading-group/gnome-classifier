@@ -88,7 +88,11 @@ class NormalizeWorker(BaseWorker):
             if entity_result.has_new_entities:
                 for sid, symbol in zip(entity_result.new_security_ids, entity_result.new_security_symbols):
                     entities_queue_messages.append({"type": "new_security", "security_id": sid, "security_symbol": symbol})
-                    self._publish_to_sns({"type": "new_entity", "security_symbol": symbol, **entity_result.counts})
+                self._publish_to_sns({
+                    "type": "new_entity",
+                    "new_symbols": entity_result.new_security_symbols,
+                    **entity_result.counts,
+                })
                 logger.info(
                     "Entities: %d new securities from %d contracts",
                     len(entity_result.new_security_ids), len(new_contracts),

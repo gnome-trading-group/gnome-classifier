@@ -50,7 +50,7 @@ class NotifyWorker(BaseWorker):
 
             msg_type = payload.get("type")
             if msg_type == "new_entity":
-                new_symbols.append(payload.get("security_symbol", ""))
+                new_symbols.extend(payload.get("new_symbols", []))
                 for k in ("events_created", "securities_created", "listings_created"):
                     entity_counts[k] = entity_counts.get(k, 0) + payload.get(k, 0)
             elif msg_type == "resolution":

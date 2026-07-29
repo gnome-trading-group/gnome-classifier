@@ -89,7 +89,7 @@ class Processing:
 class WorkerParams:
     normalize_max_messages: int = DEFAULT_MAX_MESSAGES
     normalize_max_wait_seconds: int = DEFAULT_MAX_WAIT_SECONDS
-    embed_max_messages: int = DEFAULT_MAX_MESSAGES
+    embed_max_messages: int = DEFAULT_VOYAGE_EMBED_CHUNK_SIZE
     embed_max_wait_seconds: int = DEFAULT_MAX_WAIT_SECONDS
     relationships_max_messages: int = 200
     relationships_max_wait_seconds: int = DEFAULT_MAX_WAIT_SECONDS
