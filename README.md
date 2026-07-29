@@ -674,7 +674,6 @@ Configuration is fetched from the controller API endpoint `/config/classifier` e
 
 | Field | Default | Description |
 |---|---|---|
-| `fetch_interval_seconds` | `300` | Not currently used by workers directly |
 | `normalize_max_messages` | `500` | Max SQS messages per NormalizeWorker batch |
 | `normalize_max_wait_seconds` | `60` | Max seconds to accumulate messages before processing |
 | `embed_max_messages` | `500` | EmbedWorker batch size limit |

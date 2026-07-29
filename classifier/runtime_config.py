@@ -12,7 +12,6 @@ from classifier.constants import (
     DEFAULT_BULK_CREATE_BATCH_SIZE,
     DEFAULT_DEDUP_EXPIRY_TOLERANCE_HOURS,
     DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD,
-    DEFAULT_FETCH_INTERVAL,
     DEFAULT_FETCH_MAX_SQS_MESSAGES,
     DEFAULT_HEDGEABLE_WITH_CONFIDENCE,
     DEFAULT_MAX_MESSAGES,
@@ -88,7 +87,6 @@ class Processing:
 
 @dataclasses.dataclass
 class WorkerParams:
-    fetch_interval_seconds: int = DEFAULT_FETCH_INTERVAL
     normalize_max_messages: int = DEFAULT_MAX_MESSAGES
     normalize_max_wait_seconds: int = DEFAULT_MAX_WAIT_SECONDS
     embed_max_messages: int = DEFAULT_MAX_MESSAGES

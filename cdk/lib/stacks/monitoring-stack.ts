@@ -88,7 +88,7 @@ export class MonitoringStack extends cdk.Stack {
       ['Relationships', props.relationshipsService],
       ['Notify', props.notifyService],
     ] as [string, ecs.Ec2Service][]) {
-      monitoring.monitorEc2Service({
+      monitoring.monitorSimpleEc2Service({
         ec2Service: service,
         humanReadableName: `${name} Worker`,
         alarmFriendlyName: `${name}Worker`,
