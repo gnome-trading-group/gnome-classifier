@@ -216,7 +216,7 @@ def create_entities_from_canonical(
         info = event_info_by_native.get(nk)
         if info is None:
             continue
-        symbol = generate_security_symbol(info["title"], c.outcome_label)
+        symbol = generate_security_symbol(info["title"], c.outcome_label, c.event_expiry)
         sid = security_id_by_symbol.get(symbol)
         if sid is not None:
             security_id_by_outcome[(nk, c.outcome_label)] = sid
@@ -477,7 +477,7 @@ def _collect_seen_symbols(
         info = event_info_by_native.get(_native_key(c))
         if info is None:
             continue
-        symbol = generate_security_symbol(info["title"], c.outcome_label)
+        symbol = generate_security_symbol(info["title"], c.outcome_label, c.event_expiry)
         if symbol not in seen:
             seen[symbol] = c
     return seen

@@ -38,11 +38,17 @@ def expiry_close(a: str | None, b: str | None, tolerance: timedelta) -> bool:
         return True
 
 
-def generate_security_symbol(canonical_title: str, outcome_label: str) -> str:
+def generate_security_symbol(canonical_title: str, outcome_label: str, expiry: str | None = None) -> str:
     slug = re.sub(r'[^a-z0-9\s]', '', canonical_title.lower()).strip()
     slug = re.sub(r'\s+', '-', slug)[:80]
     outcome = re.sub(r'[^a-z0-9\s]', '', outcome_label.lower()).strip()
     outcome = re.sub(r'\s+', '-', outcome)
+    if expiry is not None:
+        try:
+            date_str = _parse_utc(expiry).strftime("%Y%m%dT%H")
+            return f"{slug}-{date_str}-{outcome}".upper()
+        except ValueError:
+            pass
     return f"{slug}-{outcome}".upper()
 
 
