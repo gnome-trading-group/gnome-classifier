@@ -250,9 +250,9 @@ class TestNotifyWorker:
         })
 
         messages = [
-            sns_envelope({"type": "new_entity", "security_symbol": "SYM", "events_created": 1, "securities_created": 1, "listings_created": 1, "event_contracts_created": 1, "listing_specs_created": 1}),
-            sns_envelope({"type": "resolution", "events_resolved": 2, "securities_deactivated": 2, "listings_deactivated": 4}),
-            sns_envelope({"type": "relationship", "security_id_a": 1, "security_id_b": 2}),
+            sns_envelope({"type": "new_entity", "new_symbols": ["SYM"], "events_created": 1, "securities_created": 1, "listings_created": 1, "created_event_ids": [42], "created_event_names": ["Will X happen?"]}),
+            sns_envelope({"type": "resolution", "events_resolved": 2, "securities_deactivated": 2, "listings_deactivated": 4, "resolved_event_ids": [10, 11], "resolved_event_names": ["Event A", "Event B"]}),
+            sns_envelope({"type": "stale_cleanup", "events_resolved": 1, "securities_deactivated": 1, "resolved_event_ids": [20], "resolved_event_names": ["Event C"]}),
         ]
 
         with patch("classifier.workers.notify.send_slack_notification") as mock_send:
@@ -262,6 +262,34 @@ class TestNotifyWorker:
             _, channel, blocks = mock_send.call_args[0]
             assert channel == "test-channel"
             assert len(blocks) > 0
+            # All three event sections should appear
+            block_text = json.dumps(blocks)
+            assert "Will X happen?" in block_text
+            assert "Event A" in block_text
+            assert "Event C" in block_text
+            assert "controller.gnometrading.group" in block_text
+
+    def test_skips_notification_when_no_events(self, moto_env):
+        config = WorkerConfig()
+        worker = NotifyWorker(config)
+
+        def _setup(self):
+            self._slack_token = "fake-token"
+        worker._setup = types.MethodType(_setup, worker)
+        worker._setup()
+
+        sns_envelope = lambda payload: _sqs_msg({
+            "Type": "Notification",
+            "Message": json.dumps(payload),
+        })
+
+        messages = [
+            sns_envelope({"type": "new_entity", "new_symbols": ["SYM"], "events_created": 0, "securities_created": 3, "listings_created": 3, "created_event_ids": [], "created_event_names": []}),
+        ]
+
+        with patch("classifier.workers.notify.send_slack_notification") as mock_send:
+            worker.process_batch(messages)
+            mock_send.assert_not_called()
 
     def test_no_token_skips_slack(self, moto_env):
         config = WorkerConfig()
@@ -273,7 +301,7 @@ class TestNotifyWorker:
         worker._setup()
 
         with patch("classifier.workers.notify.send_slack_notification") as mock_send:
-            worker.process_batch([_sqs_msg({"type": "new_entity", "security_symbol": "SYM"})])
+            worker.process_batch([_sqs_msg({"type": "new_entity", "new_symbols": ["SYM"], "events_created": 1, "created_event_ids": [1], "created_event_names": ["Test"]})])
             mock_send.assert_not_called()
 
 

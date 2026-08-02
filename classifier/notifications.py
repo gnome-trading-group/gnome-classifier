@@ -4,51 +4,38 @@ import urllib.request
 
 logger = logging.getLogger(__name__)
 
+_CONTROLLER_BASE = "https://controller.gnometrading.group/predictions/events"
+
+
+def _event_link(event_id: int, name: str) -> str:
+    return f"<{_CONTROLLER_BASE}/{event_id}|{name}>"
+
+
+def _event_section(label: str, events: list[tuple[int, str]]) -> dict:
+    lines = "\n".join(f"• {_event_link(eid, name)}" for eid, name in events[:20])
+    if len(events) > 20:
+        lines += f"\n_... and {len(events) - 20} more_"
+    return {"type": "section", "text": {"type": "mrkdwn", "text": f"*{label}*\n{lines}"}}
+
 
 def format_notification_blocks(
-    new_symbols: list[str],
-    entity_counts: dict,
-    resolution_counts: dict,
-    stale_counts: dict,
-    relationships_written: int,
+    created_events: list[tuple[int, str]],
+    resolved_events: list[tuple[int, str]],
+    stale_events: list[tuple[int, str]],
 ) -> list[dict]:
     blocks: list = [
         {"type": "header", "text": {"type": "plain_text", "text": "Contract Classifier"}},
     ]
 
-    if new_symbols:
-        count = len(new_symbols)
-        noun = "security" if count == 1 else "securities"
-        lines = "\n".join(f"• `{s}`" for s in new_symbols[:20])
-        if count > 20:
-            lines += f"\n_... and {count - 20} more_"
-        blocks.append({
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": f"*{count} new {noun}*\n{lines}"},
-        })
-
-    parts = []
-    if entity_counts.get("events_created"):
-        parts.append(f"{entity_counts['events_created']} events")
-    if entity_counts.get("securities_created"):
-        parts.append(f"{entity_counts['securities_created']} securities")
-    if entity_counts.get("listings_created"):
-        parts.append(f"{entity_counts['listings_created']} listings")
-    if relationships_written:
-        parts.append(f"{relationships_written} relationships")
-    if resolution_counts.get("events_resolved"):
-        parts.append(f"{resolution_counts['events_resolved']} events resolved")
-    if resolution_counts.get("securities_deactivated"):
-        parts.append(f"{resolution_counts['securities_deactivated']} securities deactivated")
-    if stale_counts.get("events_resolved"):
-        parts.append(f"{stale_counts['events_resolved']} stale events resolved")
-    if stale_counts.get("securities_deactivated"):
-        parts.append(f"{stale_counts['securities_deactivated']} stale securities deactivated")
-    if parts:
-        blocks.append({
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": " · ".join(parts)}],
-        })
+    if created_events:
+        n = len(created_events)
+        blocks.append(_event_section(f"{n} new event{'s' if n != 1 else ''}", created_events))
+    if resolved_events:
+        n = len(resolved_events)
+        blocks.append(_event_section(f"{n} event{'s' if n != 1 else ''} resolved", resolved_events))
+    if stale_events:
+        n = len(stale_events)
+        blocks.append(_event_section(f"{n} stale event{'s' if n != 1 else ''} resolved", stale_events))
 
     return blocks
 

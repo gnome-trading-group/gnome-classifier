@@ -37,6 +37,7 @@ class EmbedWorker(BaseWorker):
             events_created=0, securities_created=0, listings_created=0,
             event_contracts_created=0, listing_specs_created=0,
             new_security_ids=security_ids, new_security_symbols=[symbol_by_id[sid] for sid in security_ids],
+            created_event_ids=[], created_event_names=[],
         )
         updated_result = embed_and_update(
             self._voyage_client, entity_result, self._db,

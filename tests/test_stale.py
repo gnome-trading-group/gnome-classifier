@@ -65,12 +65,12 @@ def db(registry):
 
 def test_empty_input(registry, db):
     result = deactivate_stale_events([], registry, db)
-    assert result == {"events_resolved": 0, "securities_deactivated": 0, "listings_deactivated": 0}
+    assert result == {"events_resolved": 0, "securities_deactivated": 0, "listings_deactivated": 0, "resolved_event_ids": [], "resolved_event_names": []}
 
 
 def test_unknown_native_key_is_skipped(registry, db):
     result = deactivate_stale_events([(1, "no-such-event")], registry, db)
-    assert result == {"events_resolved": 0, "securities_deactivated": 0, "listings_deactivated": 0}
+    assert result == {"events_resolved": 0, "securities_deactivated": 0, "listings_deactivated": 0, "resolved_event_ids": [], "resolved_event_names": []}
 
 
 def test_already_resolved_event_is_skipped(registry, db):
@@ -95,7 +95,11 @@ def test_single_event_fully_deactivated(registry, db):
 
     result = deactivate_stale_events([(1, "evt-1")], registry, db)
 
-    assert result == {"events_resolved": 1, "securities_deactivated": 2, "listings_deactivated": 2}
+    assert result["events_resolved"] == 1
+    assert result["securities_deactivated"] == 2
+    assert result["listings_deactivated"] == 2
+    assert result["resolved_event_ids"] == [1]
+    assert "Event 1" in result["resolved_event_names"]
     for s in registry._securities:
         assert s.active is False
     for l in registry._listings:

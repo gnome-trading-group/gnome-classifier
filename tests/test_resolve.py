@@ -87,7 +87,7 @@ def db(registry):
 
 def test_no_resolved_outcomes(registry, db):
     result = detect_resolved_events({}, registry, db)
-    assert result == {"events_resolved": 0, "securities_deactivated": 0, "listings_deactivated": 0}
+    assert result == {"events_resolved": 0, "securities_deactivated": 0, "listings_deactivated": 0, "resolved_event_ids": [], "resolved_event_names": []}
 
 
 def test_no_matching_listings(registry, db):

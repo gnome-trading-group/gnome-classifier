@@ -1,7 +1,4 @@
-import json
 import logging
-
-import boto3
 
 from classifier.stages.classify import run_classification_sync
 from classifier.workers.base import BaseWorker, parse_security_messages
@@ -20,19 +17,16 @@ class RelationshipsWorker(BaseWorker):
             output_queue_url=None,
         )
         self._config = config
-        self._sns_topic_arn = config.notifications_topic_arn
         self._registry = None
         self._batch_client = None
         self._cache = None
         self._db = None
-        self._sns = None
 
     def _setup(self):
         self._registry = init_registry()
         self._batch_client = init_anthropic()
         self._cache = init_cache()
         self._db = init_db()
-        self._sns = boto3.client("sns")
         self._runtime_config = init_runtime_config()
 
     def process_batch(self, messages: list[dict]) -> list[dict]:
@@ -55,26 +49,6 @@ class RelationshipsWorker(BaseWorker):
             model=cfg.models.semantic_judgment_model,
             sync_threshold=cfg.processing.anthropic_sync_threshold,
         )
-
-        for rel in classification.written_relationships:
-            sid_a = rel.get("security_id_a")
-            sid_b = rel.get("security_id_b")
-            try:
-                self._sns.publish(
-                    TopicArn=self._sns_topic_arn,
-                    Message=json.dumps({
-                        "type": "relationship",
-                        "security_id_a": sid_a,
-                        "security_id_b": sid_b,
-                        "security_symbol_a": symbol_by_id.get(sid_a, ""),
-                        "security_symbol_b": symbol_by_id.get(sid_b, ""),
-                        "relationship_type": rel.get("relationship_type"),
-                        "confidence": rel.get("confidence"),
-                        "method": rel.get("method"),
-                    }),
-                )
-            except Exception:
-                logger.warning("SNS publish failed, notification lost", exc_info=True)
 
         if classification.written_relationships:
             logger.info(

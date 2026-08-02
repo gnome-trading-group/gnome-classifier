@@ -68,6 +68,8 @@ class EntityResult:
     listing_specs_created: int
     new_security_ids: list[SecurityId]
     new_security_symbols: list[str]
+    created_event_ids: list[EventId]
+    created_event_names: list[str]
 
     @property
     def counts(self) -> dict[str, int]:

@@ -29,6 +29,8 @@ def detect_resolved_events(
             "events_resolved": 0,
             "securities_deactivated": 0,
             "listings_deactivated": 0,
+            "resolved_event_ids": [],
+            "resolved_event_names": [],
         }
 
     if listing_ids_to_deactivate:
@@ -54,6 +56,8 @@ def detect_resolved_events(
         if db.get_active_security_count_for_event(event_id) == 0:
             resolved_event_ids.append(event_id)
 
+    event_info = db.get_events(resolved_event_ids) if resolved_event_ids else {}
+
     if resolved_event_ids:
         now = datetime.now(timezone.utc).isoformat()
         registry.bulk_patch_events([
@@ -69,4 +73,6 @@ def detect_resolved_events(
         "events_resolved": len(resolved_event_ids),
         "securities_deactivated": len(security_ids_to_deactivate),
         "listings_deactivated": len(listing_ids_to_deactivate),
+        "resolved_event_ids": resolved_event_ids,
+        "resolved_event_names": [event_info[eid]["title"] for eid in resolved_event_ids if eid in event_info],
     }

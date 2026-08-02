@@ -91,6 +91,8 @@ class NormalizeWorker(BaseWorker):
                 self._publish_to_sns({
                     "type": "new_entity",
                     "new_symbols": entity_result.new_security_symbols,
+                    "created_event_ids": entity_result.created_event_ids,
+                    "created_event_names": entity_result.created_event_names,
                     **entity_result.counts,
                 })
                 logger.info(

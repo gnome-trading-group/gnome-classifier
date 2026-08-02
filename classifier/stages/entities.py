@@ -141,6 +141,7 @@ def create_entities_from_canonical(
             events_created=0, securities_created=0, listings_created=0,
             event_contracts_created=0, listing_specs_created=0,
             new_security_ids=[], new_security_symbols=[],
+            created_event_ids=[], created_event_names=[],
         )
 
     contracts_by_native = entity_ctx.contracts_by_native
@@ -170,10 +171,14 @@ def create_entities_from_canonical(
     # ── Create events in registry ────────────────────────────────────
     events_created, created_event_ids = _create_events(registry, pending_events, created_event_records)
 
+    created_event_ids_out: list[int] = []
+    created_event_names_out: list[str] = []
     for nk, event_idx in pending_native_to_event_idx.items():
         eid = created_event_ids[event_idx] if event_idx < len(created_event_ids) else None
         if eid is not None:
             event_id_by_native[nk] = eid
+            created_event_ids_out.append(eid)
+            created_event_names_out.append(pending_events[event_idx]["title"])
 
     # ── Map exchange events ──────────────────────────────────────────
     _create_exchange_events(registry, contracts_by_native, event_id_by_native, seen_exchange_events)
@@ -280,6 +285,8 @@ def create_entities_from_canonical(
         listing_specs_created=listing_specs_created,
         new_security_ids=new_security_ids,
         new_security_symbols=new_security_symbols,
+        created_event_ids=created_event_ids_out,
+        created_event_names=created_event_names_out,
     )
 
 
@@ -348,6 +355,7 @@ def create_entities(
             events_created=0, securities_created=0, listings_created=0,
             event_contracts_created=0, listing_specs_created=0,
             new_security_ids=[], new_security_symbols=[],
+            created_event_ids=[], created_event_names=[],
         )
     events_to_canon, entity_ctx = prepare_canonicalization_inputs(contracts, cache, db)
     if canonicalize_enabled and batch_client is not None:
