@@ -379,12 +379,12 @@ class StubDB:
                 return ee.event_id
         return None
 
-    def get_all_exchange_events(self) -> dict[tuple[int, str], int]:
-        resolved_ids = {ev.event_id for ev in self._r._events if ev.resolved}
+    def get_exchange_events(self, keys: list[tuple[int, str]]) -> dict[tuple[int, str], int]:
+        key_set = set(keys)
         return {
             (ee.exchange_id, ee.native_event_id): ee.event_id
             for ee in self._r._exchange_events
-            if ee.event_id not in resolved_ids
+            if (ee.exchange_id, ee.native_event_id) in key_set
         }
 
     def get_events(self, event_ids: list[int]) -> dict[int, dict]:
@@ -394,8 +394,9 @@ class StubDB:
             if ev.event_id in event_ids
         }
 
-    def get_events_for_dedup(self) -> list[tuple[str, str | None, int]]:
-        return [(ev.title, ev.expiry, ev.event_id) for ev in self._r._events]
+    def get_events_for_dedup(self, titles: list[str]) -> list[tuple[str, str | None, int]]:
+        title_set = set(titles)
+        return [(ev.title, ev.expiry, ev.event_id) for ev in self._r._events if ev.title in title_set]
 
     def get_currencies(self) -> dict[str, int]:
         return {c.symbol: c.currency_id for c in self._r._currencies}
@@ -432,6 +433,11 @@ class StubDB:
     def get_all_event_contracts(self) -> list[EventContract]:
         resolved_ids = {ev.event_id for ev in self._r._events if ev.resolved}
         return [ec for ec in self._r._event_contracts if ec.event_id not in resolved_ids]
+
+    def get_event_contracts_for_securities(self, security_ids: list[int]) -> list[EventContract]:
+        sid_set = set(security_ids)
+        event_ids = {ec.event_id for ec in self._r._event_contracts if ec.security_id in sid_set}
+        return [ec for ec in self._r._event_contracts if ec.event_id in event_ids]
 
     def get_all_securities(self) -> list[Security]:
         return [s for s in self._r._securities if s.active]

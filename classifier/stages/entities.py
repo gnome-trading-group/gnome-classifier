@@ -80,11 +80,7 @@ def prepare_canonicalization_inputs(
         cached = cache.get_exchange_event_bulk(all_native_keys)
 
     cache_miss_keys = [nk for nk in all_native_keys if nk not in cached]
-    if cache_miss_keys:
-        all_exchange_events = db.get_all_exchange_events()
-        db_results = {nk: all_exchange_events[nk] for nk in cache_miss_keys if nk in all_exchange_events}
-    else:
-        db_results = {}
+    db_results = db.get_exchange_events(cache_miss_keys) if cache_miss_keys else {}
 
     if cache is not None and db_results:
         cache.put_exchange_event_bulk(db_results)
@@ -163,7 +159,8 @@ def create_entities_from_canonical(
     # Match on Claude's canonical title — deterministic, not probabilistic.
     # Semantic equivalence (different titles, same meaning) is handled by
     # the relationship classifier with LLM verification, not here.
-    created_event_records: list[tuple[str, str | None, int]] = list(db.get_events_for_dedup())
+    batch_titles = list({info["title"] for info in event_info_by_native.values()})
+    created_event_records: list[tuple[str, str | None, int]] = list(db.get_events_for_dedup(batch_titles))
     pending_events, pending_native_to_event_idx, event_id_by_native = _title_expiry_dedup(
         event_info_by_native, contracts_by_native, created_event_records, event_id_by_native,
     )
@@ -469,6 +466,7 @@ def _create_exchange_events(
             event_id=eid,
             native_event_id=native_id,
             raw_title=group[0].event_title,
+            native_url=group[0].exchange_event_native_url,
         ))
         seen_exchange_events.add(nk)
     for _, chunk in bulk_create_chunked(pending, "exchange events"):

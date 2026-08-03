@@ -117,7 +117,7 @@ class PolymarketAdapter:
 
         contracts: list[AdapterContract] = []
         for market in markets:
-            contracts.extend(self._map_binary_market(exchange_id, market, event_description))
+            contracts.extend(self._map_binary_market(exchange_id, market, event_description, event_slug))
         return contracts
 
     def _map_neg_risk_group(
@@ -165,6 +165,7 @@ class PolymarketAdapter:
                 event_category=None,
                 event_expiry=market.get("endDate"),
                 exchange_event_native_id=event_slug,
+                exchange_event_native_url=f"https://polymarket.com/event/{event_slug}",
             ))
         return contracts
 
@@ -173,6 +174,7 @@ class PolymarketAdapter:
         exchange_id: ExchangeId,
         market: dict,
         event_description: str | None,
+        event_slug: str = "",
     ) -> list[AdapterContract]:
         question = market.get("question", "")
         condition_id = market.get("conditionId", "")
@@ -194,6 +196,7 @@ class PolymarketAdapter:
         is_binary = len(outcomes) == 2
         contract_type = ContractType.BINARY if is_binary else ContractType.MULTI_OUTCOME
 
+        native_url = f"https://polymarket.com/event/{event_slug}" if event_slug else None
         contracts = []
         for outcome, token_id in zip(outcomes, token_ids):
             contracts.append(AdapterContract(
@@ -218,5 +221,6 @@ class PolymarketAdapter:
                 event_category=None,
                 event_expiry=expiry,
                 exchange_event_native_id=condition_id,
+                exchange_event_native_url=native_url,
             ))
         return contracts

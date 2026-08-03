@@ -28,3 +28,4 @@ class AdapterContract:
     event_description: str | None = None
     event_category: str | None = None
     event_expiry: str | None = None
+    exchange_event_native_url: str | None = None

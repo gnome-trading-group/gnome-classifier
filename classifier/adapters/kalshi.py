@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -16,6 +17,14 @@ PAGE_SIZE = 200
 CONTRACT_MULTIPLIER = 1_000_000_000
 TICK_SIZE = 1_000_000
 LOT_SIZE = 1_000_000
+
+
+def _slugify(text: str) -> str:
+    slug = text.lower()
+    slug = re.sub(r'[^a-z0-9\s-]', '', slug)
+    slug = re.sub(r'\s+', '-', slug.strip())
+    slug = re.sub(r'-+', '-', slug)
+    return slug
 
 
 class KalshiAdapter:
@@ -116,6 +125,14 @@ class KalshiAdapter:
 
         has_sub_markets = not is_multi and len(markets) > 1
 
+        series_ticker = event.get("series_ticker", "")
+        sub_title = event.get("sub_title", "")
+        if series_ticker:
+            slug = _slugify(f"{event_title} {sub_title}".strip())
+            native_url: str | None = f"https://kalshi.com/markets/{series_ticker.lower()}/{slug}"
+        else:
+            native_url = None
+
         contracts: list[AdapterContract] = []
         for market in markets:
             ticker = market.get("ticker", "")
@@ -149,11 +166,12 @@ class KalshiAdapter:
                     event_category=event_category,
                     event_expiry=expiry,
                     exchange_event_native_id=event_ticker,
+                    exchange_event_native_url=native_url,
                 ))
             else:
                 if has_sub_markets:
-                    sub_title = market.get("yes_sub_title") or ticker
-                    market_event_title = f"{event_title}: {sub_title}"
+                    sub_title_market = market.get("yes_sub_title") or ticker
+                    market_event_title = f"{event_title}: {sub_title_market}"
                     native_id = ticker
                 else:
                     market_event_title = event_title
@@ -182,6 +200,7 @@ class KalshiAdapter:
                         event_category=event_category,
                         event_expiry=expiry,
                         exchange_event_native_id=native_id,
+                        exchange_event_native_url=native_url,
                     ))
 
         return contracts

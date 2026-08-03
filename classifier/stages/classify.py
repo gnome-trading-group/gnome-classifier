@@ -193,7 +193,7 @@ def process_semantic_results(
 
     Returns (summary_counts, written_relationships).
     """
-    event_contracts = db.get_all_event_contracts()
+    event_contracts = db.get_event_contracts_for_securities(new_security_ids)
 
     judged = parse_judgment_responses(responses, pending_context, cache, model=model)
 
