@@ -18,7 +18,7 @@ class AppStage extends cdk.Stage {
       slackChannel: config.slackChannel,
     });
 
-    new MonitoringStack(this, "MonitoringStack", {
+    new MonitoringStack(this, "ClassifierMonitoringStack", {
       contractsQueue: classifierStack.contractsQueue,
       contractsDlq: classifierStack.contractsDlq,
       entitiesQueue: classifierStack.entitiesQueue,
