@@ -111,13 +111,15 @@ class PolymarketAdapter:
         is_neg_risk_group = len(markets) > 1 and all(m.get("negRisk") for m in markets)
 
         if is_neg_risk_group:
+            event_volume: float = sum(m.get("volumeNum") or 0.0 for m in markets)
             return self._map_neg_risk_group(
-                exchange_id, markets, event_title, event_slug, event_description,
+                exchange_id, markets, event_title, event_slug, event_description, event_volume,
             )
 
         contracts: list[AdapterContract] = []
         for market in markets:
-            contracts.extend(self._map_binary_market(exchange_id, market, event_description, event_slug))
+            market_volume: float = market.get("volumeNum") or 0.0
+            contracts.extend(self._map_binary_market(exchange_id, market, event_description, event_slug, market_volume))
         return contracts
 
     def _map_neg_risk_group(
@@ -127,6 +129,7 @@ class PolymarketAdapter:
         event_title: str,
         event_slug: str,
         event_description: str | None,
+        event_volume: float = 0.0,
     ) -> list[AdapterContract]:
         symbol_base = f"{event_title[:60]} -- "
         contracts: list[AdapterContract] = []
@@ -166,6 +169,7 @@ class PolymarketAdapter:
                 event_expiry=market.get("endDate"),
                 exchange_event_native_id=event_slug,
                 exchange_event_native_url=f"https://polymarket.com/event/{event_slug}",
+                event_volume=event_volume,
             ))
         return contracts
 
@@ -175,6 +179,7 @@ class PolymarketAdapter:
         market: dict,
         event_description: str | None,
         event_slug: str = "",
+        event_volume: float = 0.0,
     ) -> list[AdapterContract]:
         question = market.get("question", "")
         condition_id = market.get("conditionId", "")
@@ -222,5 +227,6 @@ class PolymarketAdapter:
                 event_expiry=expiry,
                 exchange_event_native_id=condition_id,
                 exchange_event_native_url=native_url,
+                event_volume=event_volume,
             ))
         return contracts

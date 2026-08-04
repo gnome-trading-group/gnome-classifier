@@ -17,6 +17,7 @@ from classifier.constants import (
     DEFAULT_MAX_MESSAGES,
     DEFAULT_MAX_WAIT_SECONDS,
     DEFAULT_MIN_CONFIDENCE,
+    DEFAULT_MIN_EVENT_VOLUME,
     DEFAULT_NOTIFY_MAX_MESSAGES,
     DEFAULT_NOTIFY_MAX_WAIT_SECONDS,
     DEFAULT_NEIGHBOR_SEARCH_LIMIT,
@@ -68,6 +69,7 @@ class Thresholds:
     min_confidence: float = DEFAULT_MIN_CONFIDENCE
     structural_confidence: float = DEFAULT_STRUCTURAL_CONFIDENCE
     hedgeable_with_confidence: float = DEFAULT_HEDGEABLE_WITH_CONFIDENCE
+    min_event_volume: float | None = DEFAULT_MIN_EVENT_VOLUME
 
 
 @dataclasses.dataclass

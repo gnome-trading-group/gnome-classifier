@@ -47,7 +47,7 @@ import click
 import voyageai
 
 from classifier.cache import RedisClassifierCache
-from classifier.constants import RESOLUTION_LOOKBACK_DAYS
+from classifier.constants import DEFAULT_RESOLUTION_LOOKBACK_DAYS as RESOLUTION_LOOKBACK_DAYS
 from classifier.pipeline import PipelineResult, create_entities_and_embed, fetch_exchanges, run_full_pipeline_sync
 from classifier.client import BatchAnthropicClient, BatchVoyageClient
 from classifier.db import ClassifierDB
@@ -106,19 +106,29 @@ def _fetch_contracts(adapter: str | None, max_contracts: int | None):
     return registry, db, contracts, exchange_by_name
 
 
-def _display_contracts(contracts, adapter: str | None):
-    contracts_by_event: dict[str, list] = {}
+def _display_contracts(contracts, adapter: str | None, min_volume: float | None = None):
+    contracts_by_native: dict[str, list] = {}
     for c in contracts:
-        contracts_by_event.setdefault(c.event_title, []).append(c)
+        contracts_by_native.setdefault(c.exchange_event_native_id, []).append(c)
+
+    total_events = len(contracts_by_native)
+    filtered_out = 0
+    if min_volume is not None:
+        before = total_events
+        contracts_by_native = {
+            nid: g for nid, g in contracts_by_native.items()
+            if g[0].event_volume is None or g[0].event_volume >= min_volume
+        }
+        filtered_out = before - len(contracts_by_native)
 
     label = (adapter or "ALL ADAPTERS").upper()
     print(f"\n{'='*70}")
-    print(f"{label}  ({len(contracts)} contracts, {len(contracts_by_event)} events)")
+    print(f"{label}  ({len(contracts)} contracts, {total_events} events)")
     print(f"{'='*70}")
 
-    for event_title, group in contracts_by_event.items():
+    for native_id, group in contracts_by_native.items():
         c0 = group[0]
-        print(f"\n  {event_title}")
+        print(f"\n  {c0.event_title}")
         print(f"    native_id     : {c0.exchange_event_native_id}")
         print(f"    contract_type : {c0.contract_type.name}")
         print(f"    asset_class   : {c0.asset_class.name}")
@@ -129,7 +139,25 @@ def _display_contracts(contracts, adapter: str | None):
             print(f"    description   : {c0.event_description[:120]}")
         if c0.event_expiry:
             print(f"    expiry        : {c0.event_expiry}")
+        if c0.event_volume is not None:
+            print(f"    volume        : ${c0.event_volume:,.2f}")
+        else:
+            print(f"    volume        : N/A")
         print(f"    currencies    : base={c0.base_currency}  quote={c0.quote_currency}  settle={c0.settle_currency}")
+
+    shown = len(contracts_by_native)
+    volumes = [g[0].event_volume for g in contracts_by_native.values() if g[0].event_volume is not None]
+    print(f"\n{'='*70}")
+    print(f"SUMMARY")
+    print(f"{'='*70}")
+    print(f"  events shown    : {shown}")
+    if filtered_out:
+        print(f"  filtered out    : {filtered_out}  (min_volume=${min_volume:,.2f})")
+    print(f"  contracts total : {sum(len(g) for g in contracts_by_native.values())}")
+    if volumes:
+        print(f"  volume range    : ${min(volumes):,.2f} – ${max(volumes):,.2f}")
+        print(f"  volume total    : ${sum(volumes):,.2f}")
+        print(f"  no volume data  : {shown - len(volumes)}")
 
 
 def _display_entities_verbose(registry: StubRegistry):
@@ -242,13 +270,14 @@ def main(ctx, debug: bool, output_path: str):
 @main.command()
 @click.argument("adapter")
 @click.option("-n", "max_contracts", type=int, default=None, help="Limit to first N contracts")
-def fetch(adapter: str, max_contracts: int | None):
+@click.option("--min-volume", type=float, default=None, help="Hide events below this $ volume")
+def fetch(adapter: str, max_contracts: int | None, min_volume: float | None):
     """Fetch raw contracts from ADAPTER and display them grouped by event."""
     _, _, contracts, _ = _fetch_contracts(adapter, max_contracts)
     if not contracts:
         print("No contracts returned.")
         return
-    _display_contracts(contracts, adapter)
+    _display_contracts(contracts, adapter, min_volume)
 
 
 @main.command()

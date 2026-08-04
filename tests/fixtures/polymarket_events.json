@@ -13,7 +13,8 @@
           "closed": false,
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"1001\", \"1002\"]",
-          "endDate": "2025-12-31T12:00:00Z"
+          "endDate": "2025-12-31T12:00:00Z",
+          "volumeNum": 2000.0
         },
         {
           "conditionId": "0xe2b48e3b44de9658ee00000000000000000000000000000000000000000000002",
@@ -23,7 +24,8 @@
           "closed": false,
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"2001\", \"2002\"]",
-          "endDate": "2025-12-31T12:00:00Z"
+          "endDate": "2025-12-31T12:00:00Z",
+          "volumeNum": 2000.0
         },
         {
           "conditionId": "0x3209617364a0d59843000000000000000000000000000000000000000000000003",
@@ -33,7 +35,8 @@
           "closed": false,
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"3001\", \"3002\"]",
-          "endDate": "2025-12-31T12:00:00Z"
+          "endDate": "2025-12-31T12:00:00Z",
+          "volumeNum": 1000.0
         }
       ]
     },
@@ -50,7 +53,8 @@
           "closed": false,
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"4001\", \"4002\"]",
-          "endDate": "2025-12-31T12:00:00Z"
+          "endDate": "2025-12-31T12:00:00Z",
+          "volumeNum": 500.0
         },
         {
           "conditionId": "0x9b3c3177fe473124c700000000000000000000000000000000000000000000002",
@@ -60,7 +64,8 @@
           "closed": false,
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"5001\", \"5002\"]",
-          "endDate": "2026-04-01T04:00:00Z"
+          "endDate": "2026-04-01T04:00:00Z",
+          "volumeNum": 800.0
         },
         {
           "conditionId": "0xaabbcc1234567890ab00000000000000000000000000000000000000000000003",
@@ -70,7 +75,8 @@
           "closed": false,
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"6001\", \"6002\"]",
-          "endDate": "2027-01-01T04:00:00Z"
+          "endDate": "2027-01-01T04:00:00Z",
+          "volumeNum": 300.0
         }
       ]
     },
@@ -87,7 +93,8 @@
           "closed": false,
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"7001\", \"7002\"]",
-          "endDate": "2030-01-01T00:00:00Z"
+          "endDate": "2030-01-01T00:00:00Z",
+          "volumeNum": 1500.0
         }
       ]
     }

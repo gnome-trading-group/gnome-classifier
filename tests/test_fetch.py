@@ -1,9 +1,15 @@
+import dataclasses
+import json
+import os
+from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from classifier.adapters.types import AdapterContract
 from classifier.stages.fetch import fetch_all
-from gnomepy.registry.types import Exchange
+from classifier.workers.fetch import fetch_handler
+from gnomepy.registry.types import AssetClass, ContractType, Exchange, SecurityType
 
 
 def _make_exchange(name: str, exchange_id: int = 1) -> Exchange:
@@ -68,3 +74,115 @@ def test_fetch_all_handles_adapter_error():
 
     assert contracts == []
     assert failed == ["polymarket"]
+
+
+def _make_contract(
+    native_id: str,
+    security_id: str,
+    event_volume: float | None = None,
+) -> AdapterContract:
+    return AdapterContract(
+        exchange_id=1,
+        exchange_security_id=security_id,
+        exchange_security_symbol=security_id,
+        base_currency="USDC",
+        quote_currency="USDC",
+        settle_currency="USDC",
+        security_type=SecurityType.EVENT_CONTRACT,
+        contract_type=ContractType.BINARY,
+        asset_class=AssetClass.PREDICTION,
+        inverse=False,
+        is_quanto=False,
+        tick_size=1.0,
+        lot_size=1.0,
+        min_notional=0.0,
+        contract_multiplier=1.0,
+        event_title="Test Event",
+        outcome_label="Yes",
+        exchange_event_native_id=native_id,
+        event_volume=event_volume,
+    )
+
+
+def _make_fetch_rc(min_event_volume: float | None = None):
+    from classifier.runtime_config import ClassifierConfig, FeatureFlags, Thresholds
+    rc = MagicMock()
+    rc.config = ClassifierConfig(
+        feature_flags=FeatureFlags(fetch_enabled=True),
+        thresholds=Thresholds(min_event_volume=min_event_volume),
+    )
+    return rc
+
+
+class TestVolumeFiltering:
+    def test_high_volume_event_passes(self, moto_env, monkeypatch):
+        contract = _make_contract("evt-1", "sec-1", event_volume=5000.0)
+        rc = _make_fetch_rc(min_event_volume=1000.0)
+
+        with (
+            patch("classifier.workers.fetch._get_runtime_config", return_value=rc),
+            patch("classifier.workers.fetch.init_registry", return_value=MagicMock()),
+            patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
+            patch("classifier.workers.fetch.fetch_all", return_value=([contract], [])),
+        ):
+            result = fetch_handler({}, None)
+
+        assert result["new_contracts"] == 1
+
+    def test_low_volume_event_filtered(self, moto_env, monkeypatch):
+        contract = _make_contract("evt-1", "sec-1", event_volume=50.0)
+        rc = _make_fetch_rc(min_event_volume=1000.0)
+
+        with (
+            patch("classifier.workers.fetch._get_runtime_config", return_value=rc),
+            patch("classifier.workers.fetch.init_registry", return_value=MagicMock()),
+            patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
+            patch("classifier.workers.fetch.fetch_all", return_value=([contract], [])),
+        ):
+            result = fetch_handler({}, None)
+
+        assert result["new_contracts"] == 0
+
+    def test_none_volume_always_passes(self, moto_env, monkeypatch):
+        contract = _make_contract("evt-1", "sec-1", event_volume=None)
+        rc = _make_fetch_rc(min_event_volume=1000.0)
+
+        with (
+            patch("classifier.workers.fetch._get_runtime_config", return_value=rc),
+            patch("classifier.workers.fetch.init_registry", return_value=MagicMock()),
+            patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
+            patch("classifier.workers.fetch.fetch_all", return_value=([contract], [])),
+        ):
+            result = fetch_handler({}, None)
+
+        assert result["new_contracts"] == 1
+
+    def test_no_threshold_passes_all(self, moto_env, monkeypatch):
+        contract = _make_contract("evt-1", "sec-1", event_volume=0.01)
+        rc = _make_fetch_rc(min_event_volume=None)
+
+        with (
+            patch("classifier.workers.fetch._get_runtime_config", return_value=rc),
+            patch("classifier.workers.fetch.init_registry", return_value=MagicMock()),
+            patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
+            patch("classifier.workers.fetch.fetch_all", return_value=([contract], [])),
+        ):
+            result = fetch_handler({}, None)
+
+        assert result["new_contracts"] == 1
+
+    def test_mixed_volume_selectively_filters(self, moto_env, monkeypatch):
+        high = _make_contract("evt-high", "sec-high", event_volume=5000.0)
+        low = _make_contract("evt-low", "sec-low", event_volume=100.0)
+        no_vol = _make_contract("evt-none", "sec-none", event_volume=None)
+        rc = _make_fetch_rc(min_event_volume=1000.0)
+
+        with (
+            patch("classifier.workers.fetch._get_runtime_config", return_value=rc),
+            patch("classifier.workers.fetch.init_registry", return_value=MagicMock()),
+            patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
+            patch("classifier.workers.fetch.fetch_all", return_value=([high, low, no_vol], [])),
+        ):
+            result = fetch_handler({}, None)
+
+        assert result["new_contracts"] == 2

@@ -109,6 +109,26 @@ def test_neg_risk_security_ids_use_yes_token():
     assert {c.exchange_security_id for c in contracts} == expected_ids
 
 
+# ── Volume ───────────────────────────────────────────────────────────────────
+
+def test_binary_event_volume():
+    contracts = _map("elon-mars")
+    assert all(c.event_volume == 1500.0 for c in contracts)
+
+
+def test_neg_risk_event_volume_is_sum_of_markets():
+    contracts = _map("harvey-weinstein-prison-time")
+    assert all(c.event_volume == 5000.0 for c in contracts)
+
+
+def test_ladder_event_volume_per_market():
+    contracts = _map("kraken-ipo-by")
+    # Each binary market becomes its own event, so it gets only its market's volumeNum
+    market_vols = {m["conditionId"]: m["volumeNum"] for m in EVENTS_BY_SLUG["kraken-ipo-by"]["markets"]}
+    for c in contracts:
+        assert c.event_volume == market_vols[c.exchange_event_native_id]
+
+
 # ── Entity creation ───────────────────────────────────────────────────────────
 
 def test_entity_creation_neg_risk(stub_registry, stub_db, mock_anthropic):

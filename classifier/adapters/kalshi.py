@@ -133,6 +133,21 @@ class KalshiAdapter:
         else:
             native_url = None
 
+        def _parse_volume(market: dict) -> float | None:
+            raw = market.get("volume_fp")
+            if raw is None:
+                return None
+            try:
+                return float(raw)
+            except (ValueError, TypeError):
+                return None
+
+        event_volume: float | None = None
+        if not has_sub_markets:
+            vols = [v for m in markets if (v := _parse_volume(m)) is not None]
+            if vols:
+                event_volume = sum(vols)
+
         contracts: list[AdapterContract] = []
         for market in markets:
             ticker = market.get("ticker", "")
@@ -167,15 +182,18 @@ class KalshiAdapter:
                     event_expiry=expiry,
                     exchange_event_native_id=event_ticker,
                     exchange_event_native_url=native_url,
+                    event_volume=event_volume,
                 ))
             else:
                 if has_sub_markets:
                     sub_title_market = market.get("yes_sub_title") or ticker
                     market_event_title = f"{event_title}: {sub_title_market}"
                     native_id = ticker
+                    market_volume = _parse_volume(market)
                 else:
                     market_event_title = event_title
                     native_id = event_ticker
+                    market_volume = event_volume
                 exchange_security_symbol_base = f"{market_event_title[:60]} -- "
                 for side in ("Yes", "No"):
                     contracts.append(AdapterContract(
@@ -201,6 +219,7 @@ class KalshiAdapter:
                         event_expiry=expiry,
                         exchange_event_native_id=native_id,
                         exchange_event_native_url=native_url,
+                        event_volume=market_volume,
                     ))
 
         return contracts

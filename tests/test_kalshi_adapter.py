@@ -123,6 +123,28 @@ def test_sub_market_outcomes():
     assert {c.outcome_label for c in ramp} == {"Yes", "No"}
 
 
+# ── Volume ───────────────────────────────────────────────────────────────────
+
+def test_binary_event_volume():
+    contracts = _map("KXELONMARS-99")
+    expected = float(EVENTS_BY_TICKER["KXELONMARS-99"]["markets"][0]["volume_fp"])
+    assert all(c.event_volume == expected for c in contracts)
+
+
+def test_multi_outcome_event_volume_is_sum():
+    contracts = _map("KXNEWPOPE-70")
+    markets = EVENTS_BY_TICKER["KXNEWPOPE-70"]["markets"]
+    expected = sum(float(m["volume_fp"]) for m in markets)
+    assert all(c.event_volume == expected for c in contracts)
+
+
+def test_sub_market_event_volume_per_market():
+    contracts = _map("KXRAMPBREX-40")
+    markets = {m["ticker"]: float(m["volume_fp"]) for m in EVENTS_BY_TICKER["KXRAMPBREX-40"]["markets"]}
+    for c in contracts:
+        assert c.event_volume == markets[c.exchange_event_native_id]
+
+
 # ── Entity creation with fixture data ─────────────────────────────────────────
 
 @pytest.fixture

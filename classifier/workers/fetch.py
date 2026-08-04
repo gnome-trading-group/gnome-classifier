@@ -145,6 +145,19 @@ def fetch_handler(event, context):
         ck = f"{contract.exchange_id}:{contract.exchange_security_id}"
         current_hashes[ck] = _contract_hash(contract)
 
+    min_event_volume = rc.config.thresholds.min_event_volume
+    if min_event_volume is not None:
+        filtered_count = 0
+        for nk, group in list(contracts_by_native.items()):
+            vol = group[0].event_volume
+            if vol is not None and vol < min_event_volume:
+                filtered_count += 1
+                del contracts_by_native[nk]
+                for c in group:
+                    current_hashes.pop(f"{c.exchange_id}:{c.exchange_security_id}", None)
+        if filtered_count:
+            logger.info("Filtered %d low-volume event groups (min_event_volume=%.2f)", filtered_count, min_event_volume)
+
     new_messages: list[dict] = []
     for nk, group in contracts_by_native.items():
         has_new_or_changed = any(
