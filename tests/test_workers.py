@@ -9,6 +9,7 @@ from moto import mock_aws
 
 from classifier.adapters.types import AdapterContract
 from classifier.client import BatchVoyageClient
+from classifier.runtime_config import ClassifierConfig, FeatureFlags
 from classifier.workers.config import WorkerConfig
 from classifier.workers.embed import EmbedWorker
 from classifier.workers.fetch import fetch_handler, resolve_handler
@@ -17,6 +18,12 @@ from classifier.workers.notify import NotifyWorker
 from classifier.workers.relationships import RelationshipsWorker
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 from scripts.testing import StubDB, StubRegistry
+
+
+def _make_handler_rc(**feature_flags):
+    rc = MagicMock()
+    rc.config = ClassifierConfig(feature_flags=FeatureFlags(**feature_flags))
+    return rc
 
 
 def _sqs_msg(body: dict, receipt_handle: str = "fake-receipt") -> dict:
@@ -312,7 +319,7 @@ class TestFetchHandler:
         monkeypatch.setenv("REGISTRY_API_KEY_ID", "fake-key-id")
 
         with (
-            patch("classifier.workers.fetch._get_runtime_config", return_value=MagicMock()),
+            patch("classifier.workers.fetch._get_runtime_config", return_value=_make_handler_rc(fetch_enabled=True)),
             patch("classifier.workers.fetch.init_registry", return_value=stub_registry),
             patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
             patch("classifier.workers.fetch.fetch_all", return_value=([contract], [])),
@@ -334,7 +341,7 @@ class TestFetchHandler:
         monkeypatch.setenv("REGISTRY_API_KEY_ID", "fake-key-id")
 
         patches = dict(
-            _get_runtime_config=patch("classifier.workers.fetch._get_runtime_config", return_value=MagicMock()),
+            _get_runtime_config=patch("classifier.workers.fetch._get_runtime_config", return_value=_make_handler_rc(fetch_enabled=True)),
             init_registry=patch("classifier.workers.fetch.init_registry", return_value=stub_registry),
             fetch_exchanges=patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
             fetch_all=patch("classifier.workers.fetch.fetch_all", return_value=([contract], [])),
@@ -358,7 +365,7 @@ class TestResolveHandler:
         resolved = {1: {"evt-1"}}
 
         with (
-            patch("classifier.workers.fetch._get_runtime_config", return_value=MagicMock()),
+            patch("classifier.workers.fetch._get_runtime_config", return_value=_make_handler_rc(resolve_enabled=True)),
             patch("classifier.workers.fetch.init_registry", return_value=stub_registry),
             patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
             patch("classifier.workers.fetch.fetch_resolved_outcomes", return_value=(resolved, [])),
@@ -376,7 +383,7 @@ class TestResolveHandler:
         resolved = {1: {"evt-1"}}
 
         patches = dict(
-            rc=patch("classifier.workers.fetch._get_runtime_config", return_value=MagicMock()),
+            rc=patch("classifier.workers.fetch._get_runtime_config", return_value=_make_handler_rc(resolve_enabled=True)),
             init=patch("classifier.workers.fetch.init_registry", return_value=stub_registry),
             exchanges=patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
             resolved=patch("classifier.workers.fetch.fetch_resolved_outcomes", return_value=(resolved, [])),

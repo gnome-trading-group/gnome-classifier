@@ -1,11 +1,12 @@
 import logging
 import re
 
-import requests
+import requests.exceptions
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier.adapters.types import AdapterContract
+from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,9 @@ def _fmt_price(value: str) -> str:
 class HyperliquidAdapter:
     exchange_name = "hyperliquid"
 
+    def __init__(self, session: RateLimitedSession | None = None):
+        self._session = session or RateLimitedSession(min_request_interval=0.1)
+
     def fetch(self, exchange_id: ExchangeId) -> list[AdapterContract]:
         data = self._fetch_outcome_meta()
         outcomes = {o["outcome"]: o for o in data.get("outcomes", [])}
@@ -64,10 +68,13 @@ class HyperliquidAdapter:
 
     def _fetch_outcome_meta(self) -> dict:
         try:
-            res = requests.post(BASE_URL, json={"type": "outcomeMeta"}, timeout=30)
+            res = self._session.post(BASE_URL, json={"type": "outcomeMeta"}, timeout=30)
             res.raise_for_status()
             return res.json()
-        except Exception as e:
+        except requests.exceptions.RetryError as e:
+            logger.error("Hyperliquid API retries exhausted: %s", e)
+            return {}
+        except requests.exceptions.RequestException as e:
             logger.error("Hyperliquid API error: %s", e)
             return {}
 

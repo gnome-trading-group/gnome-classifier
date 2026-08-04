@@ -2,11 +2,12 @@ import json
 import logging
 from datetime import datetime, timezone, timedelta
 
-import requests
+import requests.exceptions
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier.adapters.types import AdapterContract
+from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,9 @@ LOT_SIZE = 1_000_000
 
 class PolymarketAdapter:
     exchange_name = "polymarket"
+
+    def __init__(self, session: RateLimitedSession | None = None):
+        self._session = session or RateLimitedSession(min_request_interval=0.1)
 
     def fetch(self, exchange_id: ExchangeId) -> list[AdapterContract]:
         events = self._fetch_all_events()
@@ -60,10 +64,13 @@ class PolymarketAdapter:
             if after_cursor is not None:
                 params["after_cursor"] = after_cursor
             try:
-                res = requests.get(f"{GAMMA_API_URL}/events/keyset", params=params, timeout=30)
+                res = self._session.get(f"{GAMMA_API_URL}/events/keyset", params=params, timeout=30)
                 res.raise_for_status()
                 data = res.json()
-            except Exception as e:
+            except requests.exceptions.RetryError as e:
+                logger.error("Polymarket closed events retries exhausted at cursor=%s: %s", after_cursor, e)
+                break
+            except requests.exceptions.RequestException as e:
                 logger.error("Polymarket closed events API error at cursor=%s: %s", after_cursor, e)
                 break
             events.extend(data.get("events", []))
@@ -85,10 +92,13 @@ class PolymarketAdapter:
                 params["after_cursor"] = after_cursor
 
             try:
-                res = requests.get(f"{GAMMA_API_URL}/events/keyset", params=params, timeout=30)
+                res = self._session.get(f"{GAMMA_API_URL}/events/keyset", params=params, timeout=30)
                 res.raise_for_status()
                 data = res.json()
-            except Exception as e:
+            except requests.exceptions.RetryError as e:
+                logger.error("Polymarket API retries exhausted at cursor=%s: %s", after_cursor, e)
+                break
+            except requests.exceptions.RequestException as e:
                 logger.error("Polymarket API error at cursor=%s: %s", after_cursor, e)
                 break
 

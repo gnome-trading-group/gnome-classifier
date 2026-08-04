@@ -337,7 +337,7 @@ def _reconcile_stale_entities(
 
 def create_entities(
     registry: RegistryClient,
-    batch_client: BatchAnthropicClient | None,
+    batch_client: BatchAnthropicClient,
     contracts: list[AdapterContract],
     *,
     cache: ClassifierCache | None = None,
@@ -355,7 +355,7 @@ def create_entities(
             created_event_ids=[], created_event_names=[],
         )
     events_to_canon, entity_ctx = prepare_canonicalization_inputs(contracts, cache, db)
-    if canonicalize_enabled and batch_client is not None:
+    if canonicalize_enabled:
         canonical = canonicalize_events(
             batch_client, events_to_canon, cache=cache,
             model=canonicalize_model, batch_size=canonicalize_batch_size,

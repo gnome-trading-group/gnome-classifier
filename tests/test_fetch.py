@@ -4,11 +4,12 @@ import os
 from io import BytesIO
 from unittest.mock import MagicMock, patch
 
+import boto3
 import pytest
 
 from classifier.adapters.types import AdapterContract
 from classifier.stages.fetch import fetch_all
-from classifier.workers.fetch import fetch_handler
+from classifier.workers.fetch import _ACTIVE_EVENTS_KEY, fetch_handler
 from gnomepy.registry.types import AssetClass, ContractType, Exchange, SecurityType
 
 
@@ -186,3 +187,46 @@ class TestVolumeFiltering:
             result = fetch_handler({}, None)
 
         assert result["new_contracts"] == 2
+
+
+class TestActiveEventsCache:
+    def test_fetch_handler_writes_active_events_to_s3(self, moto_env):
+        contract = _make_contract("evt-1", "sec-1", event_volume=None)
+        exchange_mock = MagicMock(exchange_id=1)
+        rc = _make_fetch_rc()
+
+        with (
+            patch("classifier.workers.fetch._get_runtime_config", return_value=rc),
+            patch("classifier.workers.fetch.init_registry", return_value=MagicMock()),
+            patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": exchange_mock}),
+            patch("classifier.workers.fetch.fetch_all", return_value=([contract], [])),
+        ):
+            fetch_handler({}, None)
+
+        s3 = moto_env["s3"]
+        obj = s3.get_object(Bucket="test-cache", Key=_ACTIVE_EVENTS_KEY)
+        data = json.loads(obj["Body"].read())
+
+        assert "active_by_exchange" in data
+        assert "successful_exchange_ids" in data
+        assert "1" in data["active_by_exchange"]
+        assert "evt-1" in data["active_by_exchange"]["1"]
+        assert 1 in data["successful_exchange_ids"]
+
+    def test_fetch_handler_records_failed_exchanges(self, moto_env):
+        rc = _make_fetch_rc()
+        exchange_mock = MagicMock(exchange_id=1)
+
+        with (
+            patch("classifier.workers.fetch._get_runtime_config", return_value=rc),
+            patch("classifier.workers.fetch.init_registry", return_value=MagicMock()),
+            patch("classifier.workers.fetch.fetch_exchanges", return_value={"kalshi": exchange_mock}),
+            patch("classifier.workers.fetch.fetch_all", return_value=([], ["kalshi"])),
+        ):
+            fetch_handler({}, None)
+
+        s3 = moto_env["s3"]
+        obj = s3.get_object(Bucket="test-cache", Key=_ACTIVE_EVENTS_KEY)
+        data = json.loads(obj["Body"].read())
+
+        assert data["successful_exchange_ids"] == []

@@ -35,8 +35,7 @@ class NormalizeWorker(BaseWorker):
         self._registry = init_registry()
         self._runtime_config = init_runtime_config()
         self._runtime_config.refresh()
-        if self._runtime_config.config.feature_flags.canonicalization_enabled:
-            self._batch_client = init_anthropic()
+        self._batch_client = init_anthropic()
         self._cache = init_cache()
         self._db = init_db()
         self._sns = boto3.client("sns")
@@ -74,9 +73,6 @@ class NormalizeWorker(BaseWorker):
         if new_contracts:
             cfg = self._runtime_config.config
             canonicalize_enabled = cfg.feature_flags.canonicalization_enabled
-            if canonicalize_enabled and self._batch_client is None:
-                logger.warning("canonicalization_enabled=True but no Anthropic client; skipping canonicalization")
-                canonicalize_enabled = False
             entity_result = create_entities(
                 self._registry, self._batch_client, new_contracts,
                 cache=self._cache, db=self._db,

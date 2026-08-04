@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 _KNOWN_CONTRACTS_KEY = "fetch-cache/known_contracts.json"
 _SENT_RESOLVED_KEY = "fetch-cache/sent_resolved.json"
 _STALE_TRACKER_KEY = "fetch-cache/stale_tracker.json"
+_ACTIVE_EVENTS_KEY = "fetch-cache/active_events.json"
 
 _runtime_config = None
 
@@ -114,6 +115,36 @@ def _save_stale_tracker(s3, bucket: str, key: str, data: dict[str, dict]):
         logger.exception("Failed to save stale tracker at %s/%s", bucket, key)
 
 
+def _save_active_events(s3, bucket: str, key: str, active_by_exchange: dict[int, set[str]], successful_exchange_ids: list[int]):
+    try:
+        payload = {
+            "active_by_exchange": {str(eid): list(nids) for eid, nids in active_by_exchange.items()},
+            "successful_exchange_ids": successful_exchange_ids,
+        }
+        s3.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=json.dumps(payload).encode(),
+            ContentType="application/json",
+        )
+    except Exception:
+        logger.exception("Failed to save active events cache at %s/%s", bucket, key)
+
+
+def _load_active_events(s3, bucket: str, key: str) -> tuple[dict[int, set[str]], set[int]] | None:
+    try:
+        response = s3.get_object(Bucket=bucket, Key=key)
+        data = json.loads(response["Body"].read())
+        active_by_exchange = {int(eid): set(nids) for eid, nids in data["active_by_exchange"].items()}
+        successful_exchange_ids = set(data["successful_exchange_ids"])
+        return active_by_exchange, successful_exchange_ids
+    except s3.exceptions.NoSuchKey:
+        return None
+    except Exception:
+        logger.exception("Failed to load active events cache at %s/%s", bucket, key)
+        return None
+
+
 def fetch_handler(event, context):
     setup_logging()
     rc = _get_runtime_config()
@@ -139,11 +170,16 @@ def fetch_handler(event, context):
 
     contracts_by_native: dict[tuple[int, str], list[AdapterContract]] = {}
     current_hashes: dict[str, str] = {}
+    active_by_exchange: dict[int, set[str]] = {}
     for contract in active_contracts:
         nk = (contract.exchange_id, contract.exchange_event_native_id)
         contracts_by_native.setdefault(nk, []).append(contract)
         ck = f"{contract.exchange_id}:{contract.exchange_security_id}"
         current_hashes[ck] = _contract_hash(contract)
+        active_by_exchange.setdefault(contract.exchange_id, set()).add(contract.exchange_event_native_id)
+
+    successful_exchange_ids = [ex.exchange_id for name, ex in exchange_by_name.items() if name not in failed]
+    _save_active_events(s3, bucket, _ACTIVE_EVENTS_KEY, active_by_exchange, successful_exchange_ids)
 
     min_event_volume = rc.config.thresholds.min_event_volume
     if min_event_volume is not None:
@@ -253,27 +289,30 @@ def stale_cleanup_handler(event, context):
 
     miss_threshold = rc.config.processing.stale_miss_threshold
 
-    registry = init_registry()
     sqs = boto3.client("sqs")
     s3 = boto3.client("s3")
 
     bucket = os.environ["CACHE_BUCKET"]
     queue_url = os.environ["CONTRACTS_QUEUE_URL"]
 
-    exchange_by_name = fetch_exchanges(registry)
-    active_contracts, failed_exchanges = fetch_all(exchange_by_name)
-
-    failed_exchange_ids: set[int] = set()
-    for name in failed_exchanges:
-        ex = exchange_by_name.get(name)
-        if ex:
-            failed_exchange_ids.add(ex.exchange_id)
-
-    active_by_exchange: dict[int, set[str]] = {}
-    for contract in active_contracts:
-        active_by_exchange.setdefault(contract.exchange_id, set()).add(
-            contract.exchange_event_native_id
-        )
+    cached = _load_active_events(s3, bucket, _ACTIVE_EVENTS_KEY)
+    if cached is not None:
+        active_by_exchange, successful_ids = cached
+        failed_exchange_ids: set[int] = set()
+        logger.info("stale_cleanup using cached active events (%d exchanges)", len(active_by_exchange))
+    else:
+        logger.warning("stale_cleanup: no active events cache found, falling back to fetch_all")
+        registry = init_registry()
+        exchange_by_name = fetch_exchanges(registry)
+        active_contracts, failed_exchanges = fetch_all(exchange_by_name)
+        failed_exchange_ids = set()
+        for name in failed_exchanges:
+            ex = exchange_by_name.get(name)
+            if ex:
+                failed_exchange_ids.add(ex.exchange_id)
+        active_by_exchange = {}
+        for contract in active_contracts:
+            active_by_exchange.setdefault(contract.exchange_id, set()).add(contract.exchange_event_native_id)
 
     tracker = _load_stale_tracker(s3, bucket, _STALE_TRACKER_KEY)
 
@@ -317,8 +356,8 @@ def stale_cleanup_handler(event, context):
         sqs_send_batch(sqs, queue_url, stale_messages)
         logger.info("Sent %d stale events to contracts-queue", len(stale_messages))
 
-    if failed_exchanges:
-        logger.warning("Skipped miss-counting for failed exchanges: %s", failed_exchanges)
+    if failed_exchange_ids:
+        logger.warning("Skipped miss-counting for failed exchange ids: %s", failed_exchange_ids)
 
     _save_stale_tracker(s3, bucket, _STALE_TRACKER_KEY, new_tracker)
     return {"stale_events": len(stale_messages)}

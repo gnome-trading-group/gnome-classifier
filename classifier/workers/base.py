@@ -12,17 +12,36 @@ from classifier.runtime_config import RuntimeConfig
 logger = logging.getLogger(__name__)
 
 _SEND_BATCH_SIZE = 10
+_MAX_BATCH_BYTES = 1_000_000  # SQS limit is 1,048,576; leave headroom for request overhead
 
 
 def sqs_send_batch(sqs_client, queue_url: str, messages: list[dict]):
-    for i in range(0, len(messages), _SEND_BATCH_SIZE):
-        chunk = messages[i:i + _SEND_BATCH_SIZE]
-        entries = [{"Id": str(j), "MessageBody": json.dumps(msg)} for j, msg in enumerate(chunk)]
-        resp = sqs_client.send_message_batch(QueueUrl=queue_url, Entries=entries)
-        failed = resp.get("Failed", [])
-        if failed:
-            ids = [f["Id"] for f in failed]
-            raise RuntimeError(f"SQS send_message_batch partial failure: {len(failed)} of {len(chunk)} failed: {ids}")
+    batch_entries: list[dict] = []
+    batch_bytes = 0
+    entry_id = 0
+
+    for msg in messages:
+        body = json.dumps(msg)
+        body_len = len(body.encode("utf-8"))
+        if batch_entries and (len(batch_entries) >= _SEND_BATCH_SIZE or batch_bytes + body_len > _MAX_BATCH_BYTES):
+            _flush_sqs_batch(sqs_client, queue_url, batch_entries)
+            batch_entries = []
+            batch_bytes = 0
+            entry_id = 0
+        batch_entries.append({"Id": str(entry_id), "MessageBody": body})
+        batch_bytes += body_len
+        entry_id += 1
+
+    if batch_entries:
+        _flush_sqs_batch(sqs_client, queue_url, batch_entries)
+
+
+def _flush_sqs_batch(sqs_client, queue_url: str, entries: list[dict]):
+    resp = sqs_client.send_message_batch(QueueUrl=queue_url, Entries=entries)
+    failed = resp.get("Failed", [])
+    if failed:
+        ids = [f["Id"] for f in failed]
+        raise RuntimeError(f"SQS send_message_batch partial failure: {len(failed)} of {len(entries)} failed: {ids}")
 
 
 def parse_security_messages(messages: list[dict]) -> tuple[list[int], dict[int, str]]:

@@ -2,11 +2,12 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
-import requests
+import requests.exceptions
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier.adapters.types import AdapterContract
+from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,9 @@ def _slugify(text: str) -> str:
 
 class KalshiAdapter:
     exchange_name = "kalshi"
+
+    def __init__(self, session: RateLimitedSession | None = None):
+        self._session = session or RateLimitedSession(min_request_interval=0.15)
 
     def fetch(self, exchange_id: ExchangeId) -> list[AdapterContract]:
         events = self._fetch_active_events()
@@ -68,10 +72,13 @@ class KalshiAdapter:
             if cursor:
                 params["cursor"] = cursor
             try:
-                res = requests.get(f"{BASE_URL}/events", params=params, timeout=30)
+                res = self._session.get(f"{BASE_URL}/events", params=params, timeout=30)
                 res.raise_for_status()
                 data = res.json()
-            except Exception as e:
+            except requests.exceptions.RetryError as e:
+                logger.error("Kalshi settled API retries exhausted: %s", e)
+                break
+            except requests.exceptions.RequestException as e:
                 logger.error("Kalshi settled API error: %s", e)
                 break
             page = data.get("events", [])
@@ -94,10 +101,13 @@ class KalshiAdapter:
                 params["cursor"] = cursor
 
             try:
-                res = requests.get(f"{BASE_URL}/events", params=params, timeout=30)
+                res = self._session.get(f"{BASE_URL}/events", params=params, timeout=30)
                 res.raise_for_status()
                 data = res.json()
-            except Exception as e:
+            except requests.exceptions.RetryError as e:
+                logger.error("Kalshi API retries exhausted: %s", e)
+                break
+            except requests.exceptions.RequestException as e:
                 logger.error("Kalshi API error: %s", e)
                 break
 
