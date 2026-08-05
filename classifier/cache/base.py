@@ -54,6 +54,14 @@ class ClassifierCache(ABC):
         ...
 
     @abstractmethod
+    def get_judgment_bulk(
+        self,
+        model: str,
+        keys: list[tuple[str, list[str], str, list[str]]],
+    ) -> dict[int, tuple[list, bool]]:
+        ...
+
+    @abstractmethod
     def put_judgment(
         self,
         model: str,

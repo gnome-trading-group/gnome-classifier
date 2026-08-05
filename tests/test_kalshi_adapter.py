@@ -181,3 +181,36 @@ def test_entity_creation_sub_markets(stub_registry, stub_db, mock_anthropic, kal
     assert result.securities_created == 4
     assert result.listings_created == 4
     assert result.event_contracts_created == 4
+
+
+# ── Finalized market filtering ────────────────────────────────────────────────
+
+def test_finalized_market_excluded_from_contracts():
+    contracts = _map("KXIPHONERELEASE-IPHONE18")
+    tickers = {c.exchange_security_id for c in contracts}
+    assert "KXIPHONERELEASE-IPHONE18-26JUL01:yes" not in tickers
+    assert "KXIPHONERELEASE-IPHONE18-26JUL01:no" not in tickers
+
+
+def test_active_markets_preserved_alongside_finalized():
+    contracts = _map("KXIPHONERELEASE-IPHONE18")
+    # 2 active sub-markets × 2 sides = 4 contracts (finalized one skipped)
+    assert len(contracts) == 4
+    native_ids = {c.exchange_event_native_id for c in contracts}
+    assert native_ids == {"KXIPHONERELEASE-IPHONE18-26OCT01", "KXIPHONERELEASE-IPHONE18-27JAN01"}
+
+
+def test_finalized_market_volume_included_in_sum():
+    contracts = _map("KXIPHONERELEASE-IPHONE18")
+    # volume_fp: 5000 (finalized) + 3000 + 2000 = 10000, but sub-markets use per-market volume
+    oct_contracts = [c for c in contracts if c.exchange_event_native_id == "KXIPHONERELEASE-IPHONE18-26OCT01"]
+    jan_contracts = [c for c in contracts if c.exchange_event_native_id == "KXIPHONERELEASE-IPHONE18-27JAN01"]
+    assert all(c.event_volume == 3000.0 for c in oct_contracts)
+    assert all(c.event_volume == 2000.0 for c in jan_contracts)
+
+
+def test_has_sub_markets_preserved_with_finalized():
+    # The 3-market event (1 finalized) must still classify as sub-markets,
+    # not binary, so surviving markets keep native_id = market.ticker
+    contracts = _map("KXIPHONERELEASE-IPHONE18")
+    assert all(c.exchange_event_native_id != "KXIPHONERELEASE-IPHONE18" for c in contracts)

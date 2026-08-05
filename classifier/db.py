@@ -446,35 +446,75 @@ class ClassifierDB:
                 )
                 return cur.fetchone()[0]
 
-    def find_neighbors(
-        self, embedding: list[float], threshold: float, limit: int = 50
-    ) -> list[tuple[int, float]]:
-        """Returns [(event_id, similarity)] for events above threshold, ordered by similarity desc."""
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT ee.event_id, 1 - (ee.embedding <=> %s::vector) AS similarity"
-                    " FROM sm.event_embedding ee"
-                    " JOIN sm.event e ON e.event_id = ee.event_id"
-                    " WHERE e.resolved = false"
-                    " AND 1 - (ee.embedding <=> %s::vector) >= %s"
-                    " ORDER BY ee.embedding <=> %s::vector"
-                    " LIMIT %s",
-                    (embedding, embedding, threshold, embedding, limit),
-                )
-                return [(row[0], row[1]) for row in cur.fetchall()]
+    def find_all_neighbor_pairs(
+        self, threshold: float, event_ids: list[int] | None, neighbor_limit: int = 50
+    ) -> list[tuple[int, int, float]]:
+        """Returns [(event_id_a, event_id_b, similarity)] for unresolved pairs above threshold.
 
-    def get_embeddings(self, event_ids: list[int]) -> dict[int, list[float]]:
-        """Returns {event_id: embedding} for the given event_ids."""
+        Uses LATERAL KNN lookup per target event to leverage the HNSW index.
+        event_id_a < event_id_b always. Pass event_ids=None to scan all events (no array filter).
+        """
+        if event_ids is not None and not event_ids:
+            return []
+        # +1 for self-match exclusion; ef_search must be at least the LATERAL LIMIT
+        # so the HNSW index explores enough candidates before the WHERE filter applies
+        lateral_limit = neighbor_limit + 1
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL hnsw.ef_search = %s", (lateral_limit,))
+                if event_ids is None:
+                    cur.execute(
+                        "SELECT DISTINCT"
+                        " LEAST(e1.event_id, sub.event_id) AS eid_a,"
+                        " GREATEST(e1.event_id, sub.event_id) AS eid_b,"
+                        " sub.sim"
+                        " FROM sm.event e1"
+                        " JOIN sm.event_embedding ee1 ON ee1.event_id = e1.event_id"
+                        " CROSS JOIN LATERAL ("
+                        "   SELECT ee2.event_id, 1 - (ee1.embedding <=> ee2.embedding) AS sim"
+                        "   FROM sm.event_embedding ee2"
+                        "   JOIN sm.event e2 ON e2.event_id = ee2.event_id AND e2.resolved = false"
+                        "   ORDER BY ee1.embedding <=> ee2.embedding"
+                        "   LIMIT %s"
+                        " ) sub"
+                        " WHERE e1.resolved = false"
+                        " AND sub.event_id != e1.event_id"
+                        " AND sub.sim >= %s",
+                        (lateral_limit, threshold),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT DISTINCT"
+                        " LEAST(e1.event_id, sub.event_id) AS eid_a,"
+                        " GREATEST(e1.event_id, sub.event_id) AS eid_b,"
+                        " sub.sim"
+                        " FROM sm.event e1"
+                        " JOIN sm.event_embedding ee1 ON ee1.event_id = e1.event_id"
+                        " CROSS JOIN LATERAL ("
+                        "   SELECT ee2.event_id, 1 - (ee1.embedding <=> ee2.embedding) AS sim"
+                        "   FROM sm.event_embedding ee2"
+                        "   JOIN sm.event e2 ON e2.event_id = ee2.event_id AND e2.resolved = false"
+                        "   ORDER BY ee1.embedding <=> ee2.embedding"
+                        "   LIMIT %s"
+                        " ) sub"
+                        " WHERE e1.resolved = false"
+                        " AND sub.event_id != e1.event_id"
+                        " AND e1.event_id = ANY(%s)"
+                        " AND sub.sim >= %s",
+                        (lateral_limit, event_ids, threshold),
+                    )
+                return [(row[0], row[1], row[2]) for row in cur.fetchall()]
+
+    def delete_embeddings(self, event_ids: list[int]) -> None:
         if not event_ids:
-            return {}
+            return
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT event_id, embedding FROM sm.event_embedding WHERE event_id = ANY(%s)",
-                    (event_ids,),
+                    "DELETE FROM sm.event_embedding WHERE event_id = ANY(%s)",
+                    (list(event_ids),),
                 )
-                return {row[0]: list(row[1]) for row in cur.fetchall()}
+            conn.commit()
 
     def put_embeddings(self, embeddings: dict[int, list[float]]) -> None:
         """Upsert embeddings into sm.event_embedding."""

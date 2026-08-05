@@ -151,11 +151,8 @@ def prepare_semantic_batch(
     """
     _, new_event_ids, event_contracts, events = _load_event_data(db, new_security_ids)
 
-    embeddings = db.get_embeddings(list(new_event_ids)) if new_event_ids else {}
-    logger.info("Loaded %d embeddings for new events", len(embeddings))
-
     pending_pairs, cached_judged = find_semantic_candidates(
-        events, event_contracts, embeddings,
+        events, event_contracts,
         db=db, new_event_ids=new_event_ids, cache=cache,
         threshold=threshold, neighbor_limit=neighbor_limit,
         allowed_categories=allowed_categories, model=model,

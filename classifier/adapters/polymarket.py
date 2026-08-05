@@ -34,9 +34,9 @@ class PolymarketAdapter:
         return contracts
 
     def fetch_resolved(self, exchange_id: ExchangeId, lookback_days: int) -> set[str]:
-        events = self._fetch_closed_events(lookback_days)
         resolved: set[str] = set()
-        for event in events:
+
+        for event in self._fetch_closed_events(lookback_days):
             for market in event.get("markets", []):
                 condition_id = market.get("conditionId", "")
                 if not condition_id:
@@ -48,6 +48,22 @@ class PolymarketAdapter:
                     continue
                 for token_id in token_ids:
                     resolved.add(f"{condition_id}:{token_id}")
+
+        for event in self._fetch_all_events():
+            for market in event.get("markets", []):
+                if not market.get("closed", False):
+                    continue
+                condition_id = market.get("conditionId", "")
+                if not condition_id:
+                    continue
+                raw_token_ids = market.get("clobTokenIds", "[]")
+                try:
+                    token_ids = raw_token_ids if isinstance(raw_token_ids, list) else json.loads(raw_token_ids)
+                except Exception:
+                    continue
+                for token_id in token_ids:
+                    resolved.add(f"{condition_id}:{token_id}")
+
         return resolved
 
     def _fetch_closed_events(self, lookback_days: int) -> list[dict]:

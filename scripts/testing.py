@@ -46,6 +46,18 @@ class MemoryClassifierCache(ClassifierCache):
             return None
         return stored["items"], stored["first_title"] == title_a
 
+    def get_judgment_bulk(
+        self,
+        model: str,
+        keys: list[tuple[str, list[str], str, list[str]]],
+    ) -> dict[int, tuple[list, bool]]:
+        out: dict[int, tuple[list, bool]] = {}
+        for i, (title_a, labels_a, title_b, labels_b) in enumerate(keys):
+            stored = self._judge.get(self._judge_hash(model, title_a, labels_a, title_b, labels_b))
+            if stored is not None:
+                out[i] = (stored["items"], stored["first_title"] == title_a)
+        return out
+
     def put_judgment(self, model: str, title_a: str, labels_a: list[str], title_b: str, labels_b: list[str], items: list, a_is_first: bool) -> None:
         self._judge[self._judge_hash(model, title_a, labels_a, title_b, labels_b)] = {
             "first_title": title_a if a_is_first else title_b,
@@ -517,20 +529,41 @@ class StubDB:
             if r.security_id_a in sid_set or r.security_id_b in sid_set
         ]
 
-    def find_neighbors(
-        self, embedding: list[float], threshold: float, limit: int = 50
-    ) -> list[tuple[int, float]]:
-        results = []
-        for eid, emb in self._embeddings.items():
-            dot = sum(x * y for x, y in zip(embedding, emb))
-            denom = math.sqrt(sum(x * x for x in embedding)) * math.sqrt(sum(x * x for x in emb))
-            sim = dot / denom if denom else 0.0
-            if sim >= threshold:
-                results.append((eid, sim))
-        return sorted(results, key=lambda x: -x[1])[:limit]
+    def find_all_neighbor_pairs(
+        self, threshold: float, event_ids: list[int] | None, neighbor_limit: int = 50
+    ) -> list[tuple[int, int, float]]:
+        resolved_ids = {ev.event_id for ev in self._r._events if ev.resolved}
+        all_eids = [eid for eid in self._embeddings if eid not in resolved_ids]
+        targets = all_eids if event_ids is None else [eid for eid in event_ids if eid in self._embeddings and eid not in resolved_ids]
+        pair_set: dict[tuple[int, int], float] = {}
+        for target_eid in targets:
+            if target_eid not in self._embeddings or target_eid in resolved_ids:
+                continue
+            emb_t = self._embeddings[target_eid]
+            neighbors = []
+            for eid in all_eids:
+                if eid == target_eid:
+                    continue
+                emb = self._embeddings[eid]
+                dot = sum(x * y for x, y in zip(emb_t, emb))
+                denom = math.sqrt(sum(x * x for x in emb_t)) * math.sqrt(sum(x * x for x in emb))
+                sim = dot / denom if denom else 0.0
+                neighbors.append((eid, sim))
+            neighbors.sort(key=lambda x: -x[1])
+            for eid, sim in neighbors[:neighbor_limit]:
+                if sim < threshold:
+                    continue
+                pair = (min(target_eid, eid), max(target_eid, eid))
+                if pair not in pair_set or sim > pair_set[pair]:
+                    pair_set[pair] = sim
+        return [(a, b, sim) for (a, b), sim in pair_set.items()]
 
-    def get_embeddings(self, event_ids: list[int]) -> dict[int, list[float]]:
-        return {eid: self._embeddings[eid] for eid in event_ids if eid in self._embeddings}
+    def count_embeddings(self) -> int:
+        return len(self._embeddings)
+
+    def delete_embeddings(self, event_ids: list[int]) -> None:
+        for eid in event_ids:
+            self._embeddings.pop(eid, None)
 
     def put_embeddings(self, embeddings: dict[int, list[float]]) -> None:
         self._embeddings.update(embeddings)

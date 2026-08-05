@@ -62,6 +62,7 @@ def deactivate_stale_events(
             {"event_id": eid, "resolved": True, "resolved_at": now}
             for eid in resolved_event_ids
         ])
+        db.delete_embeddings(resolved_event_ids)
 
     logger.info(
         "Stale cleanup: %d events resolved, %d securities deactivated, %d listings deactivated",

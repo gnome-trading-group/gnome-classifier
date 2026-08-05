@@ -135,7 +135,6 @@ Output: []"""
 def find_semantic_candidates(
     events: list[Event],
     event_contracts: list[EventContract],
-    embeddings: dict[EventId, Embedding],
     *,
     db: ClassifierDB,
     new_event_ids: set[EventId] | None = None,
@@ -156,23 +155,32 @@ def find_semantic_candidates(
 
     event_by_id = {e.event_id: e for e in events}
 
+    if new_event_ids is None:
+        db_event_ids = None
+    else:
+        db_event_ids = [
+            eid for eid in new_event_ids
+            if eid in by_event
+            and not (allowed_categories and (ev := event_by_id.get(eid)) and ev.category and ev.category not in allowed_categories)
+        ]
+    all_pairs = db.find_all_neighbor_pairs(threshold, event_ids=db_event_ids, neighbor_limit=neighbor_limit)
     candidate_pairs: dict[tuple[EventId, EventId], float] = {}
-    for eid in (new_event_ids or set()):
-        if eid not in embeddings or eid not in by_event:
+    for eid_a, eid_b, sim in all_pairs:
+        if eid_a not in by_event or eid_b not in by_event:
             continue
-        event = event_by_id.get(eid)
-        if allowed_categories and event and event.category and event.category not in allowed_categories:
-            continue
-        neighbors = db.find_neighbors(embeddings[eid], threshold, limit=neighbor_limit)
-        for neighbor_eid, sim in neighbors:
-            if neighbor_eid == eid or neighbor_eid not in by_event:
+        if allowed_categories and new_event_ids is None:
+            ev_a, ev_b = event_by_id.get(eid_a), event_by_id.get(eid_b)
+            a_ok = not (ev_a and ev_a.category and ev_a.category not in allowed_categories)
+            b_ok = not (ev_b and ev_b.category and ev_b.category not in allowed_categories)
+            if not a_ok and not b_ok:
                 continue
-            pair = (min(eid, neighbor_eid), max(eid, neighbor_eid))
-            if pair not in candidate_pairs or sim > candidate_pairs[pair]:
-                candidate_pairs[pair] = sim
+        pair = (eid_a, eid_b)
+        if pair not in candidate_pairs or sim > candidate_pairs[pair]:
+            candidate_pairs[pair] = sim
 
-    cached_judged: list[JudgedRelationship] = []
-    pending: list[tuple[Event, Event, list[EventContract], list[EventContract], float]] = []
+    # First pass: resolve events/contracts for all valid pairs, build cache key list
+    prepared: list[tuple[Event, Event, list[EventContract], list[EventContract], list[str], list[str], float]] = []
+    cache_keys: list[tuple[str, list[str], str, list[str]]] = []
 
     for (eid_a, eid_b), similarity in candidate_pairs.items():
         try:
@@ -191,17 +199,26 @@ def find_semantic_candidates(
 
             labels_a = [ec.outcome_label for ec in primary_a]
             labels_b = [ec.outcome_label for ec in primary_b]
-
-            if cache is not None:
-                cached = cache.get_judgment(model, ev_a.title, labels_a, ev_b.title, labels_b)
-                if cached is not None:
-                    cached_items, a_is_first = cached
-                    cached_judged.extend(_parse_cached_judgment(cached_items, primary_a, primary_b, a_is_first))
-                    continue
-
-            pending.append((ev_a, ev_b, contracts_a, contracts_b, similarity))
+            prepared.append((ev_a, ev_b, contracts_a, contracts_b, labels_a, labels_b, similarity))
+            cache_keys.append((ev_a.title, labels_a, ev_b.title, labels_b))
         except Exception as e:
             logger.error("Failed comparing events %d and %d: %s", eid_a, eid_b, e)
+
+    # Bulk cache lookup — single pipelined round trip
+    cache_hits = cache.get_judgment_bulk(model, cache_keys) if cache is not None else {}
+
+    # Second pass: partition into cached_judged and pending
+    cached_judged: list[JudgedRelationship] = []
+    pending: list[tuple[Event, Event, list[EventContract], list[EventContract], float]] = []
+
+    for i, (ev_a, ev_b, contracts_a, contracts_b, labels_a, labels_b, similarity) in enumerate(prepared):
+        if i in cache_hits:
+            cached_items, a_is_first = cache_hits[i]
+            primary_a = primary_contracts(contracts_a)
+            primary_b = primary_contracts(contracts_b)
+            cached_judged.extend(_parse_cached_judgment(cached_items, primary_a, primary_b, a_is_first))
+        else:
+            pending.append((ev_a, ev_b, contracts_a, contracts_b, similarity))
 
     return pending, cached_judged
 

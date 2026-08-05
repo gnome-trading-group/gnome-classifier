@@ -451,20 +451,38 @@ def resolve(ctx, adapter: str | None, lookback: int):
 
 @main.command()
 @click.option("--with-semantic", is_flag=True, help="Also run semantic (embedding search + Claude judgment) in addition to structural")
+@click.option("--count-only", is_flag=True, help="Count how many Claude calls would be made across all existing events — no writes, no API calls")
 @click.option("--no-cache", is_flag=True, help="Ignore cache even if REDIS_URL is set")
 @click.pass_context
-def reclassify(ctx, with_semantic: bool, no_cache: bool):
+def reclassify(ctx, with_semantic: bool, count_only: bool, no_cache: bool):
     """Re-run relationship classification on ALL existing events.
 
     Structural + rule-based only by default (no Claude calls). Use --with-semantic
-    to also run the embedding search + judgment pass.
+    to also run the embedding search + judgment pass. Use --count-only to just
+    count how many Claude calls the semantic pass would make without executing them.
 
     Requires DATABASE_URL, REGISTRY_API_URL, and REGISTRY_API_KEY env vars.
-    Requires ANTHROPIC_API_KEY when --with-semantic is set.
+    Requires ANTHROPIC_API_KEY when --with-semantic is set (not needed for --count-only).
     """
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         raise click.ClickException("DATABASE_URL is required for reclassify")
+
+    if count_only:
+        db = ClassifierDB(dsn=database_url)
+        cache = _build_cache(no_cache)
+        print("\nSearching for semantic candidates across all existing events...", flush=True)
+        api_requests, _, cached_results = prepare_semantic_batch(
+            new_security_ids=[], db=db, cache=cache,
+        )
+        total = len(api_requests) + len(cached_results)
+        print(f"\n{'='*70}")
+        print("SEMANTIC CANDIDATE COUNT")
+        print(f"{'='*70}")
+        print(f"  {'pairs pending Claude':<30}: {len(api_requests)}")
+        print(f"  {'pairs already cached':<30}: {len(cached_results)}")
+        print(f"  {'total candidate pairs':<30}: {total}")
+        return
 
     registry_url = os.environ.get("REGISTRY_API_URL")
     registry_key = os.environ.get("REGISTRY_API_KEY")

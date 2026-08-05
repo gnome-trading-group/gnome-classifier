@@ -67,6 +67,30 @@ class RedisClassifierCache(ClassifierCache):
         a_is_first = stored.get("first_title") == title_a
         return stored.get("items", []), a_is_first
 
+    def get_judgment_bulk(
+        self,
+        model: str,
+        keys: list[tuple[str, list[str], str, list[str]]],
+    ) -> dict[int, tuple[list, bool]]:
+        if not keys:
+            return {}
+        fields = [self._judge_hash(model, title_a, labels_a, title_b, labels_b) for title_a, labels_a, title_b, labels_b in keys]
+        pipeline = self._redis.pipeline()
+        for field in fields:
+            pipeline.hget("judge", field)
+        raw_results = pipeline.execute()
+        out: dict[int, tuple[list, bool]] = {}
+        for i, (data, (title_a, _, _, _)) in enumerate(zip(raw_results, keys)):
+            if data is None:
+                continue
+            try:
+                stored = json.loads(data)
+            except Exception:
+                continue
+            a_is_first = stored.get("first_title") == title_a
+            out[i] = (stored.get("items", []), a_is_first)
+        return out
+
     def put_judgment(
         self,
         model: str,

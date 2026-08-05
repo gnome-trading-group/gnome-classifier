@@ -42,9 +42,9 @@ class KalshiAdapter:
         return contracts
 
     def fetch_resolved(self, exchange_id: ExchangeId, lookback_days: int) -> set[str]:
-        events = self._fetch_settled_events(lookback_days)
         resolved: set[str] = set()
-        for event in events:
+
+        for event in self._fetch_settled_events(lookback_days):
             markets = event.get("markets", [])
             is_multi = event.get("mutually_exclusive", False) and len(markets) > 1
             for market in markets:
@@ -56,6 +56,22 @@ class KalshiAdapter:
                 else:
                     resolved.add(f"{ticker}:yes")
                     resolved.add(f"{ticker}:no")
+
+        for event in self._fetch_active_events():
+            markets = event.get("markets", [])
+            is_multi = event.get("mutually_exclusive", False) and len(markets) > 1
+            for market in markets:
+                if market.get("status", "active") == "active":
+                    continue
+                ticker = market.get("ticker", "")
+                if not ticker:
+                    continue
+                if is_multi:
+                    resolved.add(ticker)
+                else:
+                    resolved.add(f"{ticker}:yes")
+                    resolved.add(f"{ticker}:no")
+
         return resolved
 
     def _fetch_settled_events(self, lookback_days: int) -> list[dict]:
@@ -162,6 +178,9 @@ class KalshiAdapter:
         for market in markets:
             ticker = market.get("ticker", "")
             if not ticker:
+                continue
+
+            if market.get("status", "active") != "active":
                 continue
 
             expiry = market.get("close_time") or market.get("expiration_time")
