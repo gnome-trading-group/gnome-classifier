@@ -143,6 +143,7 @@ def find_semantic_candidates(
     neighbor_limit: int = 50,
     allowed_categories: set[str] | None = None,
     model: str = DEFAULT_SEMANTIC_JUDGMENT_MODEL,
+    debug: bool = False,
 ) -> tuple[list[tuple[Event, Event, list[EventContract], list[EventContract], float]], list[JudgedRelationship]]:
     """Find candidate event pairs via embedding similarity, splitting into cache hits and pending.
 
@@ -164,6 +165,20 @@ def find_semantic_candidates(
             and not (allowed_categories and (ev := event_by_id.get(eid)) and ev.category and ev.category not in allowed_categories)
         ]
     all_pairs = db.find_all_neighbor_pairs(threshold, event_ids=db_event_ids, neighbor_limit=neighbor_limit)
+
+    neighbor_event_ids = set()
+    for eid_a, eid_b, _ in all_pairs:
+        if eid_a not in by_event:
+            neighbor_event_ids.add(eid_a)
+        if eid_b not in by_event:
+            neighbor_event_ids.add(eid_b)
+    if neighbor_event_ids:
+        neighbor_ids_list = list(neighbor_event_ids)
+        for ec in db.get_event_contracts_for_events(neighbor_ids_list):
+            by_event[ec.event_id].append(ec)
+        for ev in db.get_events_for_ids(neighbor_ids_list):
+            event_by_id[ev.event_id] = ev
+
     candidate_pairs: dict[tuple[EventId, EventId], float] = {}
     for eid_a, eid_b, sim in all_pairs:
         if eid_a not in by_event or eid_b not in by_event:
@@ -219,6 +234,15 @@ def find_semantic_candidates(
             cached_judged.extend(_parse_cached_judgment(cached_items, primary_a, primary_b, a_is_first))
         else:
             pending.append((ev_a, ev_b, contracts_a, contracts_b, similarity))
+
+    if debug:
+        logger.info("[DEBUG] semantic: %d candidate pairs, %d cache hits, %d pending judgment",
+                    len(prepared), len(cache_hits), len(pending))
+        for ev_a, ev_b, _, _, similarity in pending[:50]:
+            logger.info("[DEBUG] semantic: pair: %r vs %r sim=%.3f",
+                        ev_a.title[:60], ev_b.title[:60], similarity)
+        if len(pending) > 50:
+            logger.info("[DEBUG] semantic: ... and %d more pending pairs", len(pending) - 50)
 
     return pending, cached_judged
 
@@ -278,6 +302,7 @@ def parse_judgment_responses(
     pending_context: list[dict],
     cache: ClassifierCache | None,
     model: str = DEFAULT_SEMANTIC_JUDGMENT_MODEL,
+    debug: bool = False,
 ) -> list[JudgedRelationship]:
     """Parse Claude batch API responses using the saved pending_context.
 
@@ -301,7 +326,18 @@ def parse_judgment_responses(
         )
         results.extend(judged)
 
-        if cache is not None and cache_items:
+        if debug:
+            title_a = ctx.get("event_a_title", "?")[:60]
+            title_b = ctx.get("event_b_title", "?")[:60]
+            if judged:
+                types = list({j.relationship_type for j in judged})
+                conf = max(j.confidence for j in judged)
+                logger.info("[DEBUG] semantic: judgment: %r vs %r -> %s conf=%.2f",
+                            title_a, title_b, "/".join(str(t) for t in types), conf)
+            else:
+                logger.info("[DEBUG] semantic: judgment: %r vs %r -> NONE", title_a, title_b)
+
+        if cache is not None and cache_items is not None:
             a_is_first = (ctx["event_a_title"], "|".join(ctx["labels_a"])) <= (ctx["event_b_title"], "|".join(ctx["labels_b"]))
             cache.put_judgment(
                 model,
@@ -332,7 +368,7 @@ def _parse_response_text(
     idx_to_sid_b: dict[int, SecurityId],
     idx_to_label_a: dict[int, str],
     idx_to_label_b: dict[int, str],
-) -> tuple[list[JudgedRelationship], list[dict]]:
+) -> tuple[list[JudgedRelationship], list[dict] | None]:
     raw = strip_code_fences(raw)
     logger.debug("judge_relationship response: %s", raw)
 
@@ -340,7 +376,7 @@ def _parse_response_text(
         items = json.loads(raw)
         if not isinstance(items, list):
             logger.debug("response is not a list: %r", items)
-            return [], []
+            return [], None
 
         results: list[JudgedRelationship] = []
         cache_items: list[dict] = []
@@ -386,7 +422,7 @@ def _parse_response_text(
         return results, cache_items
     except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
         logger.debug("judge_relationship parse error: %s — raw: %r", e, raw)
-        return [], []
+        return [], None
 
 
 def _parse_cached_judgment(

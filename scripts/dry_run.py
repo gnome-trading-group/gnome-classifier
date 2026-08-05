@@ -263,6 +263,7 @@ def main(ctx, debug: bool, output_path: str):
     """Local testing tool for the classifier pipeline. Run `dry-run COMMAND --help` for details."""
     ctx.ensure_object(dict)
     ctx.obj["output_path"] = output_path
+    ctx.obj["debug"] = debug
     if debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
@@ -316,7 +317,7 @@ def entities(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
         return
 
     print(f"\nRunning entity creation ({len(contracts)} contracts)...", flush=True)
-    entity_result = create_entities_and_embed(registry, batch_client, contracts, voyage_client=voyage_client, cache=cache, db=db)
+    entity_result = create_entities_and_embed(registry, batch_client, contracts, voyage_client=voyage_client, cache=cache, db=db, debug=ctx.obj.get("debug", False))
 
     print(f"\n{'='*70}")
     print("ENTITY CREATION SUMMARY")
@@ -355,16 +356,17 @@ def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
     print(f"\nRunning entity creation ({len(contracts)} contracts)...", flush=True)
     print("Running relationship classification...", flush=True)
 
+    debug = ctx.obj.get("debug", False)
     if skip_judgment and not structural_only:
         # Embedding search only — run entity creation + structural, then show candidate count
         result: PipelineResult = run_full_pipeline_sync(
             registry, batch_client, contracts,
             voyage_client=voyage_client, cache=cache, db=db,
-            skip_semantic=True,
+            skip_semantic=True, debug=debug,
         )
         if result.classification:
             api_requests, _, _ = prepare_semantic_batch(
-                result.entity_result.new_security_ids, cache=cache, db=db,
+                result.entity_result.new_security_ids, cache=cache, db=db, debug=debug,
             )
             if api_requests:
                 logger.info("skip_judgment: would call Claude for %d pairs", len(api_requests))
@@ -372,7 +374,7 @@ def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
         result = run_full_pipeline_sync(
             registry, batch_client, contracts,
             voyage_client=voyage_client, cache=cache, db=db,
-            skip_semantic=structural_only,
+            skip_semantic=structural_only, debug=debug,
         )
 
     entity_result = result.entity_result
@@ -436,7 +438,7 @@ def resolve(ctx, adapter: str | None, lookback: int):
 
     db_label = "real DB (seeded)" if database_url else "stub DB (empty)"
     print(f"\nRunning resolution detection ({db_label}, dry-run writes)...", flush=True)
-    result = detect_resolved_events(resolved_by_exchange, registry, db)
+    result = detect_resolved_events(resolved_by_exchange, registry, db, debug=ctx.obj.get("debug", False))
 
     print(f"\n{'='*70}")
     print("RESOLUTION SUMMARY")
@@ -507,6 +509,7 @@ def reclassify(ctx, with_semantic: bool, count_only: bool, no_cache: bool):
     classification = run_classification_sync(
         registry, batch_client, new_security_ids=[],
         cache=cache, db=db, skip_semantic=not with_semantic,
+        debug=ctx.obj.get("debug", False),
     )
     print(f"  Structural: {classification.structural.get('relationships_written', 0)} written")
     if classification.semantic:

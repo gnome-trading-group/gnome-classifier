@@ -52,3 +52,12 @@ def test_judgment_model_in_key(cache):
     items = [{"first_label": "Yes", "second_label": "Yes", "type": "EQUIVALENT", "confidence": 0.9}]
     cache.put_judgment("model-v1", "A", ["Yes"], "B", ["Yes"], items, a_is_first=True)
     assert cache.get_judgment("model-v2", "A", ["Yes"], "B", ["Yes"]) is None
+
+
+def test_judgment_empty_roundtrip(cache):
+    cache.put_judgment("model", "Event A", ["Yes"], "Event B", ["Yes"], [], a_is_first=True)
+    result = cache.get_judgment("model", "Event A", ["Yes"], "Event B", ["Yes"])
+    assert result is not None
+    cached_items, a_is_first = result
+    assert cached_items == []
+    assert a_is_first is True

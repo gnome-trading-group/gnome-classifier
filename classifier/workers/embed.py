@@ -43,6 +43,7 @@ class EmbedWorker(BaseWorker):
             self._voyage_client, entity_result, self._db,
             voyage_model=cfg.models.voyage_embedding_model,
             voyage_chunk_size=cfg.processing.voyage_embed_chunk_size,
+            debug=cfg.feature_flags.debug,
         )
 
         return [

@@ -58,20 +58,23 @@ class NormalizeWorker(BaseWorker):
 
         entities_queue_messages: list[dict] = []
 
+        cfg = self._runtime_config.config
+
         if resolved_by_exchange:
-            resolution_counts = detect_resolved_events(resolved_by_exchange, self._registry, self._db)
+            resolution_counts = detect_resolved_events(resolved_by_exchange, self._registry, self._db,
+                                                       debug=cfg.feature_flags.debug)
             if any(v for v in resolution_counts.values()):
                 self._publish_to_sns({"type": "resolution", **resolution_counts})
                 logger.info("Resolution: %s", resolution_counts)
 
         if stale_events:
-            stale_counts = deactivate_stale_events(stale_events, self._registry, self._db)
+            stale_counts = deactivate_stale_events(stale_events, self._registry, self._db,
+                                                   debug=cfg.feature_flags.debug)
             if any(v for v in stale_counts.values()):
                 self._publish_to_sns({"type": "stale_cleanup", **stale_counts})
                 logger.info("Stale cleanup: %s", stale_counts)
 
         if new_contracts:
-            cfg = self._runtime_config.config
             canonicalize_enabled = cfg.feature_flags.canonicalization_enabled
             entity_result = create_entities(
                 self._registry, self._batch_client, new_contracts,
@@ -80,6 +83,7 @@ class NormalizeWorker(BaseWorker):
                 canonicalize_model=cfg.models.canonicalize_model,
                 canonicalize_batch_size=cfg.processing.canonicalize_batch_size,
                 sync_threshold=cfg.processing.anthropic_sync_threshold,
+                debug=cfg.feature_flags.debug,
             )
             if entity_result.has_new_entities:
                 for sid, symbol in zip(entity_result.new_security_ids, entity_result.new_security_symbols):

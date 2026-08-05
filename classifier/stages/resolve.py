@@ -10,6 +10,7 @@ def detect_resolved_events(
     resolved_by_exchange: dict[int, set[str]],
     registry,
     db: ClassifierDB,
+    debug: bool = False,
 ) -> dict:
     listing_ids_to_deactivate: list[int] = []
     candidate_security_ids: set[int] = set()
@@ -33,6 +34,8 @@ def detect_resolved_events(
             "resolved_event_names": [],
         }
 
+    if debug:
+        logger.info("[DEBUG] resolve: deactivating %d listings", len(listing_ids_to_deactivate))
     if listing_ids_to_deactivate:
         registry.bulk_patch_listings([
             {"listing_id": lid, "active": False} for lid in listing_ids_to_deactivate
@@ -41,6 +44,10 @@ def detect_resolved_events(
     # Only deactivate securities whose remaining active listings are all being deactivated
     still_have_active = db.get_securities_with_active_listings(list(candidate_security_ids))
     security_ids_to_deactivate = list(candidate_security_ids - still_have_active)
+
+    if debug and security_ids_to_deactivate:
+        for sid in security_ids_to_deactivate:
+            logger.info("[DEBUG] resolve: security_id=%d fully deactivated (no active listings)", sid)
 
     if security_ids_to_deactivate:
         registry.bulk_patch_securities([
@@ -65,6 +72,11 @@ def detect_resolved_events(
             for eid in resolved_event_ids
         ])
         db.delete_embeddings(resolved_event_ids)
+
+    if debug:
+        for eid in resolved_event_ids:
+            title = event_info.get(eid, {}).get("title", "?")
+            logger.info("[DEBUG] resolve: event_id=%d %r fully resolved", eid, title[:80])
 
     logger.info(
         "Resolution: %d events resolved, %d securities deactivated, %d listings deactivated",

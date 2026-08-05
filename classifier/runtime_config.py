@@ -46,6 +46,7 @@ class FeatureFlags:
     canonicalization_enabled: bool = False
     semantic_judgements_enabled: bool = False
     stale_cleanup_enabled: bool = False
+    debug: bool = False
 
 
 @dataclasses.dataclass

@@ -43,14 +43,15 @@ def create_entities_and_embed(
     sync_threshold: int = DEFAULT_SYNC_THRESHOLD,
     voyage_model: str = DEFAULT_VOYAGE_EMBEDDING_MODEL,
     voyage_chunk_size: int = DEFAULT_VOYAGE_EMBED_CHUNK_SIZE,
+    debug: bool = False,
 ) -> EntityResult:
     entity_result = create_entities(
         registry, batch_client, contracts, cache=cache, db=db,
         canonicalize_model=canonicalize_model,
         canonicalize_batch_size=canonicalize_batch_size,
-        sync_threshold=sync_threshold,
+        sync_threshold=sync_threshold, debug=debug,
     )
-    return embed_and_update(voyage_client, entity_result, db, voyage_model=voyage_model, voyage_chunk_size=voyage_chunk_size)
+    return embed_and_update(voyage_client, entity_result, db, voyage_model=voyage_model, voyage_chunk_size=voyage_chunk_size, debug=debug)
 
 
 def run_full_pipeline_sync(
@@ -75,6 +76,7 @@ def run_full_pipeline_sync(
     canonicalize_batch_size: int = DEFAULT_CANONICALIZE_BATCH_SIZE,
     voyage_model: str = DEFAULT_VOYAGE_EMBEDDING_MODEL,
     voyage_chunk_size: int = DEFAULT_VOYAGE_EMBED_CHUNK_SIZE,
+    debug: bool = False,
 ) -> PipelineResult:
     entity_result = create_entities_and_embed(
         registry, batch_client, contracts,
@@ -84,6 +86,7 @@ def run_full_pipeline_sync(
         sync_threshold=sync_threshold,
         voyage_model=voyage_model,
         voyage_chunk_size=voyage_chunk_size,
+        debug=debug,
     )
     if skip_classify or not entity_result.has_new_entities:
         return PipelineResult(entity_result=entity_result, classification=None)
@@ -96,5 +99,6 @@ def run_full_pipeline_sync(
         threshold=threshold, neighbor_limit=neighbor_limit,
         allowed_categories=allowed_categories, model=model,
         sync_threshold=sync_threshold,
+        debug=debug,
     )
     return PipelineResult(entity_result=entity_result, classification=classification)

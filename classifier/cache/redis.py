@@ -7,14 +7,16 @@ from classifier.cache.base import ClassifierCache
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_CACHE_TTL = 30 * 86400  # 30 days
+
 
 class RedisClassifierCache(ClassifierCache):
-    def __init__(self, redis_url: str):
+    def __init__(self, redis_url: str, ttl: int = DEFAULT_CACHE_TTL):
         self._redis = redis_lib.Redis.from_url(redis_url, decode_responses=False)
+        self._ttl = ttl
 
     def get_canonicalization(self, model: str, exchange_id: int, native_id: str) -> dict | None:
-        field = self._canon_hash(model, exchange_id, native_id)
-        data = self._redis.hget("canon", field)
+        data = self._redis.get(f"canon:{self._canon_hash(model, exchange_id, native_id)}")
         if data is None:
             return None
         try:
@@ -28,10 +30,8 @@ class RedisClassifierCache(ClassifierCache):
     ) -> dict[tuple[int, str], dict]:
         if not pairs:
             return {}
-        pipeline = self._redis.pipeline()
-        for eid, nid in pairs:
-            pipeline.hget("canon", self._canon_hash(model, eid, nid))
-        raw_results = pipeline.execute()
+        keys = [f"canon:{self._canon_hash(model, eid, nid)}" for eid, nid in pairs]
+        raw_results = self._redis.mget(keys)
         out: dict[tuple[int, str], dict] = {}
         for (eid, nid), data in zip(pairs, raw_results):
             if data is not None:
@@ -44,8 +44,11 @@ class RedisClassifierCache(ClassifierCache):
     def put_canonicalization(
         self, model: str, exchange_id: int, native_id: str, result: dict
     ) -> None:
-        field = self._canon_hash(model, exchange_id, native_id)
-        self._redis.hset("canon", field, json.dumps(result))
+        self._redis.set(
+            f"canon:{self._canon_hash(model, exchange_id, native_id)}",
+            json.dumps(result),
+            ex=self._ttl,
+        )
 
     def get_judgment(
         self,
@@ -55,8 +58,7 @@ class RedisClassifierCache(ClassifierCache):
         title_b: str,
         labels_b: list[str],
     ) -> tuple[list, bool] | None:
-        field = self._judge_hash(model, title_a, labels_a, title_b, labels_b)
-        data = self._redis.hget("judge", field)
+        data = self._redis.get(f"judge:{self._judge_hash(model, title_a, labels_a, title_b, labels_b)}")
         if data is None:
             return None
         try:
@@ -74,11 +76,11 @@ class RedisClassifierCache(ClassifierCache):
     ) -> dict[int, tuple[list, bool]]:
         if not keys:
             return {}
-        fields = [self._judge_hash(model, title_a, labels_a, title_b, labels_b) for title_a, labels_a, title_b, labels_b in keys]
-        pipeline = self._redis.pipeline()
-        for field in fields:
-            pipeline.hget("judge", field)
-        raw_results = pipeline.execute()
+        redis_keys = [
+            f"judge:{self._judge_hash(model, title_a, labels_a, title_b, labels_b)}"
+            for title_a, labels_a, title_b, labels_b in keys
+        ]
+        raw_results = self._redis.mget(redis_keys)
         out: dict[int, tuple[list, bool]] = {}
         for i, (data, (title_a, _, _, _)) in enumerate(zip(raw_results, keys)):
             if data is None:
@@ -101,9 +103,12 @@ class RedisClassifierCache(ClassifierCache):
         items: list,
         a_is_first: bool,
     ) -> None:
-        field = self._judge_hash(model, title_a, labels_a, title_b, labels_b)
         first_title = title_a if a_is_first else title_b
-        self._redis.hset("judge", field, json.dumps({"first_title": first_title, "items": items}))
+        self._redis.set(
+            f"judge:{self._judge_hash(model, title_a, labels_a, title_b, labels_b)}",
+            json.dumps({"first_title": first_title, "items": items}),
+            ex=self._ttl,
+        )
 
     def get_exchange_event(self, exchange_id: int, native_id: str) -> int | None:
         val = self._redis.hget("exchange_events", f"{exchange_id}:{native_id}")
@@ -134,4 +139,3 @@ class RedisClassifierCache(ClassifierCache):
         for (eid, nid), event_id in mapping.items():
             pipeline.hset("exchange_events", f"{eid}:{nid}", str(event_id))
         pipeline.execute()
-

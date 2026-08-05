@@ -52,6 +52,7 @@ def _dedup_and_write_relationships(
     db: ClassifierDB,
     min_confidence: Confidence = DEFAULT_MIN_CONFIDENCE,
     label: str = "relationships",
+    debug: bool = False,
 ) -> tuple[dict, list[dict]]:
     existing_relationships = db.get_contract_relationships_for_securities(new_security_ids)
     existing_pairs: set[tuple[SecurityId, SecurityId]] = set()
@@ -95,6 +96,17 @@ def _dedup_and_write_relationships(
         written += len(created_list)
         written_rels.extend(created_list)
 
+    if debug and (written or skipped_low_confidence):
+        logger.info("[DEBUG] %s: wrote %d, skipped %d existing, %d low confidence",
+                    label, written, len(existing_pairs) // 2, skipped_low_confidence)
+        for rel in written_rels[:50]:
+            logger.info("[DEBUG] %s:   %s sid=%s <-> sid=%s conf=%.2f",
+                        label, rel.get("relationship_type", "?"),
+                        rel.get("security_id_a"), rel.get("security_id_b"),
+                        rel.get("confidence", 0.0))
+        if len(written_rels) > 50:
+            logger.info("[DEBUG] %s:   ... and %d more", label, len(written_rels) - 50)
+
     return {
         "relationships_written": written,
         "relationships_skipped_low_confidence": skipped_low_confidence,
@@ -110,6 +122,7 @@ def classify_structural(
     min_confidence: Confidence = DEFAULT_MIN_CONFIDENCE,
     structural_confidence: float = DEFAULT_STRUCTURAL_CONFIDENCE,
     hedgeable_with_confidence: float = DEFAULT_HEDGEABLE_WITH_CONFIDENCE,
+    debug: bool = False,
 ) -> tuple[dict, list[dict]]:
     """Run structural + rule-based classification (complement, ME, hedgeable).
 
@@ -118,15 +131,18 @@ def classify_structural(
     new_sids, _, event_contracts, events = _load_event_data(db, new_security_ids)
     hedge_keywords = db.get_hedge_keywords()
 
-    pending: list[RelationshipMatch] = []
-    pending.extend(find_complement_pairs(event_contracts, confidence=structural_confidence))
-    pending.extend(find_mutually_exclusive_pairs(event_contracts, confidence=structural_confidence))
-    pending.extend(find_hedgeable_pairs(event_contracts, events, hedge_keywords, confidence=hedgeable_with_confidence))
+    complement_matches = find_complement_pairs(event_contracts, confidence=structural_confidence)
+    me_matches = find_mutually_exclusive_pairs(event_contracts, confidence=structural_confidence)
+    hedgeable_matches = find_hedgeable_pairs(event_contracts, events, hedge_keywords, confidence=hedgeable_with_confidence)
+    pending: list[RelationshipMatch] = complement_matches + me_matches + hedgeable_matches
 
     logger.debug("structural pending: %d, new_sids: %d", len(pending), len(new_sids))
+    if debug:
+        logger.info("[DEBUG] structural: %d complement, %d ME, %d hedgeable (%d total candidates)",
+                    len(complement_matches), len(me_matches), len(hedgeable_matches), len(pending))
     return _dedup_and_write_relationships(
         registry, pending, new_security_ids,
-        db=db, min_confidence=min_confidence, label="structural relationships",
+        db=db, min_confidence=min_confidence, label="structural relationships", debug=debug,
     )
 
 
@@ -139,6 +155,7 @@ def prepare_semantic_batch(
     neighbor_limit: int = DEFAULT_NEIGHBOR_SEARCH_LIMIT,
     allowed_categories: set[str] | None = None,
     model: str = DEFAULT_SEMANTIC_JUDGMENT_MODEL,
+    debug: bool = False,
 ) -> tuple[list[dict], list[dict], list[dict]]:
     """Find candidate event pairs, check cache, build Claude API requests.
 
@@ -156,6 +173,7 @@ def prepare_semantic_batch(
         db=db, new_event_ids=new_event_ids, cache=cache,
         threshold=threshold, neighbor_limit=neighbor_limit,
         allowed_categories=allowed_categories, model=model,
+        debug=debug,
     )
     logger.info("Semantic candidates: %d pending, %d cached", len(pending_pairs), len(cached_judged))
 
@@ -185,6 +203,7 @@ def process_semantic_results(
     db: ClassifierDB,
     min_confidence: Confidence = DEFAULT_MIN_CONFIDENCE,
     model: str = DEFAULT_SEMANTIC_JUDGMENT_MODEL,
+    debug: bool = False,
 ) -> tuple[dict, list[dict]]:
     """Parse Claude responses, combine with cached results, dedup, and write relationships.
 
@@ -192,7 +211,7 @@ def process_semantic_results(
     """
     event_contracts = db.get_event_contracts_for_securities(new_security_ids)
 
-    judged = parse_judgment_responses(responses, pending_context, cache, model=model)
+    judged = parse_judgment_responses(responses, pending_context, cache, model=model, debug=debug)
 
     cached_judged = [
         JudgedRelationship(
@@ -207,7 +226,7 @@ def process_semantic_results(
     all_matches = derive_semantic_relationships(judged + cached_judged, event_contracts)
     return _dedup_and_write_relationships(
         registry, all_matches, new_security_ids,
-        db=db, min_confidence=min_confidence, label="semantic relationships",
+        db=db, min_confidence=min_confidence, label="semantic relationships", debug=debug,
     )
 
 
@@ -242,16 +261,17 @@ def classify_semantic_sync(
     model: str = DEFAULT_SEMANTIC_JUDGMENT_MODEL,
     min_confidence: Confidence = DEFAULT_MIN_CONFIDENCE,
     sync_threshold: int = DEFAULT_SYNC_THRESHOLD,
+    debug: bool = False,
 ) -> tuple[dict, list[dict]]:
     api_requests, pending_context, cached_results = prepare_semantic_batch(
         new_security_ids, cache=cache, db=db,
         threshold=threshold, neighbor_limit=neighbor_limit,
-        allowed_categories=allowed_categories, model=model,
+        allowed_categories=allowed_categories, model=model, debug=debug,
     )
     responses = batch_client.create_messages(api_requests, sync_threshold=sync_threshold) if api_requests else {}
     return process_semantic_results(
         registry, responses, pending_context, cached_results, new_security_ids,
-        cache=cache, db=db, min_confidence=min_confidence, model=model,
+        cache=cache, db=db, min_confidence=min_confidence, model=model, debug=debug,
     )
 
 
@@ -271,12 +291,14 @@ def run_classification_sync(
     allowed_categories: set[str] | None = None,
     model: str = DEFAULT_SEMANTIC_JUDGMENT_MODEL,
     sync_threshold: int = DEFAULT_SYNC_THRESHOLD,
+    debug: bool = False,
 ) -> ClassificationResult:
     structural_counts, structural_rels = classify_structural(
         registry, new_security_ids, db=db,
         min_confidence=min_confidence,
         structural_confidence=structural_confidence,
         hedgeable_with_confidence=hedgeable_with_confidence,
+        debug=debug,
     )
     semantic_counts: dict = {}
     semantic_rels: list[dict] = []
@@ -286,6 +308,7 @@ def run_classification_sync(
             threshold=threshold, neighbor_limit=neighbor_limit,
             allowed_categories=allowed_categories, model=model,
             min_confidence=min_confidence, sync_threshold=sync_threshold,
+            debug=debug,
         )
     return ClassificationResult(
         structural=structural_counts,

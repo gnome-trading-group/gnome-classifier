@@ -48,6 +48,7 @@ class RelationshipsWorker(BaseWorker):
             allowed_categories=set(cfg.category_filter.allowed_categories) if cfg.category_filter.enabled else None,
             model=cfg.models.semantic_judgment_model,
             sync_threshold=cfg.processing.anthropic_sync_threshold,
+            debug=cfg.feature_flags.debug,
         )
 
         if classification.written_relationships:

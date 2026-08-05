@@ -14,10 +14,17 @@ def embed_and_update(
     db,
     voyage_model: str = DEFAULT_VOYAGE_EMBEDDING_MODEL,
     voyage_chunk_size: int = DEFAULT_VOYAGE_EMBED_CHUNK_SIZE,
+    debug: bool = False,
 ) -> EntityResult:
     events_to_embed = db.get_events_without_embeddings()
     if not events_to_embed:
         return entity_result
+    if debug:
+        logger.info("[DEBUG] embed: %d events need embeddings", len(events_to_embed))
+        for ev in events_to_embed[:50]:
+            logger.info("[DEBUG] embed:   event_id=%d %r", ev.event_id, ev.title[:80])
+        if len(events_to_embed) > 50:
+            logger.info("[DEBUG] embed:   ... and %d more", len(events_to_embed) - 50)
     all_embedded_event_ids: list[int] = []
     for chunk_embs in voyage_client.embed_events(events_to_embed, chunk_size=voyage_chunk_size, model=voyage_model):
         db.put_embeddings(chunk_embs)

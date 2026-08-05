@@ -54,6 +54,7 @@ def prepare_canon_batch(
     cache: ClassifierCache | None = None,
     model: str = DEFAULT_CANONICALIZE_MODEL,
     batch_size: int = DEFAULT_CANONICALIZE_BATCH_SIZE,
+    debug: bool = False,
 ) -> tuple[list[dict], list[dict], dict[NativeKey, dict]]:
     """Separate cached events and build API requests for uncached ones.
 
@@ -123,6 +124,7 @@ def parse_canon_results(
     cache: ClassifierCache | None,
     anthropic_client: Any,
     model: str = DEFAULT_CANONICALIZE_MODEL,
+    debug: bool = False,
 ) -> dict[NativeKey, dict]:
     """Parse batch API responses using canon_context. Retries missed items individually.
 
@@ -156,6 +158,11 @@ def parse_canon_results(
                 results[nk] = result
                 if cache is not None:
                     cache.put_canonicalization(model, nk[0], nk[1], result)
+                if debug:
+                    raw_t = ev_info["raw_title"][:60]
+                    canon_t = result["title"][:60]
+                    logger.info("[DEBUG] canonicalize: %r -> %r [%s] tags=%s",
+                                raw_t, canon_t, result["category"], result["tags"])
             else:
                 missed.append(ev_info)
 
@@ -174,6 +181,10 @@ def parse_canon_results(
                 results[nk] = result
                 if cache is not None:
                     cache.put_canonicalization(model, nk[0], nk[1], result)
+                if debug:
+                    raw_t = ev_info["raw_title"][:60]
+                    canon_t = result["title"][:60]
+                    logger.info("[DEBUG] canonicalize (retry): %r -> %r [%s]", raw_t, canon_t, result["category"])
 
     uncached_total = sum(len(c["events"]) for c in canon_context)
     failed = uncached_total - len(results)
@@ -200,14 +211,18 @@ def canonicalize_events(
     model: str = DEFAULT_CANONICALIZE_MODEL,
     batch_size: int = DEFAULT_CANONICALIZE_BATCH_SIZE,
     sync_threshold: int = 10,
+    debug: bool = False,
 ) -> dict[NativeKey, dict[str, Any]]:
     """Canonicalize a list of CanonicalizeInput records.
     Returns a mapping from (exchange_id, native_id) to {"title", "category", "tags"}."""
     if not events:
         return {}
-    api_requests, canon_context, cached_results = prepare_canon_batch(events, cache, model=model, batch_size=batch_size)
+    api_requests, canon_context, cached_results = prepare_canon_batch(events, cache, model=model, batch_size=batch_size, debug=debug)
+    if debug:
+        logger.info("[DEBUG] canonicalize: %d total, %d cache hits, %d to call Claude",
+                    len(events), len(cached_results), len(events) - len(cached_results))
     responses = batch_client.create_messages(api_requests, sync_threshold=sync_threshold)
-    results = parse_canon_results(responses, canon_context, cache, batch_client._client, model=model)
+    results = parse_canon_results(responses, canon_context, cache, batch_client._client, model=model, debug=debug)
     results.update(cached_results)
     return results
 

@@ -10,6 +10,7 @@ def deactivate_stale_events(
     stale_native_keys: list[tuple[int, str]],
     registry,
     db: ClassifierDB,
+    debug: bool = False,
 ) -> dict:
     listing_ids_to_deactivate: list[int] = []
     candidate_security_ids: set[int] = set()
@@ -32,6 +33,8 @@ def deactivate_stale_events(
     if not candidate_security_ids:
         return {"events_resolved": 0, "securities_deactivated": 0, "listings_deactivated": 0, "resolved_event_ids": [], "resolved_event_names": []}
 
+    if debug:
+        logger.info("[DEBUG] stale: deactivating %d listings", len(listing_ids_to_deactivate))
     if listing_ids_to_deactivate:
         registry.bulk_patch_listings([
             {"listing_id": lid, "active": False} for lid in listing_ids_to_deactivate
@@ -39,6 +42,10 @@ def deactivate_stale_events(
 
     still_active = db.get_securities_with_active_listings(list(candidate_security_ids))
     security_ids_to_deactivate = list(candidate_security_ids - still_active)
+
+    if debug and security_ids_to_deactivate:
+        for sid in security_ids_to_deactivate:
+            logger.info("[DEBUG] stale: security_id=%d fully deactivated (no active listings)", sid)
 
     if security_ids_to_deactivate:
         registry.bulk_patch_securities([
@@ -63,6 +70,11 @@ def deactivate_stale_events(
             for eid in resolved_event_ids
         ])
         db.delete_embeddings(resolved_event_ids)
+
+    if debug:
+        for eid in resolved_event_ids:
+            title = event_info.get(eid, {}).get("title", "?")
+            logger.info("[DEBUG] stale: event_id=%d %r fully resolved", eid, title[:80])
 
     logger.info(
         "Stale cleanup: %d events resolved, %d securities deactivated, %d listings deactivated",

@@ -126,6 +126,7 @@ def create_entities_from_canonical(
     *,
     cache: ClassifierCache | None = None,
     db: ClassifierDB,
+    debug: bool = False,
 ) -> EntityResult:
     """Create events, securities, listings from canonical titles.
 
@@ -274,6 +275,18 @@ def create_entities_from_canonical(
     all_new_symbols = {v: k for k, v in security_id_by_symbol.items() if k not in existing_secs}
     new_security_symbols = [all_new_symbols.get(sid, "") for sid in new_security_ids]
 
+    if debug and (events_created or securities_created):
+        logger.info("[DEBUG] entities: %d events created, %d securities created, %d listings created",
+                    events_created, securities_created, listings_created)
+        for eid, name in zip(created_event_ids_out[:50], created_event_names_out[:50]):
+            logger.info("[DEBUG] entities:   event id=%d %r", eid, name[:80])
+        if len(created_event_ids_out) > 50:
+            logger.info("[DEBUG] entities:   ... and %d more events", len(created_event_ids_out) - 50)
+        for sid, sym in zip(new_security_ids[:50], new_security_symbols[:50]):
+            logger.info("[DEBUG] entities:   security id=%d %s", sid, sym)
+        if len(new_security_ids) > 50:
+            logger.info("[DEBUG] entities:   ... and %d more securities", len(new_security_ids) - 50)
+
     return EntityResult(
         events_created=events_created,
         securities_created=securities_created,
@@ -346,6 +359,7 @@ def create_entities(
     canonicalize_model: str = DEFAULT_CANONICALIZE_MODEL,
     canonicalize_batch_size: int = DEFAULT_CANONICALIZE_BATCH_SIZE,
     sync_threshold: int = 10,
+    debug: bool = False,
 ) -> EntityResult:
     if not contracts:
         return EntityResult(
@@ -359,7 +373,7 @@ def create_entities(
         canonical = canonicalize_events(
             batch_client, events_to_canon, cache=cache,
             model=canonicalize_model, batch_size=canonicalize_batch_size,
-            sync_threshold=sync_threshold,
+            sync_threshold=sync_threshold, debug=debug,
         )
     else:
         canonical = {
@@ -370,7 +384,7 @@ def create_entities(
             }
             for ev in events_to_canon
         }
-    return create_entities_from_canonical(registry, canonical, entity_ctx, contracts, cache=cache, db=db)
+    return create_entities_from_canonical(registry, canonical, entity_ctx, contracts, cache=cache, db=db, debug=debug)
 
 
 def _title_expiry_dedup(
