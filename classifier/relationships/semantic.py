@@ -200,8 +200,6 @@ def find_semantic_candidates(
             ev_a, ev_b = event_by_id.get(eid_a), event_by_id.get(eid_b)
             if ev_a is None or ev_b is None:
                 continue
-            if ev_a.category and ev_b.category and ev_a.category != ev_b.category:
-                continue
 
             contracts_a = by_event[eid_a]
             contracts_b = by_event[eid_b]
