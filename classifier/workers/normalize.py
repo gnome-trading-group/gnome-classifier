@@ -64,14 +64,14 @@ class NormalizeWorker(BaseWorker):
             resolution_counts = detect_resolved_events(resolved_by_exchange, self._registry, self._db,
                                                        debug=cfg.feature_flags.debug)
             if any(v for v in resolution_counts.values()):
-                self._publish_to_sns({"type": "resolution", **resolution_counts})
+                self._publish_to_sns({"type": "resolved", **resolution_counts})
                 logger.info("Resolution: %s", resolution_counts)
 
         if stale_events:
             stale_counts = deactivate_stale_events(stale_events, self._registry, self._db,
                                                    debug=cfg.feature_flags.debug)
             if any(v for v in stale_counts.values()):
-                self._publish_to_sns({"type": "stale_cleanup", **stale_counts})
+                self._publish_to_sns({"type": "resolved", **stale_counts})
                 logger.info("Stale cleanup: %s", stale_counts)
 
         if new_contracts:
@@ -86,15 +86,20 @@ class NormalizeWorker(BaseWorker):
                 debug=cfg.feature_flags.debug,
             )
             if entity_result.has_new_entities:
+                created_event_sids: dict[int, tuple[int, str]] = {}
+                if entity_result.created_event_ids:
+                    name_by_eid = dict(zip(entity_result.created_event_ids, entity_result.created_event_names))
+                    ecs = self._db.get_event_contracts_for_events(entity_result.created_event_ids)
+                    for ec in ecs:
+                        if ec.event_id in name_by_eid:
+                            created_event_sids[ec.security_id] = (ec.event_id, name_by_eid[ec.event_id])
+
                 for sid, symbol in zip(entity_result.new_security_ids, entity_result.new_security_symbols):
-                    entities_queue_messages.append({"type": "new_security", "security_id": sid, "security_symbol": symbol})
-                self._publish_to_sns({
-                    "type": "new_entity",
-                    "new_symbols": entity_result.new_security_symbols,
-                    "created_event_ids": entity_result.created_event_ids,
-                    "created_event_names": entity_result.created_event_names,
-                    **entity_result.counts,
-                })
+                    msg: dict = {"type": "new_security", "security_id": sid, "security_symbol": symbol}
+                    if sid in created_event_sids:
+                        msg["created_event_id"], msg["created_event_name"] = created_event_sids[sid]
+                    entities_queue_messages.append(msg)
+
                 logger.info(
                     "Entities: %d new securities from %d contracts",
                     len(entity_result.new_security_ids), len(new_contracts),

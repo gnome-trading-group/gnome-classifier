@@ -38,7 +38,7 @@ def _build_chunk_prompt(batch: list[CanonicalizeInput]) -> str:
     return f"""You are standardizing prediction market events for a cross-exchange registry.
 
 For each event below, generate:
-1. title: Clean, exchange-neutral, concise title for this prediction market question. Preserve all dates exactly as stated.
+1. title: Clean, exchange-neutral title for this prediction market question. Preserve all dates, numeric thresholds, price targets, and outcome conditions (e.g., "7,750 or above", "$100,000", "at least 3 times") exactly as stated.
 2. category: One of {_CATEGORIES_STR}
 3. tags: 3-8 lowercase keyword tags
 
@@ -241,7 +241,7 @@ Description: {description or ''}
 Exchange category: {exchange_category or ''}
 
 Generate:
-1. title: Clean, exchange-neutral, concise title for this prediction market question. Preserve all dates exactly as stated.
+1. title: Clean, exchange-neutral title for this prediction market question. Preserve all dates, numeric thresholds, price targets, and outcome conditions (e.g., "7,750 or above", "$100,000", "at least 3 times") exactly as stated.
 2. category: One of {_CATEGORIES_STR}
 3. tags: 3-8 lowercase keyword tags
 

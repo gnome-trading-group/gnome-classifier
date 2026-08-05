@@ -32,12 +32,10 @@ class NotifyWorker(BaseWorker):
 
         created_events: list[tuple[int, str]] = []
         resolved_events: list[tuple[int, str]] = []
-        stale_events: list[tuple[int, str]] = []
 
         for msg in messages:
             try:
                 outer = json.loads(msg["Body"])
-                # SNS wraps the message in an envelope; unwrap if present
                 if outer.get("Type") == "Notification":
                     payload = json.loads(outer["Message"])
                 else:
@@ -47,22 +45,18 @@ class NotifyWorker(BaseWorker):
                 continue
 
             msg_type = payload.get("type")
-            if msg_type == "new_entity" and payload.get("events_created", 0) > 0:
+            if msg_type == "new_events":
                 ids = payload.get("created_event_ids", [])
                 names = payload.get("created_event_names", [])
                 created_events.extend(zip(ids, names))
-            elif msg_type == "resolution":
+            elif msg_type == "resolved":
                 ids = payload.get("resolved_event_ids", [])
                 names = payload.get("resolved_event_names", [])
                 resolved_events.extend(zip(ids, names))
-            elif msg_type == "stale_cleanup":
-                ids = payload.get("resolved_event_ids", [])
-                names = payload.get("resolved_event_names", [])
-                stale_events.extend(zip(ids, names))
 
-        if not created_events and not resolved_events and not stale_events:
+        if not created_events and not resolved_events:
             return []
 
-        blocks = format_notification_blocks(created_events, resolved_events, stale_events)
+        blocks = format_notification_blocks(created_events, resolved_events)
         send_slack_notification(self._slack_token, self._config.slack_channel, blocks)
         return []

@@ -21,7 +21,6 @@ def _event_section(label: str, events: list[tuple[int, str]]) -> dict:
 def format_notification_blocks(
     created_events: list[tuple[int, str]],
     resolved_events: list[tuple[int, str]],
-    stale_events: list[tuple[int, str]],
 ) -> list[dict]:
     blocks: list = [
         {"type": "header", "text": {"type": "plain_text", "text": "Contract Classifier"}},
@@ -33,9 +32,6 @@ def format_notification_blocks(
     if resolved_events:
         n = len(resolved_events)
         blocks.append(_event_section(f"{n} event{'s' if n != 1 else ''} resolved", resolved_events))
-    if stale_events:
-        n = len(stale_events)
-        blocks.append(_event_section(f"{n} stale event{'s' if n != 1 else ''} resolved", stale_events))
 
     return blocks
 

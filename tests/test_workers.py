@@ -131,7 +131,24 @@ class TestNormalizeWorker:
             assert "security_id" in msg
             assert "security_symbol" in msg
 
-    def test_new_contracts_publishes_to_sns(self, moto_env, stub_registry, stub_db, mock_anthropic):
+    def test_new_contracts_enriches_messages_with_event_info(self, moto_env, stub_registry, stub_db, mock_anthropic):
+        sns_client = boto3.client("sns", region_name="us-east-1")
+        config = WorkerConfig()
+        worker = NormalizeWorker(config)
+        _patch_normalize_setup(worker, stub_registry, stub_db, mock_anthropic, sns_client)
+        worker._setup()
+
+        contract = _make_adapter_contract(event_title="Will BTC hit $100k?")
+        messages = [_sqs_msg({"type": "new", "contracts": [dataclasses.asdict(contract)]})]
+        output = worker.process_batch(messages)
+
+        assert len(output) > 0
+        # At least one message should carry created event info (event was newly created)
+        event_msgs = [m for m in output if "created_event_id" in m]
+        assert len(event_msgs) > 0
+        assert all("created_event_name" in m for m in event_msgs)
+
+    def test_new_contracts_does_not_publish_to_sns(self, moto_env, stub_registry, stub_db, mock_anthropic):
         sns_client = boto3.client("sns", region_name="us-east-1")
         config = WorkerConfig()
         worker = NormalizeWorker(config)
@@ -145,16 +162,15 @@ class TestNormalizeWorker:
         delivered = _drain_queue(moto_env["sqs"], moto_env["slack_queue"])
         payloads = [json.loads(json.loads(m["Body"])["Message"]) for m in delivered]
         types_seen = {p["type"] for p in payloads}
-        assert "new_entity" in types_seen
+        assert "new_entity" not in types_seen
+        assert "new_events" not in types_seen
 
-    def test_resolved_contracts_publishes_resolution(self, moto_env, stub_registry, stub_db, mock_anthropic):
-        # Seed a security with a listing whose exchange_security_id matches the native_id in the resolved message
+    def test_resolved_contracts_publishes_resolved(self, moto_env, stub_registry, stub_db, mock_anthropic):
         stub_registry.bulk_create_events([{"title": "Test event"}])
         event_id = stub_registry._events[0].event_id
         stub_registry.bulk_create_securities([{"symbol": "SYM", "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
         sec_id = stub_registry._securities[0].security_id
         stub_registry.bulk_create_event_contracts([{"event_id": event_id, "security_id": sec_id, "outcome_label": "Yes"}])
-        # Listing's exchange_security_id must equal the native_id sent in the resolved message
         stub_registry.bulk_create_listings([{"security_id": sec_id, "exchange_id": 1, "exchange_security_id": "sec-native-1", "active": True}])
 
         sns_client = boto3.client("sns", region_name="us-east-1")
@@ -169,7 +185,7 @@ class TestNormalizeWorker:
         delivered = _drain_queue(moto_env["sqs"], moto_env["slack_queue"])
         payloads = [json.loads(json.loads(m["Body"])["Message"]) for m in delivered]
         types_seen = {p["type"] for p in payloads}
-        assert "resolution" in types_seen
+        assert "resolved" in types_seen
 
 
 class TestEmbedWorker:
@@ -194,6 +210,30 @@ class TestEmbedWorker:
             assert msg["security_id"] == sec_id
             assert msg["security_symbol"] == "SYM"
 
+    def test_preserves_created_event_info(self, moto_env, stub_registry, stub_db, mock_voyage):
+        stub_registry.bulk_create_events([{"title": "BTC question"}])
+        event_id = stub_registry._events[0].event_id
+        stub_registry.bulk_create_securities([{"symbol": "SYM", "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
+        sec_id = stub_registry._securities[0].security_id
+        stub_registry.bulk_create_event_contracts([{"event_id": event_id, "security_id": sec_id, "outcome_label": "Yes"}])
+
+        config = WorkerConfig()
+        worker = EmbedWorker(config)
+        _patch_embed_setup(worker, mock_voyage, stub_db)
+        worker._setup()
+
+        messages = [_sqs_msg({
+            "type": "new_security", "security_id": sec_id, "security_symbol": "SYM",
+            "created_event_id": event_id, "created_event_name": "BTC question",
+        })]
+        output = worker.process_batch(messages)
+
+        assert len(output) > 0
+        event_msgs = [m for m in output if m["security_id"] == sec_id]
+        assert len(event_msgs) == 1
+        assert event_msgs[0].get("created_event_id") == event_id
+        assert event_msgs[0].get("created_event_name") == "BTC question"
+
     def test_empty_batch_returns_empty(self, moto_env, stub_registry, stub_db, mock_voyage):
         config = WorkerConfig()
         worker = EmbedWorker(config)
@@ -204,8 +244,7 @@ class TestEmbedWorker:
 
 
 class TestRelationshipsWorker:
-    def test_writes_relationships_and_publishes_sns(self, moto_env, stub_registry, stub_db, mock_anthropic, mock_voyage):
-        # Seed two securities in the same event so semantic.py can find candidates
+    def test_publishes_new_events_to_sns(self, moto_env, stub_registry, stub_db, mock_anthropic, mock_voyage):
         stub_registry.bulk_create_events([{"title": "BTC event"}])
         event_id = stub_registry._events[0].event_id
         for sym in ("SYM-YES", "SYM-NO"):
@@ -224,12 +263,41 @@ class TestRelationshipsWorker:
         worker._setup()
 
         messages = [
-            _sqs_msg({"type": "security", "security_id": sid_yes, "security_symbol": "SYM-YES"}),
-            _sqs_msg({"type": "security", "security_id": sid_no, "security_symbol": "SYM-NO"}),
+            _sqs_msg({"type": "security", "security_id": sid_yes, "security_symbol": "SYM-YES", "created_event_id": event_id, "created_event_name": "BTC event"}),
+            _sqs_msg({"type": "security", "security_id": sid_no, "security_symbol": "SYM-NO", "created_event_id": event_id, "created_event_name": "BTC event"}),
         ]
         output = worker.process_batch(messages)
 
         assert output == []
+
+        delivered = _drain_queue(moto_env["sqs"], moto_env["slack_queue"])
+        payloads = [json.loads(json.loads(m["Body"])["Message"]) for m in delivered]
+        types_seen = {p["type"] for p in payloads}
+        assert "new_events" in types_seen
+        new_events_payload = next(p for p in payloads if p["type"] == "new_events")
+        assert event_id in new_events_payload["created_event_ids"]
+        assert "BTC event" in new_events_payload["created_event_names"]
+
+    def test_no_new_events_no_sns_publish(self, moto_env, stub_registry, stub_db, mock_anthropic, mock_voyage):
+        stub_registry.bulk_create_events([{"title": "BTC event"}])
+        event_id = stub_registry._events[0].event_id
+        stub_registry.bulk_create_securities([{"symbol": "SYM-YES", "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
+        sid_yes = stub_registry._securities[0].security_id
+        stub_registry.bulk_create_event_contracts([{"event_id": event_id, "security_id": sid_yes, "outcome_label": "Yes"}])
+
+        sns_client = boto3.client("sns", region_name="us-east-1")
+        config = WorkerConfig()
+        worker = RelationshipsWorker(config)
+        _patch_relationships_setup(worker, stub_registry, stub_db, mock_anthropic, mock_voyage, sns_client)
+        worker._setup()
+
+        # No created_event_id in message — existing event got a new security
+        messages = [_sqs_msg({"type": "security", "security_id": sid_yes, "security_symbol": "SYM-YES"})]
+        output = worker.process_batch(messages)
+
+        assert output == []
+        delivered = _drain_queue(moto_env["sqs"], moto_env["slack_queue"])
+        assert len(delivered) == 0
 
     def test_no_securities_returns_empty(self, moto_env, stub_registry, stub_db, mock_anthropic, mock_voyage):
         sns_client = boto3.client("sns", region_name="us-east-1")
@@ -257,9 +325,8 @@ class TestNotifyWorker:
         })
 
         messages = [
-            sns_envelope({"type": "new_entity", "new_symbols": ["SYM"], "events_created": 1, "securities_created": 1, "listings_created": 1, "created_event_ids": [42], "created_event_names": ["Will X happen?"]}),
-            sns_envelope({"type": "resolution", "events_resolved": 2, "securities_deactivated": 2, "listings_deactivated": 4, "resolved_event_ids": [10, 11], "resolved_event_names": ["Event A", "Event B"]}),
-            sns_envelope({"type": "stale_cleanup", "events_resolved": 1, "securities_deactivated": 1, "resolved_event_ids": [20], "resolved_event_names": ["Event C"]}),
+            sns_envelope({"type": "new_events", "created_event_ids": [42], "created_event_names": ["Will X happen?"]}),
+            sns_envelope({"type": "resolved", "events_resolved": 2, "resolved_event_ids": [10, 11], "resolved_event_names": ["Event A", "Event B"]}),
         ]
 
         with patch("classifier.workers.notify.send_slack_notification") as mock_send:
@@ -269,11 +336,9 @@ class TestNotifyWorker:
             _, channel, blocks = mock_send.call_args[0]
             assert channel == "test-channel"
             assert len(blocks) > 0
-            # All three event sections should appear
             block_text = json.dumps(blocks)
             assert "Will X happen?" in block_text
             assert "Event A" in block_text
-            assert "Event C" in block_text
             assert "controller.gnometrading.group" in block_text
 
     def test_skips_notification_when_no_events(self, moto_env):
@@ -291,7 +356,7 @@ class TestNotifyWorker:
         })
 
         messages = [
-            sns_envelope({"type": "new_entity", "new_symbols": ["SYM"], "events_created": 0, "securities_created": 3, "listings_created": 3, "created_event_ids": [], "created_event_names": []}),
+            sns_envelope({"type": "resolved", "events_resolved": 0, "resolved_event_ids": [], "resolved_event_names": []}),
         ]
 
         with patch("classifier.workers.notify.send_slack_notification") as mock_send:
@@ -308,7 +373,7 @@ class TestNotifyWorker:
         worker._setup()
 
         with patch("classifier.workers.notify.send_slack_notification") as mock_send:
-            worker.process_batch([_sqs_msg({"type": "new_entity", "new_symbols": ["SYM"], "events_created": 1, "created_event_ids": [1], "created_event_names": ["Test"]})])
+            worker.process_batch([_sqs_msg({"type": "new_events", "created_event_ids": [1], "created_event_names": ["Test"]})])
             mock_send.assert_not_called()
 
 
@@ -429,3 +494,32 @@ class TestPipelineMessageCompat:
         for msg in embed_output:
             assert msg["type"] == "security"
             assert "security_id" in msg
+
+    def test_created_event_info_flows_normalize_to_embed(self, moto_env, stub_registry, stub_db, mock_anthropic, mock_voyage):
+        """Verify created_event_id/created_event_name flows from NormalizeWorker through EmbedWorker."""
+        sns_client = boto3.client("sns", region_name="us-east-1")
+
+        config = WorkerConfig()
+        normalize = NormalizeWorker(config)
+        _patch_normalize_setup(normalize, stub_registry, stub_db, mock_anthropic, sns_client)
+        normalize._setup()
+
+        contract = _make_adapter_contract(event_title="Will BTC hit $100k?")
+        norm_output = normalize.process_batch([
+            _sqs_msg({"type": "new", "contracts": [dataclasses.asdict(contract)]})
+        ])
+
+        # At least one output message should carry event info
+        event_msgs = [m for m in norm_output if "created_event_id" in m]
+        assert len(event_msgs) > 0
+
+        embed = EmbedWorker(config)
+        _patch_embed_setup(embed, mock_voyage, stub_db)
+        embed._setup()
+
+        embed_input = [_sqs_msg(msg) for msg in norm_output]
+        embed_output = embed.process_batch(embed_input)
+
+        # Event info should be preserved through EmbedWorker
+        embed_event_msgs = [m for m in embed_output if "created_event_id" in m]
+        assert len(embed_event_msgs) > 0

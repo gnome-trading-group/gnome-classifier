@@ -99,8 +99,10 @@ The three Lambdas run outside the VPC (they only call exchange APIs, S3, and SQS
 5. Groups contracts by `(exchange_id, exchange_event_native_id)` — all contracts belonging to the same event are grouped together.
 6. Loads the previous fetch state from S3 at `fetch-cache/known_contracts.json`, a `dict[str, str]` mapping `"exchange_id:exchange_security_id"` to its last-seen hash.
 7. For each event group, checks if ANY contract in the group has a new or changed hash. If so, the entire group is sent as a single SQS message. Grouping ensures the NormalizeWorker always sees the complete, current state of an event when processing it.
-8. Sends changed/new groups to the contracts queue as `{"type": "new", "contracts": [...]}` messages, each containing the full `AdapterContract` dict for every contract in the event.
-9. Replaces the S3 cache entirely with the current hash map.
+8. Before sending, filters event groups by volume: if `min_event_volume` is set and the event's total volume is below the threshold, the group is dropped. This prevents low-volume markets from consuming pipeline resources.
+9. Sends changed/new groups to the contracts queue as `{"type": "new", "contracts": [...]}` messages, each containing the full `AdapterContract` dict for every contract in the event.
+10. Replaces the S3 cache entirely with the current hash map.
+11. Saves the current active events by exchange to S3 at `fetch-cache/active_events.json` for use by StaleCleanupLambda (avoids redundant exchange API calls on each hourly stale check).
 
 **Why group by event?** If only contract B changes within a 3-contract event but contracts A and C are unchanged, the NormalizeWorker still needs to see all three contracts to correctly reconcile which listings are current and which are stale. A per-contract message format would not provide that context.
 
@@ -110,7 +112,7 @@ The three Lambdas run outside the VPC (they only call exchange APIs, S3, and SQS
 
 **Runs every 30 minutes.**
 
-1. Calls `fetch_resolved_outcomes(exchange_by_name, lookback_days)` which calls `adapter.fetch_resolved(exchange_id, lookback_days)` on each adapter. Each adapter queries its exchange for recently settled/closed contracts within the lookback window (default 3 days) and returns a set of `exchange_security_id` strings.
+1. Calls `fetch_resolved_outcomes(exchange_by_name, lookback_days)` which calls `adapter.fetch_resolved(exchange_id, lookback_days)` on each adapter. Each adapter queries its exchange for recently settled/closed contracts within the lookback window (default 3 days) and returns a set of `exchange_security_id` strings. In addition to querying settled/closed events, each adapter also scans currently open events for individually resolved markets within them. For example, a Kalshi event "When will X happen?" may have sub-markets "Before April" (finalized) and "Before October" (still active). The finalized sub-markets are included in the resolved set even though the parent event is still open.
 2. Loads the previous set of already-sent resolved IDs from S3 at `fetch-cache/sent_resolved.json`.
 3. For each resolved ID not already sent, creates a `{"type": "resolved", "exchange_id": X, "native_id": Y}` message and sends it to the contracts queue. Here `native_id` is the `exchange_security_id`.
 4. Replaces the S3 cache with the full current resolved set. Entries naturally expire when they fall outside the lookback window on subsequent runs.
@@ -124,7 +126,7 @@ The three Lambdas run outside the VPC (they only call exchange APIs, S3, and SQS
 Handles the case where an exchange silently removes an event without ever marking it resolved — the event simply stops appearing in the active feed.
 
 1. Checks the `stale_cleanup_enabled` feature flag. If false, exits.
-2. Calls `fetch_all()` to get all currently active events across all exchanges. Records which exchanges failed.
+2. Loads cached active events from S3 at `fetch-cache/active_events.json` (saved by FetchLambda). If the cache exists, uses it directly — no exchange API calls needed. If the cache is missing (e.g. first run after a deploy), falls back to calling `fetch_all()` across all adapters. Records which exchanges failed.
 3. Extracts the set of active `(exchange_id, native_event_id)` pairs from the results.
 4. Loads the stale tracker from S3 at `fetch-cache/stale_tracker.json`. The tracker maps `"{exchange_id}:{native_event_id}"` to a record with `exchange_id`, `native_event_id`, and `miss_count`.
 5. Updates the tracker:
@@ -221,7 +223,7 @@ Each message is `{"type": "security", "security_id": X, "security_symbol": Y}`.
 - Checks Redis judgment cache for previously judged pairs.
 - For uncached pairs, builds Claude API requests. Each request includes both event titles, their contracts with outcome labels, and the embedding similarity score. Uses `claude-sonnet-4-6` by default.
 - Submits via `BatchAnthropicClient`: if ≤ 10 requests, uses synchronous parallel API calls (16 threads); otherwise submits as Anthropic Batch API and polls every 30 seconds.
-- Parses responses: Claude returns a JSON array of `{"a": idx, "b": idx, "type": "...", "confidence": float, "direction": "A_IMPLIES_B"|"B_IMPLIES_A"}`. Only EQUIVALENT, IMPLIES, CORRELATED, and MUTUALLY_EXCLUSIVE are returned by the judge.
+- Parses responses: Claude returns a JSON array of `{"a": idx, "b": idx, "type": "...", "confidence": float, "direction": "A_IMPLIES_B"|"B_IMPLIES_A"}`. Only EQUIVALENT, IMPLIES, and MUTUALLY_EXCLUSIVE are returned by the judge.
 - `derive_complement_relationships`: uses the structural complement map to infer additional relationships:
   - `IMPLIES(A→B)` implies `IMPLIES(comp(B)→comp(A))` (contrapositive)
   - `EQUIVALENT(A,B)` implies `EQUIVALENT(comp(A),comp(B))`
@@ -302,6 +304,8 @@ All three adapters produce `AdapterContract` objects (`classifier/adapters/types
 
 **Neg-risk multi-outcome markets**: when `len(markets) > 1` and all have `negRisk=True` (mutually exclusive outcomes like "Which team wins?"). `exchange_event_native_id = event_slug`. Each market becomes one `MULTI_OUTCOME` contract using `groupItemTitle` as the outcome label. `exchange_security_id = "conditionId:tokenId"`.
 
+**Partial resolution:** During active fetch, closed markets (`closed=true`) are filtered out in `_map_event`. During resolve, `fetch_resolved` also scans all active events for closed markets and includes their security IDs in the resolved set.
+
 | Parameter | Value |
 |---|---|
 | `tick_size` | 10,000,000 |
@@ -323,6 +327,8 @@ All three adapters produce `AdapterContract` objects (`classifier/adapters/types
 **Simple binary** (single market): `exchange_event_native_id = event_ticker`. Yes/No contracts. `exchange_security_id = "ticker:yes"` / `"ticker:no"`.
 
 Resolved IDs for multi-outcome events are market tickers; for binary events they are `"ticker:yes"` and `"ticker:no"`.
+
+**Partial resolution:** During active fetch, markets with `status != "active"` (e.g. `"finalized"`) are excluded from the returned contracts — they are no longer tradeable. However, their volume is still included in the event-level volume sum (computed before filtering). During resolve, `fetch_resolved` also scans open events for finalized markets and includes their tickers in the resolved set.
 
 | Parameter | Value |
 |---|---|
@@ -547,7 +553,7 @@ All creates use the registry API (`gnomepy.registry.RegistryClient`) via bulk en
 | `MUTUALLY_EXCLUSIVE` | At most one can resolve YES | Structural: contracts within the same event | 1.0 |
 | `EQUIVALENT` | Same underlying question, different wording (arbitrage opportunity) | Semantic: Claude judge | per-pair (LLM) |
 | `IMPLIES` | If A resolves YES, B must also resolve YES | Semantic: Claude judge | per-pair (LLM) |
-| `CORRELATED` | Same underlying driver, tend to move together | Semantic: Claude judge | per-pair (LLM) |
+
 | `HEDGEABLE_WITH` | An event contract can be hedged using a tradeable security | Rule-based: keyword matching | 0.90 |
 
 ### Semantic Candidate Selection
@@ -596,18 +602,21 @@ This doubles the coverage without additional API calls.
 
 ### Redis (`classifier/cache/redis.py`)
 
-Three independent hash namespaces in Redis:
+Three independent cache stores in Redis:
 
-**Canonicalization cache (`"canon"` hash)**
-- Key: SHA-256 of `(model, exchange_id, native_event_id)`
+**Canonicalization cache (`"canon:{hash}"` keys)**
+- Key: `"canon:"` + SHA-256 of `(model, exchange_id, native_event_id)`
 - Value: JSON `{"title": str, "category": str, "tags": [str]}`
-- Written after every successful Claude canonicalization call
+- 30-day TTL via Redis native `EX` (entries for resolved events expire automatically)
+- Bulk reads use `MGET`; written after every successful Claude canonicalization call
 - Read before sending any events to Claude
 
-**Judgment cache (`"judge"` hash)**
-- Key: SHA-256 of `(model, title_a, labels_a, title_b, labels_b)` where titles are sorted lexicographically to make the key symmetric
+**Judgment cache (`"judge:{hash}"` keys)**
+- Key: `"judge:"` + SHA-256 of `(model, title_a, labels_a, title_b, labels_b)` where titles are sorted lexicographically to make the key symmetric
 - Value: JSON `{"first_title": str, "items": [{relationship JSON}]}`
-- Written after every Claude semantic judgment response
+- 30-day TTL via Redis native `EX`
+- Empty results (`items=[]`, meaning Claude found no relationship) are cached just like non-empty results — prevents re-evaluating the same pair on every run
+- Bulk reads use `MGET`; written after every Claude semantic judgment response
 - Read before building judgment requests for candidate pairs
 
 **Exchange event cache (`"exchange_events"` hash)**
@@ -624,6 +633,7 @@ Three independent hash namespaces in Redis:
 | `fetch-cache/known_contracts.json` | `{str: str}` — `"eid:esid"` → hash | Tracks last-seen hash of every contract. Replaced wholesale each FetchLambda run. |
 | `fetch-cache/sent_resolved.json` | `[[eid, native_id], ...]` — list of pairs | Tracks resolved IDs already sent to the contracts queue. Replaced wholesale each ResolveLambda run; entries expire naturally when they fall outside the lookback window. |
 | `fetch-cache/stale_tracker.json` | `{str: {exchange_id, native_event_id, miss_count}}` — keyed by `"eid:native_id"` | Tracks consecutive miss counts for events that stop appearing in fetch. Updated each StaleCleanupLambda run. |
+| `fetch-cache/active_events.json` | `{active_by_exchange: {eid: [native_ids]}, successful_exchange_ids: [int]}` | Snapshot of active events per exchange written by FetchLambda. Read by StaleCleanupLambda to avoid re-fetching all exchange APIs each hour. |
 
 ---
 
@@ -636,9 +646,11 @@ Configuration is fetched from the controller API endpoint `/config/classifier` e
 | Field | Default | Effect when true |
 |---|---|---|
 | `fetch_enabled` | `false` | FetchLambda actually fetches and sends contracts |
+| `resolve_enabled` | `false` | ResolveLambda actually fetches and sends resolved contract IDs |
 | `canonicalization_enabled` | `false` | NormalizeWorker calls Claude to canonicalize titles |
 | `semantic_judgements_enabled` | `false` | RelationshipsWorker runs the semantic classification phase |
 | `stale_cleanup_enabled` | `false` | StaleCleanupLambda actually sends stale messages |
+| `debug` | `false` | Enables debug logging in semantic judgments (logs each pair and its result) |
 
 **`Models`**
 
@@ -656,6 +668,7 @@ Configuration is fetched from the controller API endpoint `/config/classifier` e
 | `min_confidence` | `0.70` | Relationships below this are dropped before writing |
 | `structural_confidence` | `1.0` | Confidence assigned to structural relationships |
 | `hedgeable_with_confidence` | `0.90` | Confidence assigned to keyword-matched hedgeable pairs |
+| `min_event_volume` | `5000` (nullable) | Events with total volume below this are filtered from fetch. `null` disables filtering. |
 
 **`Processing`**
 
@@ -669,6 +682,9 @@ Configuration is fetched from the controller API endpoint `/config/classifier` e
 | `voyage_embed_chunk_size` | `2000` | Events per Voyage embedding batch |
 | `anthropic_sync_threshold` | `10` | Use sync API if request count ≤ this; use Batch API otherwise |
 | `stale_miss_threshold` | `6` | Consecutive hourly misses before an event is marked stale (≈ 6 hours) |
+| `fetch_max_sqs_messages` | `100000` | Max SQS messages FetchLambda will send per run |
+| `resolve_max_sqs_messages` | `100000` | Max SQS messages ResolveLambda will send per run |
+| `stale_max_sqs_messages` | `100000` | Max SQS messages StaleCleanupLambda will send per run (excess entries are kept in the tracker at the threshold miss count) |
 
 **`WorkerParams`**
 

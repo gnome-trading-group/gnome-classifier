@@ -1,3 +1,4 @@
+import json
 import logging
 
 from classifier.stages.embed import embed_and_update
@@ -32,6 +33,12 @@ class EmbedWorker(BaseWorker):
         if not security_ids:
             return []
 
+        created_event_by_sid: dict[int, tuple[int, str]] = {}
+        for msg in messages:
+            body = json.loads(msg["Body"])
+            if "created_event_id" in body:
+                created_event_by_sid[body["security_id"]] = (body["created_event_id"], body["created_event_name"])
+
         cfg = self._runtime_config.config
         entity_result = EntityResult(
             events_created=0, securities_created=0, listings_created=0,
@@ -46,7 +53,10 @@ class EmbedWorker(BaseWorker):
             debug=cfg.feature_flags.debug,
         )
 
-        return [
-            {"type": "security", "security_id": sid, "security_symbol": symbol_by_id.get(sid, "")}
-            for sid in updated_result.new_security_ids
-        ]
+        output = []
+        for sid in updated_result.new_security_ids:
+            msg: dict = {"type": "security", "security_id": sid, "security_symbol": symbol_by_id.get(sid, "")}
+            if sid in created_event_by_sid:
+                msg["created_event_id"], msg["created_event_name"] = created_event_by_sid[sid]
+            output.append(msg)
+        return output

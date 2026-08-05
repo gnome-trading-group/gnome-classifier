@@ -47,7 +47,7 @@ def derive_complement_relationships(
     """Derive additional relationships via complement mapping.
 
     - IMPLIES(A→B)              → IMPLIES(comp(B)→comp(A))
-    - EQUIVALENT/CORRELATED(A,B) → EQUIVALENT/CORRELATED(comp(A),comp(B))
+    - EQUIVALENT(A,B) → EQUIVALENT(comp(A),comp(B))
     - MUTUALLY_EXCLUSIVE(A,B)   → IMPLIES(A→comp(B))  and  IMPLIES(B→comp(A))
     """
     derived: list[JudgedRelationship] = []
@@ -57,7 +57,7 @@ def derive_complement_relationships(
         if r.relationship_type == RelationshipType.IMPLIES:
             if comp_a is not None and comp_b is not None:
                 derived.append(JudgedRelationship(comp_b, comp_a, r.relationship_type, r.confidence))
-        elif r.relationship_type in (RelationshipType.EQUIVALENT, RelationshipType.CORRELATED):
+        elif r.relationship_type == RelationshipType.EQUIVALENT:
             if comp_a is not None and comp_b is not None:
                 derived.append(JudgedRelationship(comp_a, comp_b, r.relationship_type, r.confidence))
                 derived.append(JudgedRelationship(comp_b, comp_a, r.relationship_type, r.confidence))

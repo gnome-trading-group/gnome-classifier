@@ -23,11 +23,9 @@ logger = logging.getLogger(__name__)
 _JUDGE_SYSTEM_PROMPT = """You are classifying relationships between specific prediction market contracts for trading purposes.
 
 For each pair of contracts (one from A, one from B) that has a meaningful trading relationship, return an entry. Use these types:
-- EQUIVALENT: Same question worded differently (direct arbitrage)
+- EQUIVALENT: Same question worded differently (direct arbitrage). Requires identical numeric thresholds/targets — "above 7,750" vs "above 7,795" is NOT equivalent.
 - IMPLIES: Contract A[i] being true logically implies contract B[j] must be true. Use "direction": "B_IMPLIES_A" if the reverse.
-- CORRELATED: Same underlying asset/entity, outcomes tend to move together but neither strictly implies the other. Different assets are NEVER CORRELATED (BTC and ETH are NONE).
 - MUTUALLY_EXCLUSIVE: Both contracts CANNOT BOTH RESOLVE YES — they are logically incompatible outcomes (e.g., "Candidate A wins" and "Candidate B wins" in the same race). Do NOT use this for contracts that merely seem like opposites but can both resolve as stated — e.g., "election called by June 30 — No" and "election called by December 31 — Yes" CAN both be true (election called in September), so they are NOT mutually exclusive.
-
 - NONE / omit: No meaningful trading relationship
 
 Most pairs are unrelated — only include pairs with genuine trading signal. Return [] if none.
@@ -77,14 +75,14 @@ Event B: Will the Fed cut interest rates at least three times in 2026?
 Embedding similarity: 0.874
 Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "B_IMPLIES_A"}]
 
-### CORRELATED — same underlying, overlapping but non-deterministic thresholds
+### NOT EQUIVALENT — different price thresholds are distinct questions
 
-Event A: Will the S&P 500 close above 5,500 on December 31, 2026?
-  Contracts: [1] Yes  [2] No
-Event B: Will the S&P 500 close above 6,000 on December 31, 2026?
-  Contracts: [1] Yes  [2] No
-Embedding similarity: 0.882
-Output: [{"a": 1, "b": 1, "type": "CORRELATED", "confidence": 0.84}]
+Event A: S&P 500 price on Aug 5, 2026 at 10am EDT: 7,795 or above
+  Contracts: [1] Yes
+Event B: S&P 500 price on Aug 5, 2026 at 10am EDT: 7,750 or above
+  Contracts: [1] Yes
+Embedding similarity: 0.961
+Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "A_IMPLIES_B"}]
 
 ### MUTUALLY_EXCLUSIVE — only one outcome can resolve YES
 
@@ -104,7 +102,7 @@ Event B: Will the US enter a recession by December 31, 2026?
 Embedding similarity: 0.908
 Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "A_IMPLIES_B"}]
 
-### NONE — different underlying assets, never CORRELATED
+### NONE — different underlying assets, no trading relationship
 
 Event A: Will Ethereum price exceed $5,000 by end of 2026?
   Contracts: [1] Yes  [2] No
