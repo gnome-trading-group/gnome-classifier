@@ -219,10 +219,16 @@ class KalshiAdapter:
                     market_event_title = f"{event_title}: {sub_title_market}"
                     native_id = ticker
                     market_volume = _parse_volume(market)
+                    market_description = market.get("rules_primary") or event_description
                 else:
-                    market_event_title = event_title
+                    sub_title_single = market.get("yes_sub_title", "")
+                    if sub_title_single and sub_title_single.lower() not in event_title.lower():
+                        market_event_title = f"{event_title}: {sub_title_single}"
+                    else:
+                        market_event_title = event_title
                     native_id = event_ticker
                     market_volume = event_volume
+                    market_description = event_description
                 exchange_security_symbol_base = f"{market_event_title[:60]} -- "
                 for side in ("Yes", "No"):
                     contracts.append(AdapterContract(
@@ -243,7 +249,7 @@ class KalshiAdapter:
                         contract_multiplier=CONTRACT_MULTIPLIER,
                         event_title=market_event_title,
                         outcome_label=side,
-                        event_description=event_description,
+                        event_description=market_description,
                         event_category=event_category,
                         event_expiry=expiry,
                         exchange_event_native_id=native_id,

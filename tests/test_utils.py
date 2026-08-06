@@ -1,6 +1,31 @@
 import pytest
+from datetime import timedelta
 
-from classifier.utils import generate_security_symbol
+from classifier.utils import expiry_close, generate_security_symbol
+
+
+def test_expiry_close_both_none():
+    assert expiry_close(None, None, timedelta(hours=1)) is True
+
+
+def test_expiry_close_a_none_returns_false():
+    assert expiry_close(None, "2026-11-03T00:00:00Z", timedelta(hours=1)) is False
+
+
+def test_expiry_close_b_none_returns_false():
+    assert expiry_close("2026-11-03T00:00:00Z", None, timedelta(hours=1)) is False
+
+
+def test_expiry_close_malformed_date_returns_false():
+    assert expiry_close("bad-date", "2026-11-03T00:00:00Z", timedelta(hours=1)) is False
+
+
+def test_expiry_close_within_tolerance():
+    assert expiry_close("2026-11-03T00:00:00Z", "2026-11-03T00:30:00Z", timedelta(hours=1)) is True
+
+
+def test_expiry_close_outside_tolerance():
+    assert expiry_close("2026-11-03T00:00:00Z", "2026-11-04T12:00:00Z", timedelta(hours=1)) is False
 
 
 def test_no_expiry():

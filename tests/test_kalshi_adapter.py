@@ -123,6 +123,14 @@ def test_sub_market_outcomes():
     assert {c.outcome_label for c in ramp} == {"Yes", "No"}
 
 
+def test_sub_market_description_uses_rules_primary():
+    contracts = _map("KXRAMPBREX-40")
+    ramp = [c for c in contracts if c.exchange_event_native_id == "KXRAMPBREX-40-RAMP"]
+    brex = [c for c in contracts if c.exchange_event_native_id == "KXRAMPBREX-40-BREX"]
+    assert all(c.event_description == "If Ramp confirms an IPO first, before Jan 1, 2040, then the market resolves to Yes." for c in ramp)
+    assert all(c.event_description == "If Brex confirms an IPO first, before Jan 1, 2040, then the market resolves to Yes." for c in brex)
+
+
 # ── Volume ───────────────────────────────────────────────────────────────────
 
 def test_binary_event_volume():
@@ -183,6 +191,46 @@ def test_entity_creation_sub_markets(stub_registry, stub_db, mock_anthropic, kal
     assert result.event_contracts_created == 4
 
 
+# ── Single binary with threshold yes_sub_title ───────────────────────────────
+
+def test_threshold_binary_event_title_includes_sub_title():
+    contracts = _map("KXCS2TOTALMAPS-26AUG04EXG")
+    assert all(c.event_title == "ex-GUARA vs. Yawara Esports: Total Maps: Over 2.5 maps" for c in contracts)
+
+
+def test_threshold_binary_outcome_labels():
+    contracts = _map("KXCS2TOTALMAPS-26AUG04EXG")
+    assert {c.outcome_label for c in contracts} == {"Yes", "No"}
+
+
+def test_threshold_binary_native_id_is_event_ticker():
+    contracts = _map("KXCS2TOTALMAPS-26AUG04EXG")
+    assert all(c.exchange_event_native_id == "KXCS2TOTALMAPS-26AUG04EXG" for c in contracts)
+
+
+def test_threshold_binary_security_ids():
+    contracts = _map("KXCS2TOTALMAPS-26AUG04EXG")
+    assert {c.exchange_security_id for c in contracts} == {
+        "KXCS2TOTALMAPS-26AUG04EXG-3:yes",
+        "KXCS2TOTALMAPS-26AUG04EXG-3:no",
+    }
+
+
+def test_redundant_sub_title_not_duplicated():
+    # "Mars" is already in the event title — should not be appended again
+    contracts = _map("KXELONMARS-99")
+    assert all(c.event_title == "Will Elon Musk visit Mars in his lifetime?" for c in contracts)
+
+
+def test_entity_creation_threshold_binary(stub_registry, stub_db, mock_anthropic):
+    contracts = _map("KXCS2TOTALMAPS-26AUG04EXG")
+    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    assert result.events_created == 1
+    assert result.securities_created == 2
+    assert result.listings_created == 2
+    assert result.event_contracts_created == 2
+
+
 # ── Finalized market filtering ────────────────────────────────────────────────
 
 def test_finalized_market_excluded_from_contracts():
@@ -214,3 +262,11 @@ def test_has_sub_markets_preserved_with_finalized():
     # not binary, so surviving markets keep native_id = market.ticker
     contracts = _map("KXIPHONERELEASE-IPHONE18")
     assert all(c.exchange_event_native_id != "KXIPHONERELEASE-IPHONE18" for c in contracts)
+
+
+def test_sub_market_iphone_description_uses_rules_primary():
+    contracts = _map("KXIPHONERELEASE-IPHONE18")
+    oct_contracts = [c for c in contracts if c.exchange_event_native_id == "KXIPHONERELEASE-IPHONE18-26OCT01"]
+    jan_contracts = [c for c in contracts if c.exchange_event_native_id == "KXIPHONERELEASE-IPHONE18-27JAN01"]
+    assert all("before Oct 1, 2026" in c.event_description for c in oct_contracts)
+    assert all("before Jan 1, 2027" in c.event_description for c in jan_contracts)

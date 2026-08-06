@@ -31,10 +31,12 @@ def mock_anthropic():
         messages = kwargs.get("messages", [])
         content = messages[0].get("content", "") if messages else ""
         titles = []
+        idx = 1
         for line in content.splitlines():
             if line.startswith("[") and "] Title: " in line:
-                title = line.split("] Title: ", 1)[1].split(" | ")[0].strip()
-                titles.append({"title": title, "category": "POLITICS", "tags": ["test", "tag", "here"]})
+                raw_title = line.split("] Title: ", 1)[1].split(" | ")[0].strip()
+                titles.append({"id": idx, "original_title": raw_title, "title": raw_title, "category": "POLITICS", "tags": ["test", "tag", "here"]})
+                idx += 1
             elif line.startswith("Exchange-provided title:"):
                 title = line.split(":", 1)[1].strip()
                 titles.append({"title": title, "category": "OTHER", "tags": ["test", "tag", "here"]})

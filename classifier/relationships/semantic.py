@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 _JUDGE_SYSTEM_PROMPT = """You are classifying relationships between specific prediction market contracts for trading purposes.
 
 For each pair of contracts (one from A, one from B) that has a meaningful trading relationship, return an entry. Use these types:
-- EQUIVALENT: Same question worded differently (direct arbitrage). Requires identical numeric thresholds/targets — "above 7,750" vs "above 7,795" is NOT equivalent.
+- EQUIVALENT: Same question worded differently (direct arbitrage). Requires identical numeric thresholds/targets AND identical dates/deadlines — "above 7,750" vs "above 7,795" is NOT equivalent, and "through August 2" vs "through August 4" is NOT equivalent.
 - IMPLIES: Contract A[i] being true logically implies contract B[j] must be true. Use "direction": "B_IMPLIES_A" if the reverse.
 - MUTUALLY_EXCLUSIVE: Both contracts CANNOT BOTH RESOLVE YES — they are logically incompatible outcomes (e.g., "Candidate A wins" and "Candidate B wins" in the same race). Do NOT use this for contracts that merely seem like opposites but can both resolve as stated — e.g., "election called by June 30 — No" and "election called by December 31 — Yes" CAN both be true (election called in September), so they are NOT mutually exclusive.
 - NONE / omit: No meaningful trading relationship
@@ -34,6 +34,7 @@ Respond with a JSON array only:
 [{"a": 1, "b": 1, "type": "EQUIVALENT", "confidence": 0.95}, ...]
 For IMPLIES entries add "direction": "A_IMPLIES_B" or "B_IMPLIES_A".
 Only output the JSON array, nothing else.
+Each contract pair (a, b) must appear at most once — pick the single most accurate relationship type.
 
 ---
 
@@ -82,6 +83,15 @@ Event A: S&P 500 price on Aug 5, 2026 at 10am EDT: 7,795 or above
 Event B: S&P 500 price on Aug 5, 2026 at 10am EDT: 7,750 or above
   Contracts: [1] Yes
 Embedding similarity: 0.961
+Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "A_IMPLIES_B"}]
+
+### NOT EQUIVALENT — different deadlines are distinct questions
+
+Event A: Israel Iran Ceasefire Continues Through August 4, 2026
+  Contracts: [1] Yes
+Event B: Israel Iran Ceasefire Continues Through August 2, 2026
+  Contracts: [1] Yes
+Embedding similarity: 0.957
 Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "A_IMPLIES_B"}]
 
 ### MUTUALLY_EXCLUSIVE — only one outcome can resolve YES
@@ -377,6 +387,7 @@ def _parse_response_text(
         results: list[JudgedRelationship] = []
         cache_items: list[dict] = []
 
+        best_per_pair: dict[tuple[int, int], dict] = {}
         for item in items:
             idx_a = item.get("a")
             idx_b = item.get("b")
@@ -391,7 +402,15 @@ def _parse_response_text(
             if confidence < DEFAULT_MIN_CONFIDENCE:
                 logger.debug("skipping item (low confidence): %s", item)
                 continue
+            pair_key = (idx_a, idx_b)
+            if pair_key not in best_per_pair or confidence > best_per_pair[pair_key].get("confidence", 0):
+                best_per_pair[pair_key] = item
 
+        for item in best_per_pair.values():
+            idx_a = item.get("a")
+            idx_b = item.get("b")
+            rel_type_str = item.get("type", "NONE")
+            confidence = float(item.get("confidence", DEFAULT_MIN_CONFIDENCE))
             sid_a = idx_to_sid_a[idx_a]
             sid_b = idx_to_sid_b[idx_b]
             rt = RelationshipType(rel_type_str)

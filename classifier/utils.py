@@ -30,12 +30,14 @@ def _parse_utc(s: str) -> datetime:
 
 
 def expiry_close(a: str | None, b: str | None, tolerance: timedelta) -> bool:
-    if a is None or b is None:
+    if a is None and b is None:
         return True
+    if a is None or b is None:
+        return False
     try:
         return abs((_parse_utc(a) - _parse_utc(b)).total_seconds()) <= tolerance.total_seconds()
     except ValueError:
-        return True
+        return False
 
 
 def generate_security_symbol(canonical_title: str, outcome_label: str, expiry: str | None = None) -> str:

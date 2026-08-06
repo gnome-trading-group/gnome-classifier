@@ -41,12 +41,13 @@ For each event below, generate:
 1. title: Clean, exchange-neutral title for this prediction market question. Preserve all dates, numeric thresholds, price targets, and outcome conditions (e.g., "7,750 or above", "$100,000", "at least 3 times") exactly as stated.
 2. category: One of {_CATEGORIES_STR}
 3. tags: 3-8 lowercase keyword tags
+4. original_title: Echo the input title exactly as provided (verbatim, for validation).
 
 Events:
 {event_lines}
 
 Respond with a JSON array, one object per event, echoing the input number as "id":
-[{{"id": 1, "title": "...", "category": "...", "tags": ["..."]}}, ...]"""
+[{{"id": 1, "original_title": "...", "title": "...", "category": "...", "tags": ["..."]}}, ...]"""
 
 
 def prepare_canon_batch(
@@ -154,6 +155,14 @@ def parse_canon_results(
             nk: NativeKey = (ev_info["exchange_id"], ev_info["native_id"])
             item = by_id.get(j + 1)
             if item is not None:
+                echoed = item.get("original_title", "")
+                if echoed.strip().lower() != ev_info["raw_title"].strip().lower():
+                    logger.warning(
+                        "Canonicalization ID mismatch: echoed=%r expected=%r (id=%d)",
+                        echoed[:80], ev_info["raw_title"][:80], j + 1,
+                    )
+                    missed.append(ev_info)
+                    continue
                 result = _parse_canonical_result(item, ev_info["raw_title"])
                 results[nk] = result
                 if cache is not None:

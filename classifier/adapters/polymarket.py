@@ -20,6 +20,35 @@ TICK_SIZE = 10_000_000
 LOT_SIZE = 1_000_000
 
 
+def _build_sports_event_title(event_title: str, market: dict) -> str | None:
+    question = market.get("question", "")
+    if question and question != event_title:
+        return None  # question already differentiates this market
+
+    market_type = market.get("sportsMarketType", "")
+    line = market.get("line")
+
+    if market_type == "moneyline" or not market_type:
+        return None
+
+    if market_type == "spreads":
+        return f"{event_title}: Spread {line}" if line is not None else f"{event_title}: Spread"
+
+    if market_type == "totals":
+        return f"{event_title}: Total {line}" if line is not None else f"{event_title}: Total"
+
+    # Player props: points, rebounds, assists, etc.
+    player = market.get("groupItemTitle", "")
+    stat = market_type.title()
+    if player and line is not None:
+        return f"{event_title}: {player} {stat} {line}"
+    elif player:
+        return f"{event_title}: {player} {stat}"
+    elif line is not None:
+        return f"{event_title}: {stat} {line}"
+    return f"{event_title}: {stat}"
+
+
 class PolymarketAdapter:
     exchange_name = "polymarket"
 
@@ -133,19 +162,26 @@ class PolymarketAdapter:
         event_description = event.get("description") or None
         event_title = event.get("title", "")
         event_slug = event.get("slug", "")
+        tags = event.get("tags") or []
+        event_category = tags[0]["label"] if tags else None
 
-        is_neg_risk_group = len(markets) > 1 and all(m.get("negRisk") for m in markets)
+        is_neg_risk_group = all(m.get("negRisk") for m in markets) and len(markets) >= 1
 
         if is_neg_risk_group:
             event_volume: float = sum(m.get("volumeNum") or 0.0 for m in markets)
             return self._map_neg_risk_group(
                 exchange_id, markets, event_title, event_slug, event_description, event_volume,
+                event_category=event_category,
             )
 
         contracts: list[AdapterContract] = []
         for market in markets:
             market_volume: float = market.get("volumeNum") or 0.0
-            contracts.extend(self._map_binary_market(exchange_id, market, event_description, event_slug, market_volume))
+            contracts.extend(self._map_binary_market(
+                exchange_id, market, event_description, event_slug, market_volume,
+                event_title_override=_build_sports_event_title(event_title, market),
+                event_category=event_category,
+            ))
         return contracts
 
     def _map_neg_risk_group(
@@ -156,6 +192,7 @@ class PolymarketAdapter:
         event_slug: str,
         event_description: str | None,
         event_volume: float = 0.0,
+        event_category: str | None = None,
     ) -> list[AdapterContract]:
         symbol_base = f"{event_title[:60]} -- "
         contracts: list[AdapterContract] = []
@@ -191,7 +228,7 @@ class PolymarketAdapter:
                 event_title=event_title,
                 outcome_label=outcome_label,
                 event_description=event_description,
-                event_category=None,
+                event_category=event_category,
                 event_expiry=market.get("endDate"),
                 exchange_event_native_id=event_slug,
                 exchange_event_native_url=f"https://polymarket.com/event/{event_slug}",
@@ -206,6 +243,8 @@ class PolymarketAdapter:
         event_description: str | None,
         event_slug: str = "",
         event_volume: float = 0.0,
+        event_title_override: str | None = None,
+        event_category: str | None = None,
     ) -> list[AdapterContract]:
         question = market.get("question", "")
         condition_id = market.get("conditionId", "")
@@ -246,10 +285,10 @@ class PolymarketAdapter:
                 lot_size=LOT_SIZE,
                 min_notional=0.0,
                 contract_multiplier=CONTRACT_MULTIPLIER,
-                event_title=question,
+                event_title=event_title_override or question,
                 outcome_label=outcome,
-                event_description=event_description,
-                event_category=None,
+                event_description=market.get("description") or event_description,
+                event_category=event_category,
                 event_expiry=expiry,
                 exchange_event_native_id=condition_id,
                 exchange_event_native_url=native_url,

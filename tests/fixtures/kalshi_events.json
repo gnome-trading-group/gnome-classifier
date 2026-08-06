@@ -790,6 +790,7 @@
           "fractional_trading_enabled": true,
           "market_type": "binary",
           "result": "no",
+          "rules_primary": "If Apple Inc. releases iPhone 18 to the public before Jul 1, 2026, then the market resolves to Yes.",
           "status": "finalized",
           "ticker": "KXIPHONERELEASE-IPHONE18-26JUL01",
           "title": "Will Apple Inc. release iPhone 18 before Jul 1, 2026?",
@@ -805,6 +806,7 @@
           "fractional_trading_enabled": true,
           "market_type": "binary",
           "result": "",
+          "rules_primary": "If Apple Inc. releases iPhone 18 to the public before Oct 1, 2026, then the market resolves to Yes.",
           "status": "active",
           "ticker": "KXIPHONERELEASE-IPHONE18-26OCT01",
           "title": "Will Apple Inc. release iPhone 18 before Oct 1, 2026?",
@@ -820,6 +822,7 @@
           "fractional_trading_enabled": true,
           "market_type": "binary",
           "result": "",
+          "rules_primary": "If Apple Inc. releases iPhone 18 to the public before Jan 1, 2027, then the market resolves to Yes.",
           "status": "active",
           "ticker": "KXIPHONERELEASE-IPHONE18-27JAN01",
           "title": "Will Apple Inc. release iPhone 18 before Jan 1, 2027?",
@@ -833,6 +836,32 @@
       "strike_period": "",
       "sub_title": "Before 2027",
       "title": "When will Apple release the iPhone 18?"
+    },
+    {
+      "category": "Sports",
+      "event_ticker": "KXCS2TOTALMAPS-26AUG04EXG",
+      "mutually_exclusive": false,
+      "series_ticker": "KXCS2TOTALMAPS",
+      "settlement_sources": [],
+      "strike_period": "",
+      "sub_title": "Total Maps: EXG vs. YAW (Aug 4)",
+      "title": "ex-GUARA vs. Yawara Esports: Total Maps",
+      "markets": [
+        {
+          "close_time": "2026-08-04T18:00:00Z",
+          "event_ticker": "KXCS2TOTALMAPS-26AUG04EXG",
+          "floor_strike": 2.5,
+          "fractional_trading_enabled": true,
+          "market_type": "binary",
+          "result": "",
+          "status": "active",
+          "strike_type": "greater",
+          "ticker": "KXCS2TOTALMAPS-26AUG04EXG-3",
+          "title": "Will there be over 2.5 maps played?",
+          "volume_fp": "15000.00",
+          "yes_sub_title": "Over 2.5 maps"
+        }
+      ]
     }
   ]
 }

@@ -70,6 +70,17 @@ def test_ladder_event_titles_use_market_questions():
 
 # ── negRisk=true: grouped as MULTI_OUTCOME ────────────────────────────────────
 
+def test_neg_risk_single_market_uses_event_slug():
+    """When only one negRisk market remains open, native_id stays as event_slug (not conditionId)."""
+    import copy
+    event = copy.deepcopy(EVENTS_BY_SLUG["harvey-weinstein-prison-time"])
+    event["markets"] = [event["markets"][0]]
+    contracts = adapter._map_event(EXCHANGE_ID, event)
+    assert len(contracts) == 1
+    assert contracts[0].exchange_event_native_id == "harvey-weinstein-prison-time"
+    assert contracts[0].contract_type == ContractType.MULTI_OUTCOME
+
+
 def test_neg_risk_contract_count():
     contracts = _map("harvey-weinstein-prison-time")
     # 3 markets, negRisk=true → 3 MULTI_OUTCOME contracts (one per market, Yes side only)
@@ -129,6 +140,68 @@ def test_ladder_event_volume_per_market():
         assert c.event_volume == market_vols[c.exchange_event_native_id]
 
 
+# ── Sports markets ───────────────────────────────────────────────────────────
+
+def test_sports_contract_count():
+    contracts = _map("wnba-sea-nyl-2026-08-05")
+    assert len(contracts) == 8
+
+
+def test_sports_contract_types():
+    contracts = _map("wnba-sea-nyl-2026-08-05")
+    assert all(c.contract_type == ContractType.BINARY for c in contracts)
+
+
+def test_sports_native_ids_are_per_market():
+    contracts = _map("wnba-sea-nyl-2026-08-05")
+    native_ids = {c.exchange_event_native_id for c in contracts}
+    market_condition_ids = {m["conditionId"] for m in EVENTS_BY_SLUG["wnba-sea-nyl-2026-08-05"]["markets"]}
+    assert native_ids == market_condition_ids
+
+
+def test_sports_moneyline_event_title():
+    contracts = _map("wnba-sea-nyl-2026-08-05")
+    moneyline_cid = next(
+        m["conditionId"] for m in EVENTS_BY_SLUG["wnba-sea-nyl-2026-08-05"]["markets"]
+        if m.get("sportsMarketType") == "moneyline"
+    )
+    moneyline = [c for c in contracts if c.exchange_event_native_id == moneyline_cid]
+    assert len(moneyline) == 2
+    assert all(c.event_title == "Seattle Storm vs. New York Liberty" for c in moneyline)
+
+
+def test_sports_spread_event_title():
+    contracts = _map("wnba-sea-nyl-2026-08-05")
+    spread = [c for c in contracts if "Spread" in c.event_title]
+    assert len(spread) == 2
+    assert all(c.event_title == "Seattle Storm vs. New York Liberty: Spread -9.5" for c in spread)
+
+
+def test_sports_total_event_title():
+    contracts = _map("wnba-sea-nyl-2026-08-05")
+    total = [c for c in contracts if "Total" in c.event_title]
+    assert len(total) == 2
+    assert all(c.event_title == "Seattle Storm vs. New York Liberty: Total 181.5" for c in total)
+
+
+def test_sports_player_prop_event_title():
+    contracts = _map("wnba-sea-nyl-2026-08-05")
+    props = [c for c in contracts if "Breanna Stewart" in c.event_title]
+    assert len(props) == 2
+    assert all(c.event_title == "Seattle Storm vs. New York Liberty: Breanna Stewart Points 22.5" for c in props)
+
+
+def test_sports_event_titles_are_distinct():
+    contracts = _map("wnba-sea-nyl-2026-08-05")
+    titles = {c.event_title for c in contracts}
+    assert len(titles) == 4
+
+
+def test_non_sports_binary_event_title_unchanged():
+    contracts = _map("elon-mars")
+    assert all(c.event_title == "Will Elon Musk visit Mars before 2030?" for c in contracts)
+
+
 # ── Entity creation ───────────────────────────────────────────────────────────
 
 def test_entity_creation_neg_risk(stub_registry, stub_db, mock_anthropic):
@@ -149,3 +222,65 @@ def test_entity_creation_ladder(stub_registry, stub_db, mock_anthropic):
     assert result.securities_created == 6
     assert result.listings_created == 6
     assert result.event_contracts_created == 6
+
+
+def test_entity_creation_sports(stub_registry, stub_db, mock_anthropic):
+    contracts = _map("wnba-sea-nyl-2026-08-05")
+    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    # 4 distinct event_titles → 4 events, each with 2 outcomes
+    assert result.events_created == 4
+    assert result.securities_created == 8
+    assert result.listings_created == 8
+    assert result.event_contracts_created == 8
+
+
+# ── Category from tags ────────────────────────────────────────────────────────
+
+def test_binary_event_category_from_tags():
+    contracts = _map("elon-mars")
+    assert all(c.event_category == "Science" for c in contracts)
+
+
+def test_neg_risk_event_category_from_tags():
+    contracts = _map("harvey-weinstein-prison-time")
+    assert all(c.event_category == "Legal" for c in contracts)
+
+
+def test_ladder_event_category_from_tags():
+    contracts = _map("kraken-ipo-by")
+    assert all(c.event_category == "Crypto" for c in contracts)
+
+
+def test_sports_event_category_from_tags():
+    contracts = _map("wnba-sea-nyl-2026-08-05")
+    assert all(c.event_category == "Sports" for c in contracts)
+
+
+def test_no_tags_yields_none_category():
+    import copy
+    event = copy.deepcopy(EVENTS_BY_SLUG["elon-mars"])
+    event.pop("tags", None)
+    contracts = adapter._map_event(EXCHANGE_ID, event)
+    assert all(c.event_category is None for c in contracts)
+
+
+# ── Per-market description ────────────────────────────────────────────────────
+
+def test_ladder_contracts_get_per_market_description():
+    contracts = _map("kraken-ipo-by")
+    market_descs = {m["conditionId"]: m["description"] for m in EVENTS_BY_SLUG["kraken-ipo-by"]["markets"]}
+    for c in contracts:
+        assert c.event_description == market_descs[c.exchange_event_native_id]
+
+
+def test_neg_risk_contracts_get_event_level_description():
+    # negRisk per-market desc equals event desc in fixture — verifies we use event_description
+    contracts = _map("harvey-weinstein-prison-time")
+    event_desc = EVENTS_BY_SLUG["harvey-weinstein-prison-time"]["description"]
+    assert all(c.event_description == event_desc for c in contracts)
+
+
+def test_single_binary_description_prefers_market_description():
+    contracts = _map("elon-mars")
+    market_desc = EVENTS_BY_SLUG["elon-mars"]["markets"][0]["description"]
+    assert all(c.event_description == market_desc for c in contracts)

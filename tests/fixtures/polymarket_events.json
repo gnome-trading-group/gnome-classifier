@@ -3,11 +3,13 @@
     {
       "title": "Harvey Weinstein prison time?",
       "slug": "harvey-weinstein-prison-time",
-      "description": null,
+      "description": "This market resolves based on Harvey Weinstein's prison sentence.",
+      "tags": [{"label": "Legal", "slug": "legal"}],
       "markets": [
         {
           "conditionId": "0xf398b0e5016eeaee9b00000000000000000000000000000000000000000000001",
           "question": "Will Harvey Weinstein be sentenced to no prison time?",
+          "description": "This market resolves based on Harvey Weinstein's prison sentence.",
           "groupItemTitle": "No Prison Time",
           "negRisk": true,
           "closed": false,
@@ -19,6 +21,7 @@
         {
           "conditionId": "0xe2b48e3b44de9658ee00000000000000000000000000000000000000000000002",
           "question": "Will Harvey Weinstein be sentenced to less than 5 years in prison?",
+          "description": "This market resolves based on Harvey Weinstein's prison sentence.",
           "groupItemTitle": "<5 years",
           "negRisk": true,
           "closed": false,
@@ -30,6 +33,7 @@
         {
           "conditionId": "0x3209617364a0d59843000000000000000000000000000000000000000000000003",
           "question": "Will Harvey Weinstein be sentenced to between 5 and 10 years in prison?",
+          "description": "This market resolves based on Harvey Weinstein's prison sentence.",
           "groupItemTitle": "5-10 years",
           "negRisk": true,
           "closed": false,
@@ -43,11 +47,13 @@
     {
       "title": "Kraken IPO by ___?",
       "slug": "kraken-ipo-by",
-      "description": null,
+      "description": "This is a market on predicting when Kraken will complete an IPO.",
+      "tags": [{"label": "Crypto", "slug": "crypto"}],
       "markets": [
         {
           "conditionId": "0x5b70123b2c37355840b00000000000000000000000000000000000000000000001",
           "question": "Kraken IPO in 2025?",
+          "description": "This market will resolve to \"Yes\" if Kraken completes an Initial Public Offering (IPO) by December 31, 2025, 11:59 PM ET.",
           "groupItemTitle": "2025",
           "negRisk": false,
           "closed": false,
@@ -59,6 +65,7 @@
         {
           "conditionId": "0x9b3c3177fe473124c700000000000000000000000000000000000000000000002",
           "question": "Kraken IPO by March 31, 2026?",
+          "description": "This market will resolve to \"Yes\" if Kraken completes an Initial Public Offering (IPO) by March 31, 2026, 11:59 PM ET.",
           "groupItemTitle": "March 2026",
           "negRisk": false,
           "closed": false,
@@ -70,6 +77,7 @@
         {
           "conditionId": "0xaabbcc1234567890ab00000000000000000000000000000000000000000000003",
           "question": "Kraken IPO by December 31, 2026?",
+          "description": "This market will resolve to \"Yes\" if Kraken completes an Initial Public Offering (IPO) by December 31, 2026, 11:59 PM ET.",
           "groupItemTitle": "Dec 2026",
           "negRisk": false,
           "closed": false,
@@ -81,13 +89,79 @@
       ]
     },
     {
+      "title": "Seattle Storm vs. New York Liberty",
+      "slug": "wnba-sea-nyl-2026-08-05",
+      "description": "WNBA game between Seattle Storm and New York Liberty on August 5, 2026.",
+      "tags": [{"label": "Sports", "slug": "sports"}],
+      "markets": [
+        {
+          "conditionId": "0xsprt010000000000000000000000000000000000000000000000000000000001",
+          "question": "Seattle Storm vs. New York Liberty",
+          "description": "This market resolves on the winner of the WNBA game between Seattle Storm and New York Liberty.",
+          "groupItemTitle": null,
+          "negRisk": false,
+          "closed": false,
+          "sportsMarketType": "moneyline",
+          "line": null,
+          "outcomes": "[\"Seattle Storm\", \"New York Liberty\"]",
+          "clobTokenIds": "[\"8001\", \"8002\"]",
+          "endDate": "2026-08-06T03:00:00Z",
+          "volumeNum": 10000.0
+        },
+        {
+          "conditionId": "0xsprt020000000000000000000000000000000000000000000000000000000002",
+          "question": "Seattle Storm vs. New York Liberty",
+          "description": "This market resolves on the point spread for the WNBA game between Seattle Storm and New York Liberty.",
+          "groupItemTitle": null,
+          "negRisk": false,
+          "closed": false,
+          "sportsMarketType": "spreads",
+          "line": -9.5,
+          "outcomes": "[\"New York Liberty\", \"Seattle Storm\"]",
+          "clobTokenIds": "[\"9001\", \"9002\"]",
+          "endDate": "2026-08-06T03:00:00Z",
+          "volumeNum": 5000.0
+        },
+        {
+          "conditionId": "0xsprt030000000000000000000000000000000000000000000000000000000003",
+          "question": "Seattle Storm vs. New York Liberty",
+          "description": "This market resolves on the total points scored in the WNBA game between Seattle Storm and New York Liberty.",
+          "groupItemTitle": null,
+          "negRisk": false,
+          "closed": false,
+          "sportsMarketType": "totals",
+          "line": 181.5,
+          "outcomes": "[\"Over\", \"Under\"]",
+          "clobTokenIds": "[\"9101\", \"9102\"]",
+          "endDate": "2026-08-06T03:00:00Z",
+          "volumeNum": 8000.0
+        },
+        {
+          "conditionId": "0xsprt040000000000000000000000000000000000000000000000000000000004",
+          "question": "Seattle Storm vs. New York Liberty",
+          "description": "This market resolves on whether Breanna Stewart scores over 22.5 points in the WNBA game.",
+          "groupItemTitle": "Breanna Stewart",
+          "negRisk": false,
+          "closed": false,
+          "sportsMarketType": "points",
+          "line": 22.5,
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"9201\", \"9202\"]",
+          "endDate": "2026-08-06T03:00:00Z",
+          "volumeNum": 3000.0
+        }
+      ]
+    },
+    {
       "title": "Will Elon Musk visit Mars?",
       "slug": "elon-mars",
-      "description": null,
+      "description": "This market resolves to Yes if Elon Musk personally travels to Mars before 2030.",
+      "tags": [{"label": "Science", "slug": "science"}],
       "markets": [
         {
           "conditionId": "0xdeadbeef000000000000000000000000000000000000000000000000000000001",
           "question": "Will Elon Musk visit Mars before 2030?",
+          "description": "This market resolves to Yes if Elon Musk personally travels to Mars before 2030.",
           "groupItemTitle": null,
           "negRisk": false,
           "closed": false,
