@@ -1,4 +1,5 @@
 import dataclasses
+import hashlib
 import json
 from unittest.mock import MagicMock
 
@@ -35,7 +36,8 @@ def mock_anthropic():
         for line in content.splitlines():
             if line.startswith("[") and "] Title: " in line:
                 raw_title = line.split("] Title: ", 1)[1].split(" | ")[0].strip()
-                titles.append({"id": idx, "original_title": raw_title, "title": raw_title, "category": "POLITICS", "tags": ["test", "tag", "here"]})
+                key = hashlib.sha256(raw_title.encode()).hexdigest()[:6]
+                titles.append({"id": idx, "key": key, "title": raw_title, "category": "POLITICS", "tags": ["test", "tag", "here"]})
                 idx += 1
             elif line.startswith("Exchange-provided title:"):
                 title = line.split(":", 1)[1].strip()

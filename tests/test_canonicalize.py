@@ -1,9 +1,10 @@
+import hashlib
 import json
 from unittest.mock import MagicMock
 
 import pytest
 
-from classifier.stages.canonicalize import canonicalize_events, parse_canon_results, _parse_canonical_result
+from classifier.stages.canonicalize import canonicalize_events, parse_canon_results, _parse_canonical_result, _title_key
 from classifier.types import CanonicalizeInput
 
 
@@ -15,10 +16,11 @@ def _make_response(payload):
     return mock_resp
 
 
-def test_echo_validate_mismatch_triggers_individual_retry():
-    """ID swap in batch response is detected via original_title mismatch and retried individually."""
+def test_key_mismatch_triggers_individual_retry():
+    """Wrong key in batch response (ID swap) is detected and event is retried individually."""
+    swapped_key = _title_key("Federal Funds Rate Decision")
     swapped_response = _make_response([
-        {"id": 1, "original_title": "Federal Funds Rate Decision", "title": "Federal Funds Rate Decision",
+        {"id": 1, "key": swapped_key, "title": "Federal Funds Rate Decision",
          "category": "ECONOMICS", "tags": ["fed"]}
     ])
     canon_context = [{"custom_id": "canon_0", "events": [
@@ -37,14 +39,15 @@ def test_echo_validate_mismatch_triggers_individual_retry():
     assert results[(1, "al-02-house-election")]["title"] == "AL-02 House Election Winner"
 
 
-def test_echo_validate_match_accepts_without_retry():
-    """Correct original_title echo passes validation without falling back to individual retry."""
+def test_correct_key_accepts_without_retry():
+    """Correct key passes validation without falling back to individual retry."""
+    raw_title = "AL-02 House Election Winner"
     correct_response = _make_response([
-        {"id": 1, "original_title": "AL-02 House Election Winner", "title": "AL-02 House Election Winner",
+        {"id": 1, "key": _title_key(raw_title), "title": raw_title,
          "category": "POLITICS", "tags": ["election"]}
     ])
     canon_context = [{"custom_id": "canon_0", "events": [
-        {"raw_title": "AL-02 House Election Winner", "description": None, "category": None,
+        {"raw_title": raw_title, "description": None, "category": None,
          "exchange_id": 1, "native_id": "al-02-house-election"}
     ]}]
     mock_client = MagicMock()
@@ -53,25 +56,9 @@ def test_echo_validate_match_accepts_without_retry():
 
     mock_client.messages.create.assert_not_called()
     assert (1, "al-02-house-election") in results
-    assert results[(1, "al-02-house-election")]["title"] == "AL-02 House Election Winner"
+    assert results[(1, "al-02-house-election")]["title"] == raw_title
 
 
-def test_echo_validate_case_insensitive():
-    """Title comparison is case-insensitive so minor casing differences don't cause false retries."""
-    response = _make_response([
-        {"id": 1, "original_title": "al-02 house election winner", "title": "AL-02 House Election Winner",
-         "category": "POLITICS", "tags": ["election"]}
-    ])
-    canon_context = [{"custom_id": "canon_0", "events": [
-        {"raw_title": "AL-02 House Election Winner", "description": None, "category": None,
-         "exchange_id": 1, "native_id": "al-02"}
-    ]}]
-    mock_client = MagicMock()
-
-    results = parse_canon_results({"canon_0": response}, canon_context, None, mock_client)
-
-    mock_client.messages.create.assert_not_called()
-    assert (1, "al-02") in results
 
 
 def test_parse_canonical_result_valid():

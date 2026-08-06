@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 from typing import Any
@@ -30,9 +31,13 @@ def _parse_canonical_result(item: dict, raw_title: str) -> dict:
     return {"title": item.get("title", raw_title), "category": category, "tags": tags}
 
 
+def _title_key(raw_title: str) -> str:
+    return hashlib.sha256(raw_title.encode()).hexdigest()[:6]
+
+
 def _build_chunk_prompt(batch: list[CanonicalizeInput]) -> str:
     event_lines = "\n".join(
-        f"[{j + 1}] Title: {ev.raw_title} | Description: {(ev.description or '')[:200]} | Category: {ev.category or ''}"
+        f"[{j + 1}] (key: {_title_key(ev.raw_title)}) Title: {ev.raw_title} | Description: {(ev.description or '')[:200]} | Category: {ev.category or ''}"
         for j, ev in enumerate(batch)
     )
     return f"""You are standardizing prediction market events for a cross-exchange registry.
@@ -41,13 +46,13 @@ For each event below, generate:
 1. title: Clean, exchange-neutral title for this prediction market question. Preserve all dates, numeric thresholds, price targets, and outcome conditions (e.g., "7,750 or above", "$100,000", "at least 3 times") exactly as stated.
 2. category: One of {_CATEGORIES_STR}
 3. tags: 3-8 lowercase keyword tags
-4. original_title: Echo the input title exactly as provided (verbatim, for validation).
+4. key: Echo the 6-character key shown in parentheses for this event (verbatim, for validation).
 
 Events:
 {event_lines}
 
 Respond with a JSON array, one object per event, echoing the input number as "id":
-[{{"id": 1, "original_title": "...", "title": "...", "category": "...", "tags": ["..."]}}, ...]"""
+[{{"id": 1, "key": "a3f2b1", "title": "...", "category": "...", "tags": ["..."]}}, ...]"""
 
 
 def prepare_canon_batch(
@@ -155,11 +160,12 @@ def parse_canon_results(
             nk: NativeKey = (ev_info["exchange_id"], ev_info["native_id"])
             item = by_id.get(j + 1)
             if item is not None:
-                echoed = item.get("original_title", "")
-                if echoed.strip().lower() != ev_info["raw_title"].strip().lower():
+                expected_key = _title_key(ev_info["raw_title"])
+                echoed_key = item.get("key", "")
+                if echoed_key != expected_key:
                     logger.warning(
-                        "Canonicalization ID mismatch: echoed=%r expected=%r (id=%d)",
-                        echoed[:80], ev_info["raw_title"][:80], j + 1,
+                        "Canonicalization key mismatch: echoed=%r expected=%r (id=%d, title=%r)",
+                        echoed_key, expected_key, j + 1, ev_info["raw_title"][:60],
                     )
                     missed.append(ev_info)
                     continue
