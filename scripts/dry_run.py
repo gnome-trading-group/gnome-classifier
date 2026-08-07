@@ -47,14 +47,15 @@ import click
 import voyageai
 
 from classifier.cache import RedisClassifierCache
-from classifier.constants import DEFAULT_RESOLUTION_LOOKBACK_DAYS as RESOLUTION_LOOKBACK_DAYS
+from classifier.constants import DEFAULT_MIN_EVENT_VOLUME, DEFAULT_RESOLUTION_LOOKBACK_DAYS as RESOLUTION_LOOKBACK_DAYS
+from classifier.db import ClassifierDB
 from classifier.pipeline import PipelineResult, create_entities_and_embed, fetch_exchanges, run_full_pipeline_sync
 from classifier.client import BatchAnthropicClient, BatchVoyageClient
-from classifier.db import ClassifierDB
 from classifier.stages.canonicalize import canonicalize_events
 from classifier.stages.classify import classify_semantic_sync, prepare_semantic_batch, run_classification_sync
-from classifier.stages.fetch import fetch_all, fetch_resolved_outcomes
+from classifier.stages.fetch import diff_contracts, fetch_all, fetch_resolved_outcomes
 from classifier.stages.resolve import detect_resolved_events
+from classifier.stages.stale import deactivate_stale_events
 from classifier.types import CanonicalizeInput
 from gnomepy.registry import RegistryClient
 from scripts.testing import StubDB, StubRegistry, no_op_anthropic_client, no_op_voyage_client
@@ -106,54 +107,46 @@ def _fetch_contracts(adapter: str | None, max_contracts: int | None):
     return registry, db, contracts, exchange_by_name
 
 
-def _display_contracts(contracts, adapter: str | None, min_volume: float | None = None):
-    contracts_by_native: dict[str, list] = {}
-    for c in contracts:
-        contracts_by_native.setdefault(c.exchange_event_native_id, []).append(c)
-
-    total_events = len(contracts_by_native)
-    filtered_out = 0
-    if min_volume is not None:
-        before = total_events
-        contracts_by_native = {
-            nid: g for nid, g in contracts_by_native.items()
-            if g[0].event_volume is None or g[0].event_volume >= min_volume
-        }
-        filtered_out = before - len(contracts_by_native)
+def _display_fetch_results(contracts, new_messages: list[dict], adapter: str | None, min_volume: float | None):
+    all_native = {(c.exchange_id, c.exchange_event_native_id) for c in contracts}
+    total_events = len(all_native)
+    filtered_out = total_events - len(new_messages)
 
     label = (adapter or "ALL ADAPTERS").upper()
     print(f"\n{'='*70}")
     print(f"{label}  ({len(contracts)} contracts, {total_events} events)")
     print(f"{'='*70}")
 
-    for native_id, group in contracts_by_native.items():
+    volumes = []
+    for msg in new_messages:
+        group = msg["contracts"]
         c0 = group[0]
-        print(f"\n  {c0.event_title}")
-        print(f"    native_id     : {c0.exchange_event_native_id}")
-        print(f"    contract_type : {c0.contract_type.name}")
-        print(f"    asset_class   : {c0.asset_class.name}")
-        print(f"    outcomes      : {[c.outcome_label for c in group]}")
-        if c0.event_category:
-            print(f"    category      : {c0.event_category}")
-        if c0.event_description:
-            print(f"    description   : {c0.event_description[:120]}")
-        if c0.event_expiry:
-            print(f"    expiry        : {c0.event_expiry}")
-        if c0.event_volume is not None:
-            print(f"    volume        : ${c0.event_volume:,.2f}")
+        print(f"\n  {c0['event_title']}")
+        print(f"    native_id     : {c0['exchange_event_native_id']}")
+        print(f"    contract_type : {c0['contract_type']}")
+        print(f"    asset_class   : {c0['asset_class']}")
+        print(f"    outcomes      : {[c['outcome_label'] for c in group]}")
+        if c0.get("event_category"):
+            print(f"    category      : {c0['event_category']}")
+        if c0.get("event_description"):
+            print(f"    description   : {c0['event_description'][:120]}")
+        if c0.get("event_expiry"):
+            print(f"    expiry        : {c0['event_expiry']}")
+        if c0.get("event_volume") is not None:
+            print(f"    volume        : ${c0['event_volume']:,.2f}")
+            volumes.append(c0["event_volume"])
         else:
             print(f"    volume        : N/A")
-        print(f"    currencies    : base={c0.base_currency}  quote={c0.quote_currency}  settle={c0.settle_currency}")
+        print(f"    currencies    : base={c0['base_currency']}  quote={c0['quote_currency']}  settle={c0['settle_currency']}")
 
-    shown = len(contracts_by_native)
-    volumes = [g[0].event_volume for g in contracts_by_native.values() if g[0].event_volume is not None]
+    shown = len(new_messages)
     print(f"\n{'='*70}")
     print(f"SUMMARY")
     print(f"{'='*70}")
     print(f"  events shown    : {shown}")
     if filtered_out:
         print(f"  filtered out    : {filtered_out}  (min_volume=${min_volume:,.2f})")
-    print(f"  contracts total : {sum(len(g) for g in contracts_by_native.values())}")
+    print(f"  contracts total : {sum(len(msg['contracts']) for msg in new_messages)}")
     if volumes:
         print(f"  volume range    : ${min(volumes):,.2f} – ${max(volumes):,.2f}")
         print(f"  volume total    : ${sum(volumes):,.2f}")
@@ -271,14 +264,18 @@ def main(ctx, debug: bool, output_path: str):
 @main.command()
 @click.argument("adapter")
 @click.option("-n", "max_contracts", type=int, default=None, help="Limit to first N contracts")
-@click.option("--min-volume", type=float, default=None, help="Hide events below this $ volume")
-def fetch(adapter: str, max_contracts: int | None, min_volume: float | None):
+@click.option("--min-volume", type=float, default=DEFAULT_MIN_EVENT_VOLUME, show_default=True, help="Exclude events below this $ volume (0 to disable)")
+def fetch(adapter: str, max_contracts: int | None, min_volume: float):
     """Fetch raw contracts from ADAPTER and display them grouped by event."""
-    _, _, contracts, _ = _fetch_contracts(adapter, max_contracts)
+    _, _, contracts, exchange_by_name = _fetch_contracts(adapter, max_contracts)
     if not contracts:
         print("No contracts returned.")
         return
-    _display_contracts(contracts, adapter, min_volume)
+    volume_filter = min_volume if min_volume > 0 else None
+    new_messages, _, _, _ = diff_contracts(
+        contracts, {}, [], exchange_by_name, volume_filter, max_messages=100_000,
+    )
+    _display_fetch_results(contracts, new_messages, adapter, volume_filter)
 
 
 @main.command()
@@ -449,6 +446,93 @@ def resolve(ctx, adapter: str | None, lookback: int):
     with open(ctx.obj["output_path"], "w") as f:
         json.dump(result, f, indent=2)
     print(f"\nFull output written to {ctx.obj['output_path']}")
+
+
+@main.command()
+@click.argument("adapter", required=False, default=None)
+@click.option("--events", type=str, default=None, help="Comma-separated exchange_id:native_event_id pairs to simulate deactivation")
+@click.pass_context
+def stale(ctx, adapter: str | None, events: str | None):
+    """Detect stale events by comparing active exchange listings against the DB.
+
+    Without --events: shows which DB-tracked events are missing from active exchange
+    listings (these would accumulate miss counts toward the stale threshold).
+
+    With --events: simulates deactivation for specific exchange_id:native_event_id pairs,
+    showing what would be deactivated in the registry (dry-run, no real writes).
+
+    Requires DATABASE_URL (via `poetry run tunnel`).
+    """
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        raise click.ClickException("DATABASE_URL is required — set it via `poetry run tunnel`")
+
+    if events:
+        pairs = []
+        for part in events.split(","):
+            eid_str, nid = part.strip().split(":", 1)
+            pairs.append((int(eid_str), nid))
+
+        real_db = ClassifierDB(dsn=database_url)
+        registry = StubRegistry()
+        registry._listings = real_db.get_all_active_listings()
+        registry._securities = real_db.get_all_securities()
+        registry._events = real_db.get_unresolved_events()
+        registry._event_contracts = real_db.get_all_event_contracts()
+        registry._exchange_events = real_db.get_all_active_exchange_events()
+        db = StubDB(registry)
+
+        print(f"\nSimulating deactivation of {len(pairs)} event(s) (dry-run)...", flush=True)
+        result = deactivate_stale_events(pairs, registry, db, debug=ctx.obj.get("debug", False))
+
+        print(f"\n{'='*70}")
+        print("STALE DEACTIVATION SUMMARY (dry-run)")
+        print(f"{'='*70}")
+        for k, v in result.items():
+            print(f"  {k:<30}: {v}")
+        return
+
+    stub_registry = StubRegistry()
+    try:
+        exchange_by_name = fetch_exchanges(stub_registry, adapter)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    print(f"\nFetching active events from exchanges...", flush=True)
+    active_contracts, failed = fetch_all(exchange_by_name)
+    if failed:
+        logger.warning("Adapter fetch failures: %s", failed)
+
+    active_by_exchange: dict[int, set[str]] = {}
+    for c in active_contracts:
+        active_by_exchange.setdefault(c.exchange_id, set()).add(c.exchange_event_native_id)
+
+    real_db = ClassifierDB(dsn=database_url)
+    db_native_ids = real_db.get_active_exchange_native_ids()
+
+    exchange_name_by_id = {ex.exchange_id: name for name, ex in exchange_by_name.items()}
+    missing: dict[int, set[str]] = {}
+    for exchange_id, db_ids in db_native_ids.items():
+        if exchange_id not in exchange_name_by_id:
+            continue
+        gone = db_ids - active_by_exchange.get(exchange_id, set())
+        if gone:
+            missing[exchange_id] = gone
+
+    total_missing = sum(len(ids) for ids in missing.values())
+
+    print(f"\n{'='*70}")
+    print("STALE DETECTION SUMMARY")
+    print(f"{'='*70}")
+    for exchange_id, native_ids in missing.items():
+        name = exchange_name_by_id.get(exchange_id, str(exchange_id))
+        print(f"\n  {name.upper()} ({len(native_ids)} events missing from active listings):")
+        for nid in sorted(native_ids):
+            print(f"    {nid}")
+    if not total_missing:
+        print("  No stale events detected.")
+    else:
+        print(f"\n  Total events that would accumulate miss counts: {total_missing}")
 
 
 @main.command()

@@ -1,5 +1,3 @@
-import dataclasses
-import hashlib
 import json
 import logging
 import os
@@ -9,8 +7,8 @@ import time
 import boto3
 import redis as redis_lib
 
-from classifier.adapters.types import AdapterContract
-from classifier.stages.fetch import fetch_all, fetch_exchanges, fetch_resolved_outcomes
+from classifier.stages.fetch import diff_contracts, fetch_all, fetch_exchanges, fetch_resolved_outcomes
+from classifier.stages.stale import update_stale_tracker
 from classifier.workers.base import sqs_send_batch
 from classifier.workers.config import init_registry, init_runtime_config
 
@@ -21,16 +19,6 @@ _REDIS_KNOWN_CONTRACTS_KEY = "fetch:known_contracts"
 _REDIS_SENT_RESOLVED_KEY = "fetch:sent_resolved"
 _REDIS_STALE_TRACKER_KEY = "fetch:stale_tracker"
 _REDIS_TTL = 7 * 86400
-
-def _contract_hash(contract: AdapterContract) -> str:
-    content = "\x00".join([
-        str(contract.exchange_id),
-        contract.exchange_security_id,
-        contract.outcome_label,
-        contract.event_title,
-        contract.exchange_event_native_id,
-    ])
-    return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
 # ── Redis helpers ─────────────────────────────────────────────────────────────
@@ -168,63 +156,19 @@ class FetchRunner:
         if failed:
             logger.warning("Failed to fetch contracts from: %s", failed)
 
-        contracts_by_native: dict[tuple[int, str], list[AdapterContract]] = {}
-        current_hashes: dict[str, str] = {}
-        active_by_exchange: dict[int, set[str]] = {}
-        for contract in active_contracts:
-            nk = (contract.exchange_id, contract.exchange_event_native_id)
-            contracts_by_native.setdefault(nk, []).append(contract)
-            ck = f"{contract.exchange_id}:{contract.exchange_security_id}"
-            current_hashes[ck] = _contract_hash(contract)
-            active_by_exchange.setdefault(contract.exchange_id, set()).add(contract.exchange_event_native_id)
-
-        successful_exchange_ids = {ex.exchange_id for name, ex in exchange_by_name.items() if name not in failed}
-
-        min_event_volume = rc.config.thresholds.min_event_volume
-        if min_event_volume is not None:
-            filtered_count = 0
-            for nk, group in list(contracts_by_native.items()):
-                vol = group[0].event_volume
-                if vol is not None and vol < min_event_volume:
-                    filtered_count += 1
-                    del contracts_by_native[nk]
-                    for c in group:
-                        current_hashes.pop(f"{c.exchange_id}:{c.exchange_security_id}", None)
-            if filtered_count:
-                logger.info("Filtered %d low-volume event groups (min_event_volume=%.2f)", filtered_count, min_event_volume)
-
-        new_messages: list[dict] = []
-        for nk, group in contracts_by_native.items():
-            has_new_or_changed = any(
-                known_contracts.get(f"{c.exchange_id}:{c.exchange_security_id}") != current_hashes[f"{c.exchange_id}:{c.exchange_security_id}"]
-                for c in group
-            )
-            if has_new_or_changed:
-                new_messages.append({"type": "new", "contracts": [dataclasses.asdict(c) for c in group]})
-
-        max_send = rc.config.processing.fetch_max_sqs_messages
-        if len(new_messages) > max_send:
-            logger.info("Capping fetch from %d to %d groups", len(new_messages), max_send)
-            new_messages = new_messages[:max_send]
+        new_messages, updated_hashes, active_by_exchange, successful_ids = diff_contracts(
+            active_contracts, known_contracts, failed, exchange_by_name,
+            min_event_volume=rc.config.thresholds.min_event_volume,
+            max_messages=rc.config.processing.fetch_max_sqs_messages,
+        )
 
         if new_messages:
             sqs_send_batch(sqs, queue_url, new_messages)
             logger.info("Sent %d contract groups to contracts-queue", len(new_messages))
 
-        sent_contract_keys = set()
-        for msg in new_messages:
-            for c in msg["contracts"]:
-                sent_contract_keys.add(f"{c['exchange_id']}:{c['exchange_security_id']}")
-
-        final_hashes = {}
-        for ck in current_hashes:
-            if ck in sent_contract_keys:
-                final_hashes[ck] = current_hashes[ck]
-            elif ck in known_contracts:
-                final_hashes[ck] = known_contracts[ck]
-        _redis_save_known_contracts(r, final_hashes)
+        _redis_save_known_contracts(r, updated_hashes)
         logger.info("Fetch cycle complete: %d new/changed groups", len(new_messages))
-        return active_by_exchange, successful_exchange_ids
+        return active_by_exchange, successful_ids
 
     def _run_resolve(self, rc, r, sqs, registry):
         if not rc.config.feature_flags.resolve_enabled:
@@ -268,7 +212,6 @@ class FetchRunner:
             return
 
         queue_url = os.environ["CONTRACTS_QUEUE_URL"]
-        miss_threshold = rc.config.processing.stale_miss_threshold
 
         if self._active_events is not None:
             active_by_exchange, successful_ids = self._active_events
@@ -288,42 +231,11 @@ class FetchRunner:
                 active_by_exchange.setdefault(contract.exchange_id, set()).add(contract.exchange_event_native_id)
 
         tracker = _redis_load_stale_tracker(r)
-
-        new_tracker: dict[str, dict] = {}
-        all_stale: list[dict] = []
-
-        for tk, entry in tracker.items():
-            exchange_id = entry["exchange_id"]
-            native_event_id = entry["native_event_id"]
-            miss_count = entry["miss_count"]
-
-            if exchange_id in failed_exchange_ids:
-                new_tracker[tk] = entry
-                continue
-
-            if native_event_id in active_by_exchange.get(exchange_id, set()):
-                new_tracker[tk] = {"exchange_id": exchange_id, "native_event_id": native_event_id, "miss_count": 0}
-            else:
-                miss_count += 1
-                if miss_count >= miss_threshold:
-                    all_stale.append({"type": "stale", "exchange_id": exchange_id, "native_event_id": native_event_id})
-                else:
-                    new_tracker[tk] = {"exchange_id": exchange_id, "native_event_id": native_event_id, "miss_count": miss_count}
-
-        for exchange_id, native_ids in active_by_exchange.items():
-            for native_event_id in native_ids:
-                tk = f"{exchange_id}:{native_event_id}"
-                if tk not in new_tracker:
-                    new_tracker[tk] = {"exchange_id": exchange_id, "native_event_id": native_event_id, "miss_count": 0}
-
-        max_send = rc.config.processing.stale_max_sqs_messages
-        stale_messages = all_stale[:max_send]
-        if len(all_stale) > max_send:
-            logger.info("Capping stale from %d to %d messages", len(all_stale), max_send)
-
-        for msg in all_stale[max_send:]:
-            tk = f"{msg['exchange_id']}:{msg['native_event_id']}"
-            new_tracker[tk] = {"exchange_id": msg["exchange_id"], "native_event_id": msg["native_event_id"], "miss_count": miss_threshold}
+        stale_messages, new_tracker = update_stale_tracker(
+            tracker, active_by_exchange, failed_exchange_ids,
+            miss_threshold=rc.config.processing.stale_miss_threshold,
+            max_messages=rc.config.processing.stale_max_sqs_messages,
+        )
 
         if stale_messages:
             sqs_send_batch(sqs, queue_url, stale_messages)

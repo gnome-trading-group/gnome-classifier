@@ -43,8 +43,10 @@ Each contract pair (a, b) must appear at most once — pick the single most accu
 ### EQUIVALENT — same question, different phrasing across exchanges
 
 Event A: Will Bitcoin price exceed $100,000 by end of 2025?
+  Description:
   Contracts: [1] Yes  [2] No
 Event B: Bitcoin above $100k on December 31, 2025?
+  Description:
   Contracts: [1] Yes  [2] No
 Embedding similarity: 0.943
 Output: [{"a": 1, "b": 1, "type": "EQUIVALENT", "confidence": 0.96}, {"a": 2, "b": 2, "type": "EQUIVALENT", "confidence": 0.96}]
@@ -52,8 +54,10 @@ Output: [{"a": 1, "b": 1, "type": "EQUIVALENT", "confidence": 0.96}, {"a": 2, "b
 ### EQUIVALENT — same election, both outcomes map
 
 Event A: 2024 US Presidential Election winner
+  Description:
   Contracts: [1] Trump  [2] Harris
 Event B: Will Donald Trump win the 2024 US Presidential Election?
+  Description:
   Contracts: [1] Yes  [2] No
 Embedding similarity: 0.921
 Output: [{"a": 1, "b": 1, "type": "EQUIVALENT", "confidence": 0.97}, {"a": 2, "b": 2, "type": "EQUIVALENT", "confidence": 0.89}]
@@ -61,8 +65,10 @@ Output: [{"a": 1, "b": 1, "type": "EQUIVALENT", "confidence": 0.97}, {"a": 2, "b
 ### IMPLIES — higher threshold implies lower (A→B)
 
 Event A: Will Bitcoin exceed $200,000 at any point in 2026?
+  Description:
   Contracts: [1] Yes  [2] No
 Event B: Will Bitcoin exceed $100,000 at any point in 2026?
+  Description:
   Contracts: [1] Yes  [2] No
 Embedding similarity: 0.891
 Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.98, "direction": "A_IMPLIES_B"}]
@@ -70,8 +76,10 @@ Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.98, "direction": "A
 ### IMPLIES — superset implies subset, direction reversed (B→A)
 
 Event A: Will the Fed cut interest rates at least once in 2026?
+  Description:
   Contracts: [1] Yes  [2] No
 Event B: Will the Fed cut interest rates at least three times in 2026?
+  Description:
   Contracts: [1] Yes  [2] No
 Embedding similarity: 0.874
 Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "B_IMPLIES_A"}]
@@ -79,8 +87,10 @@ Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "B
 ### NOT EQUIVALENT — different price thresholds are distinct questions
 
 Event A: S&P 500 price on Aug 5, 2026 at 10am EDT: 7,795 or above
+  Description:
   Contracts: [1] Yes
 Event B: S&P 500 price on Aug 5, 2026 at 10am EDT: 7,750 or above
+  Description:
   Contracts: [1] Yes
 Embedding similarity: 0.961
 Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "A_IMPLIES_B"}]
@@ -88,8 +98,10 @@ Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "A
 ### NOT EQUIVALENT — different deadlines are distinct questions
 
 Event A: Israel Iran Ceasefire Continues Through August 4, 2026
+  Description:
   Contracts: [1] Yes
 Event B: Israel Iran Ceasefire Continues Through August 2, 2026
+  Description:
   Contracts: [1] Yes
 Embedding similarity: 0.957
 Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "A_IMPLIES_B"}]
@@ -97,8 +109,10 @@ Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "A
 ### MUTUALLY_EXCLUSIVE — only one outcome can resolve YES
 
 Event A: 2028 US Presidential Election winner
+  Description:
   Contracts: [1] Democratic candidate  [2] Republican candidate
 Event B: 2028 US Presidential Election: Will Republicans win?
+  Description:
   Contracts: [1] Yes  [2] No
 Embedding similarity: 0.903
 Output: [{"a": 1, "b": 2, "type": "MUTUALLY_EXCLUSIVE", "confidence": 0.94}, {"a": 2, "b": 1, "type": "EQUIVALENT", "confidence": 0.95}]
@@ -106,8 +120,10 @@ Output: [{"a": 1, "b": 2, "type": "MUTUALLY_EXCLUSIVE", "confidence": 0.94}, {"a
 ### NOT mutually exclusive — time-bound contracts are often IMPLIES, not ME
 
 Event A: Will the US enter a recession by June 30, 2026?
+  Description:
   Contracts: [1] Yes  [2] No
 Event B: Will the US enter a recession by December 31, 2026?
+  Description:
   Contracts: [1] Yes  [2] No
 Embedding similarity: 0.908
 Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "A_IMPLIES_B"}]
@@ -115,8 +131,10 @@ Output: [{"a": 1, "b": 1, "type": "IMPLIES", "confidence": 0.97, "direction": "A
 ### NONE — different underlying assets, no trading relationship
 
 Event A: Will Ethereum price exceed $5,000 by end of 2026?
+  Description:
   Contracts: [1] Yes  [2] No
 Event B: Will Bitcoin price exceed $200,000 by end of 2026?
+  Description:
   Contracts: [1] Yes  [2] No
 Embedding similarity: 0.813
 Output: []
@@ -124,8 +142,10 @@ Output: []
 ### NONE — same domain, no structural relationship between outcomes
 
 Event A: Who wins the 2026 FIFA World Cup?
+  Description:
   Contracts: [1] Brazil  [2] France  [3] Germany  [4] Field
 Event B: Will the 2026 FIFA World Cup final have more than 2 goals?
+  Description:
   Contracts: [1] Yes  [2] No
 Embedding similarity: 0.801
 Output: []
@@ -133,10 +153,23 @@ Output: []
 ### NONE — superficially related topic but no trading relationship
 
 Event A: Will inflation in the US exceed 3% in 2026?
+  Description:
   Contracts: [1] Yes  [2] No
 Event B: Will the Fed raise interest rates in 2026?
+  Description:
   Contracts: [1] Yes  [2] No
 Embedding similarity: 0.821
+Output: []
+
+### NONE — esports full match vs individual map are different scopes
+
+Event A: Team Jenz vs Power Rangers - EPL Masters 2026 Dota 2 Match
+  Description: Match winner: Team Jenz vs Power Rangers
+  Contracts: [1] Team Jenz  [2] Power Rangers
+Event B: Dota 2: Team Jenz vs Power Rangers Map 1
+  Description: Map 1 winner
+  Contracts: [1] Team Jenz  [2] Power Rangers
+Embedding similarity: 0.948
 Output: []"""
 
 
@@ -272,8 +305,10 @@ def build_judgment_requests(
         contracts_b_lines = "  ".join(f"[{i+1}] {ec.outcome_label}" for i, ec in enumerate(primary_b))
         user_content = (
             f"Event A: {ev_a.title}\n"
+            f"  Description: {(ev_a.description or '')[:200]}\n"
             f"  Contracts: {contracts_a_lines}\n\n"
             f"Event B: {ev_b.title}\n"
+            f"  Description: {(ev_b.description or '')[:200]}\n"
             f"  Contracts: {contracts_b_lines}\n\n"
             f"Embedding similarity: {similarity:.3f}"
         )

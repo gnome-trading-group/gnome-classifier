@@ -6,6 +6,52 @@ from classifier.db import ClassifierDB
 logger = logging.getLogger(__name__)
 
 
+def update_stale_tracker(
+    tracker: dict[str, dict],
+    active_by_exchange: dict[int, set[str]],
+    failed_exchange_ids: set[int],
+    miss_threshold: int,
+    max_messages: int,
+) -> tuple[list[dict], dict[str, dict]]:
+    """Returns (stale_messages, new_tracker)."""
+    new_tracker: dict[str, dict] = {}
+    all_stale: list[dict] = []
+
+    for tk, entry in tracker.items():
+        exchange_id = entry["exchange_id"]
+        native_event_id = entry["native_event_id"]
+        miss_count = entry["miss_count"]
+
+        if exchange_id in failed_exchange_ids:
+            new_tracker[tk] = entry
+            continue
+
+        if native_event_id in active_by_exchange.get(exchange_id, set()):
+            new_tracker[tk] = {"exchange_id": exchange_id, "native_event_id": native_event_id, "miss_count": 0}
+        else:
+            miss_count += 1
+            if miss_count >= miss_threshold:
+                all_stale.append({"type": "stale", "exchange_id": exchange_id, "native_event_id": native_event_id})
+            else:
+                new_tracker[tk] = {"exchange_id": exchange_id, "native_event_id": native_event_id, "miss_count": miss_count}
+
+    for exchange_id, native_ids in active_by_exchange.items():
+        for native_event_id in native_ids:
+            tk = f"{exchange_id}:{native_event_id}"
+            if tk not in new_tracker:
+                new_tracker[tk] = {"exchange_id": exchange_id, "native_event_id": native_event_id, "miss_count": 0}
+
+    stale_messages = all_stale[:max_messages]
+    if len(all_stale) > max_messages:
+        logger.info("Capping stale from %d to %d messages", len(all_stale), max_messages)
+
+    for msg in all_stale[max_messages:]:
+        tk = f"{msg['exchange_id']}:{msg['native_event_id']}"
+        new_tracker[tk] = {"exchange_id": msg["exchange_id"], "native_event_id": msg["native_event_id"], "miss_count": miss_threshold}
+
+    return stale_messages, new_tracker
+
+
 def deactivate_stale_events(
     stale_native_keys: list[tuple[int, str]],
     registry,

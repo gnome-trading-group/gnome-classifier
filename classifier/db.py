@@ -6,7 +6,7 @@ import psycopg2.extras
 import psycopg2.pool
 from pgvector.psycopg2 import register_vector
 
-from gnomepy.registry.types import ContractRelationship, Currency, Event, EventContract, Listing, Security
+from gnomepy.registry.types import ContractRelationship, Currency, Event, EventContract, ExchangeEvent, Listing, Security
 
 logger = logging.getLogger(__name__)
 
@@ -561,3 +561,41 @@ class ClassifierDB:
                     (event_ids,),
                 )
                 return {row[0] for row in cur.fetchall()}
+
+    def get_active_exchange_native_ids(self) -> dict[int, set[str]]:
+        """Returns {exchange_id: {native_event_id}} for unresolved events."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT ee.exchange_id, ee.native_event_id"
+                    " FROM sm.exchange_event ee"
+                    " JOIN sm.event e ON e.event_id = ee.event_id"
+                    " WHERE e.resolved = false"
+                )
+                result: dict[int, set[str]] = {}
+                for exchange_id, native_id in cur.fetchall():
+                    result.setdefault(exchange_id, set()).add(native_id)
+                return result
+
+    def get_all_active_exchange_events(self) -> list[ExchangeEvent]:
+        """Returns exchange events for unresolved events."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT ee.exchange_event_id, ee.exchange_id, ee.event_id,"
+                    " ee.native_event_id, ee.raw_title, ee.date_created"
+                    " FROM sm.exchange_event ee"
+                    " JOIN sm.event e ON e.event_id = ee.event_id"
+                    " WHERE e.resolved = false"
+                )
+                return [
+                    ExchangeEvent(
+                        exchange_event_id=row[0],
+                        exchange_id=row[1],
+                        event_id=row[2],
+                        native_event_id=row[3],
+                        raw_title=row[4] or "",
+                        date_created=str(row[5]),
+                    )
+                    for row in cur.fetchall()
+                ]

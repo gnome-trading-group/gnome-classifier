@@ -575,5 +575,13 @@ class StubDB:
         id_set = set(event_ids)
         return {ec.security_id for ec in self._r._event_contracts if ec.event_id in id_set}
 
+    def get_active_exchange_native_ids(self) -> dict[int, set[str]]:
+        resolved_event_ids = {ev.event_id for ev in self._r._events if ev.resolved}
+        result: dict[int, set[str]] = {}
+        for ee in self._r._exchange_events:
+            if ee.event_id not in resolved_event_ids:
+                result.setdefault(ee.exchange_id, set()).add(ee.native_event_id)
+        return result
+
     def get_hedge_keywords(self) -> list[tuple[int, str]]:
         return list(self._r._hedge_keywords)
