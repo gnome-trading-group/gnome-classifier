@@ -155,6 +155,7 @@ class FetchRunner:
         exchange_by_name = fetch_exchanges(registry)
         min_event_volume = rc.config.thresholds.min_event_volume
         max_messages = rc.config.processing.fetch_max_sqs_messages
+        debug = rc.config.feature_flags.debug
 
         merged_hashes: dict[str, str] = dict(known_contracts)
         active_by_exchange: dict[int, set[str]] = {}
@@ -178,6 +179,7 @@ class FetchRunner:
                         page, known_contracts, [], exchange_by_name,
                         min_event_volume=min_event_volume,
                         max_messages=remaining,
+                        debug=debug,
                     )
                     if new_msgs:
                         sqs_send_batch(sqs, queue_url, new_msgs)

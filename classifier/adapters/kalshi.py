@@ -90,9 +90,8 @@ class KalshiAdapter:
 
         return resolved
 
-    def _fetch_settled_events(self, lookback_days: int) -> list[dict]:
+    def _fetch_settled_events(self, lookback_days: int):
         min_ts = int((datetime.now(timezone.utc) - timedelta(days=lookback_days)).timestamp())
-        events: list[dict] = []
         cursor = ""
         while True:
             params: dict = {
@@ -109,19 +108,16 @@ class KalshiAdapter:
                 data = res.json()
             except requests.exceptions.RetryError as e:
                 logger.error("Kalshi settled API retries exhausted: %s", e)
-                break
+                return
             except requests.exceptions.RequestException as e:
                 logger.error("Kalshi settled API error: %s", e)
-                break
-            page = data.get("events", [])
-            events.extend(page)
+                return
+            yield from data.get("events", [])
             cursor = data.get("cursor", "")
             if not cursor:
-                break
-        return events
+                return
 
-    def _fetch_active_events(self) -> list[dict]:
-        events: list[dict] = []
+    def _fetch_active_events(self):
         cursor = ""
         while True:
             params: dict = {
@@ -131,26 +127,20 @@ class KalshiAdapter:
             }
             if cursor:
                 params["cursor"] = cursor
-
             try:
                 res = self._session.get(f"{BASE_URL}/events", params=params, timeout=30)
                 res.raise_for_status()
                 data = res.json()
             except requests.exceptions.RetryError as e:
                 logger.error("Kalshi API retries exhausted: %s", e)
-                break
+                return
             except requests.exceptions.RequestException as e:
                 logger.error("Kalshi API error: %s", e)
-                break
-
-            page = data.get("events", [])
-            events.extend(page)
-
+                return
+            yield from data.get("events", [])
             cursor = data.get("cursor", "")
             if not cursor:
-                break
-
-        return events
+                return
 
     def _map_event(self, exchange_id: ExchangeId, event: dict) -> list[AdapterContract]:
         markets = event.get("markets", [])

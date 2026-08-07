@@ -28,6 +28,7 @@ def diff_contracts(
     exchange_by_name: dict[str, Exchange],
     min_event_volume: float | None,
     max_messages: int,
+    debug: bool = False,
 ) -> tuple[list[dict], dict[str, str], dict[int, set[str]], set[int]]:
     """Returns (new_messages, updated_hashes, active_by_exchange, successful_exchange_ids)."""
     contracts_by_native: dict[tuple[int, str], list[AdapterContract]] = {}
@@ -54,7 +55,7 @@ def diff_contracts(
                 del contracts_by_native[nk]
                 for c in group:
                     current_hashes.pop(f"{c.exchange_id}:{c.exchange_security_id}", None)
-        if filtered_count:
+        if filtered_count and debug:
             logger.info("Filtered %d low-volume event groups (min_event_volume=%.2f)", filtered_count, min_event_volume)
 
     new_messages: list[dict] = []

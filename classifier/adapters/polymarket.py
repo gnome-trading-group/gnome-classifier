@@ -111,9 +111,8 @@ class PolymarketAdapter:
 
         return resolved
 
-    def _fetch_closed_events(self, lookback_days: int) -> list[dict]:
+    def _fetch_closed_events(self, lookback_days: int):
         since = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        events: list[dict] = []
         after_cursor: str | None = None
         while True:
             params: dict = {
@@ -130,18 +129,16 @@ class PolymarketAdapter:
                 data = res.json()
             except requests.exceptions.RetryError as e:
                 logger.error("Polymarket closed events retries exhausted at cursor=%s: %s", after_cursor, e)
-                break
+                return
             except requests.exceptions.RequestException as e:
                 logger.error("Polymarket closed events API error at cursor=%s: %s", after_cursor, e)
-                break
-            events.extend(data.get("events", []))
+                return
+            yield from data.get("events", [])
             after_cursor = data.get("next_cursor")
             if after_cursor is None:
-                break
-        return events
+                return
 
-    def _fetch_all_events(self) -> list[dict]:
-        events: list[dict] = []
+    def _fetch_all_events(self):
         after_cursor: str | None = None
         while True:
             params: dict = {
@@ -151,24 +148,20 @@ class PolymarketAdapter:
             }
             if after_cursor is not None:
                 params["after_cursor"] = after_cursor
-
             try:
                 res = self._session.get(f"{GAMMA_API_URL}/events/keyset", params=params, timeout=30)
                 res.raise_for_status()
                 data = res.json()
             except requests.exceptions.RetryError as e:
                 logger.error("Polymarket API retries exhausted at cursor=%s: %s", after_cursor, e)
-                break
+                return
             except requests.exceptions.RequestException as e:
                 logger.error("Polymarket API error at cursor=%s: %s", after_cursor, e)
-                break
-
-            events.extend(data.get("events", []))
+                return
+            yield from data.get("events", [])
             after_cursor = data.get("next_cursor")
             if after_cursor is None:
-                break
-
-        return events
+                return
 
     def _map_event(self, exchange_id: ExchangeId, event: dict) -> list[AdapterContract]:
         markets = [m for m in event.get("markets", []) if not m.get("closed", False)]
