@@ -3,6 +3,7 @@ import click
 from classifier.utils import setup_logging
 from classifier.workers.config import WorkerConfig
 from classifier.workers.embed import EmbedWorker
+from classifier.workers.fetch import FetchRunner
 from classifier.workers.normalize import NormalizeWorker
 from classifier.workers.notify import NotifyWorker
 from classifier.workers.relationships import RelationshipsWorker
@@ -31,6 +32,11 @@ def relationships():
 @cli.command()
 def notify():
     NotifyWorker(WorkerConfig()).run()
+
+
+@cli.command()
+def fetch():
+    FetchRunner().run()
 
 
 if __name__ == "__main__":

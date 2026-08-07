@@ -12,7 +12,6 @@ from classifier.client import BatchVoyageClient
 from classifier.runtime_config import ClassifierConfig, FeatureFlags
 from classifier.workers.config import WorkerConfig
 from classifier.workers.embed import EmbedWorker
-from classifier.workers.fetch import fetch_handler, resolve_handler
 from classifier.workers.normalize import NormalizeWorker
 from classifier.workers.notify import NotifyWorker
 from classifier.workers.relationships import RelationshipsWorker
@@ -375,95 +374,6 @@ class TestNotifyWorker:
         with patch("classifier.workers.notify.send_slack_notification") as mock_send:
             worker.process_batch([_sqs_msg({"type": "new_events", "created_event_ids": [1], "created_event_names": ["Test"]})])
             mock_send.assert_not_called()
-
-
-class TestFetchHandler:
-    def test_sends_new_contracts_to_queue(self, moto_env, stub_registry, monkeypatch):
-        contract = _make_adapter_contract()
-
-        monkeypatch.setenv("REGISTRY_API_KEY_ID", "fake-key-id")
-
-        with (
-            patch("classifier.workers.fetch._get_runtime_config", return_value=_make_handler_rc(fetch_enabled=True)),
-            patch("classifier.workers.fetch.init_registry", return_value=stub_registry),
-            patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
-            patch("classifier.workers.fetch.fetch_all", return_value=([contract], [])),
-        ):
-            result = fetch_handler({}, None)
-
-        assert result["new_contracts"] == 1
-
-        delivered = _drain_queue(moto_env["sqs"], moto_env["contracts_queue"])
-        bodies = [json.loads(m["Body"]) for m in delivered]
-        assert any(b["type"] == "new" for b in bodies)
-
-        obj = moto_env["s3"].get_object(Bucket="test-cache", Key="fetch-cache/known_contracts.json")
-        cache = json.loads(obj["Body"].read())
-        assert len(cache) == 1
-
-    def test_deduplicates_on_second_call(self, moto_env, stub_registry, monkeypatch):
-        contract = _make_adapter_contract()
-        monkeypatch.setenv("REGISTRY_API_KEY_ID", "fake-key-id")
-
-        patches = dict(
-            _get_runtime_config=patch("classifier.workers.fetch._get_runtime_config", return_value=_make_handler_rc(fetch_enabled=True)),
-            init_registry=patch("classifier.workers.fetch.init_registry", return_value=stub_registry),
-            fetch_exchanges=patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
-            fetch_all=patch("classifier.workers.fetch.fetch_all", return_value=([contract], [])),
-        )
-
-        with patches["_get_runtime_config"], patches["init_registry"], patches["fetch_exchanges"], patches["fetch_all"]:
-            first = fetch_handler({}, None)
-
-        _drain_queue(moto_env["sqs"], moto_env["contracts_queue"])
-
-        with patches["_get_runtime_config"], patches["init_registry"], patches["fetch_exchanges"], patches["fetch_all"]:
-            second = fetch_handler({}, None)
-
-        assert first["new_contracts"] == 1
-        assert second["new_contracts"] == 0
-
-
-class TestResolveHandler:
-    def test_sends_resolved_contracts(self, moto_env, stub_registry, monkeypatch):
-        monkeypatch.setenv("REGISTRY_API_KEY_ID", "fake-key-id")
-        resolved = {1: {"evt-1"}}
-
-        with (
-            patch("classifier.workers.fetch._get_runtime_config", return_value=_make_handler_rc(resolve_enabled=True)),
-            patch("classifier.workers.fetch.init_registry", return_value=stub_registry),
-            patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
-            patch("classifier.workers.fetch.fetch_resolved_outcomes", return_value=(resolved, [])),
-        ):
-            result = resolve_handler({}, None)
-
-        assert result["resolved_contracts"] == 1
-
-        delivered = _drain_queue(moto_env["sqs"], moto_env["contracts_queue"])
-        bodies = [json.loads(m["Body"]) for m in delivered]
-        assert any(b["type"] == "resolved" for b in bodies)
-
-    def test_deduplicates_on_second_call(self, moto_env, stub_registry, monkeypatch):
-        monkeypatch.setenv("REGISTRY_API_KEY_ID", "fake-key-id")
-        resolved = {1: {"evt-1"}}
-
-        patches = dict(
-            rc=patch("classifier.workers.fetch._get_runtime_config", return_value=_make_handler_rc(resolve_enabled=True)),
-            init=patch("classifier.workers.fetch.init_registry", return_value=stub_registry),
-            exchanges=patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
-            resolved=patch("classifier.workers.fetch.fetch_resolved_outcomes", return_value=(resolved, [])),
-        )
-
-        with patches["rc"], patches["init"], patches["exchanges"], patches["resolved"]:
-            first = resolve_handler({}, None)
-
-        _drain_queue(moto_env["sqs"], moto_env["contracts_queue"])
-
-        with patches["rc"], patches["init"], patches["exchanges"], patches["resolved"]:
-            second = resolve_handler({}, None)
-
-        assert first["resolved_contracts"] == 1
-        assert second["resolved_contracts"] == 0
 
 
 class TestPipelineMessageCompat:

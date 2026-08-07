@@ -4,10 +4,7 @@ import * as autoscaling from 'aws-cdk-lib/aws-autoscaling';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elasticache from 'aws-cdk-lib/aws-elasticache';
-import * as events from 'aws-cdk-lib/aws-events';
-import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secrets from 'aws-cdk-lib/aws-secretsmanager';
 import * as sns from 'aws-cdk-lib/aws-sns';
@@ -31,9 +28,7 @@ export class ClassifierStack extends cdk.Stack {
   public readonly slackQueue: sqs.Queue;
   public readonly slackDlq: sqs.Queue;
   public readonly notificationsTopic: sns.Topic;
-  public readonly fetchLambda: lambda.DockerImageFunction;
-  public readonly resolveLambda: lambda.DockerImageFunction;
-  public readonly staleCleanupLambda: lambda.DockerImageFunction;
+  public readonly fetchService: ecs.Ec2Service;
   public readonly normalizeService: ecs.Ec2Service;
   public readonly embedService: ecs.Ec2Service;
   public readonly relationshipsService: ecs.Ec2Service;
@@ -216,72 +211,21 @@ export class ClassifierStack extends cdk.Stack {
       });
     };
 
-    // ── Fetch + Resolve Lambdas (no VPC — only external APIs, SQS, S3) ─
+    // ── FetchRunner (ECS long-running service) ────────────────────────
 
-    const fetchLambdaEnv = {
+    this.fetchService = createWorkerService('Fetch', 'fetch', {
       REGISTRY_API_URL: cdk.Fn.importValue('RegistryApiUrl'),
       REGISTRY_API_KEY_ID: cdk.Fn.importValue('RegistryApiKeyId'),
-      CACHE_BUCKET: cacheBucket.bucketName,
+      REDIS_ENDPOINT: redisEndpoint,
       CONTRACTS_QUEUE_URL: this.contractsQueue.queueUrl,
       ...controllerEnv,
-    };
-
-    const fetchLambdaGrants = (fn: lambda.DockerImageFunction) => {
-      this.contractsQueue.grantSendMessages(fn);
-      cacheBucket.grantReadWrite(fn);
-      fn.addToRolePolicy(new iam.PolicyStatement({
+    }, 512, (role) => {
+      this.contractsQueue.grantSendMessages(role);
+      role.addToPolicy(new iam.PolicyStatement({
         actions: ['apigateway:GET'],
         resources: [cdk.Fn.importValue('RegistryApiKeyArn'), controllerApiKeyArn],
       }));
-    };
-
-    const fetchLambda = new lambda.DockerImageFunction(this, 'FetchLambda', {
-      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
-        entrypoint: ['/usr/local/bin/python', '-m', 'awslambdaric'],
-        cmd: ['classifier.workers.fetch.fetch_handler'],
-      }),
-      timeout: cdk.Duration.minutes(10),
-      memorySize: 2048,
-      environment: fetchLambdaEnv,
     });
-    fetchLambdaGrants(fetchLambda);
-
-    const resolveLambda = new lambda.DockerImageFunction(this, 'ResolveLambda', {
-      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
-        entrypoint: ['/usr/local/bin/python', '-m', 'awslambdaric'],
-        cmd: ['classifier.workers.fetch.resolve_handler'],
-      }),
-      timeout: cdk.Duration.minutes(10),
-      memorySize: 2048,
-      environment: fetchLambdaEnv,
-    });
-    fetchLambdaGrants(resolveLambda);
-
-    const staleCleanupLambda = new lambda.DockerImageFunction(this, 'StaleCleanupLambda', {
-      code: lambda.DockerImageCode.fromImageAsset(imageAsset, {
-        entrypoint: ['/usr/local/bin/python', '-m', 'awslambdaric'],
-        cmd: ['classifier.workers.fetch.stale_cleanup_handler'],
-      }),
-      timeout: cdk.Duration.minutes(10),
-      memorySize: 2048,
-      environment: fetchLambdaEnv,
-    });
-    fetchLambdaGrants(staleCleanupLambda);
-    this.fetchLambda = fetchLambda;
-    this.resolveLambda = resolveLambda;
-    this.staleCleanupLambda = staleCleanupLambda;
-
-    new events.Rule(this, 'FetchSchedule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
-    }).addTarget(new targets.LambdaFunction(fetchLambda));
-
-    new events.Rule(this, 'ResolveSchedule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(30)),
-    }).addTarget(new targets.LambdaFunction(resolveLambda));
-
-    new events.Rule(this, 'StaleCleanupSchedule', {
-      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
-    }).addTarget(new targets.LambdaFunction(staleCleanupLambda));
 
     // ── NormalizeWorker ───────────────────────────────────────────────
 

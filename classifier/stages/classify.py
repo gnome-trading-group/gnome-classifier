@@ -209,8 +209,6 @@ def process_semantic_results(
 
     Returns (summary_counts, written_relationships).
     """
-    event_contracts = db.get_event_contracts_for_securities(new_security_ids)
-
     judged = parse_judgment_responses(responses, pending_context, cache, model=model, debug=debug)
 
     cached_judged = [
@@ -222,6 +220,14 @@ def process_semantic_results(
         )
         for r in cached_results
     ]
+
+    # Load contracts for all involved events, not just new ones — neighbor events from prior
+    # runs must be included so the complement map covers both sides of cross-run pairs.
+    all_involved_sids = set(new_security_ids)
+    for r in judged + cached_judged:
+        all_involved_sids.add(r.security_id_a)
+        all_involved_sids.add(r.security_id_b)
+    event_contracts = db.get_event_contracts_for_securities(list(all_involved_sids))
 
     all_matches = derive_semantic_relationships(judged + cached_judged, event_contracts)
     return _dedup_and_write_relationships(
