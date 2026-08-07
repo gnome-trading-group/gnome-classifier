@@ -55,12 +55,28 @@ class PolymarketAdapter:
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.1)
 
-    def fetch(self, exchange_id: ExchangeId) -> list[AdapterContract]:
-        events = self._fetch_all_events()
-        contracts: list[AdapterContract] = []
-        for event in events:
-            contracts.extend(self._map_event(exchange_id, event))
-        return contracts
+    def fetch(self, exchange_id: ExchangeId):
+        after_cursor: str | None = None
+        while True:
+            params: dict = {"active": "true", "closed": "false", "limit": PAGE_SIZE}
+            if after_cursor is not None:
+                params["after_cursor"] = after_cursor
+            try:
+                res = self._session.get(f"{GAMMA_API_URL}/events/keyset", params=params, timeout=30)
+                res.raise_for_status()
+                data = res.json()
+            except requests.exceptions.RetryError as e:
+                logger.error("Polymarket API retries exhausted at cursor=%s: %s", after_cursor, e)
+                return
+            except requests.exceptions.RequestException as e:
+                logger.error("Polymarket API error at cursor=%s: %s", after_cursor, e)
+                return
+            page = [c for event in data.get("events", []) for c in self._map_event(exchange_id, event)]
+            if page:
+                yield page
+            after_cursor = data.get("next_cursor")
+            if after_cursor is None:
+                return
 
     def fetch_resolved(self, exchange_id: ExchangeId, lookback_days: int) -> set[str]:
         resolved: set[str] = set()

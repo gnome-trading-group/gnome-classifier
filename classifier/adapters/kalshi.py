@@ -34,12 +34,28 @@ class KalshiAdapter:
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.15)
 
-    def fetch(self, exchange_id: ExchangeId) -> list[AdapterContract]:
-        events = self._fetch_active_events()
-        contracts: list[AdapterContract] = []
-        for event in events:
-            contracts.extend(self._map_event(exchange_id, event))
-        return contracts
+    def fetch(self, exchange_id: ExchangeId):
+        cursor = ""
+        while True:
+            params: dict = {"with_nested_markets": "true", "status": "open", "limit": PAGE_SIZE}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                res = self._session.get(f"{BASE_URL}/events", params=params, timeout=30)
+                res.raise_for_status()
+                data = res.json()
+            except requests.exceptions.RetryError as e:
+                logger.error("Kalshi API retries exhausted: %s", e)
+                return
+            except requests.exceptions.RequestException as e:
+                logger.error("Kalshi API error: %s", e)
+                return
+            page = [c for event in data.get("events", []) for c in self._map_event(exchange_id, event)]
+            if page:
+                yield page
+            cursor = data.get("cursor", "")
+            if not cursor:
+                return
 
     def fetch_resolved(self, exchange_id: ExchangeId, lookback_days: int) -> set[str]:
         resolved: set[str] = set()

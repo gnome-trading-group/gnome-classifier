@@ -145,6 +145,7 @@ class FetchRunner:
         logger.info("FetchRunner stopped")
 
     def _run_fetch(self, rc, r, sqs, registry) -> tuple[dict[int, set[str]], set[int]]:
+        logger.info("Starting fetch cycle")
         if not rc.config.feature_flags.fetch_enabled:
             logger.info("fetch_enabled=False, skipping fetch cycle")
             return self._active_events or ({}, set())
@@ -155,11 +156,11 @@ class FetchRunner:
         min_event_volume = rc.config.thresholds.min_event_volume
         max_messages = rc.config.processing.fetch_max_sqs_messages
 
-        all_new_messages: list[dict] = []
         merged_hashes: dict[str, str] = dict(known_contracts)
         active_by_exchange: dict[int, set[str]] = {}
         successful_ids: set[int] = set()
         failed: list[str] = []
+        total_sent = 0
 
         for adapter in ADAPTERS:
             exchange = exchange_by_name.get(adapter.exchange_name)
@@ -167,40 +168,37 @@ class FetchRunner:
                 logger.warning("No exchange record for adapter '%s' — skipping", adapter.exchange_name)
                 continue
             try:
-                contracts = adapter.fetch(exchange.exchange_id)
-                logger.info("Fetched %d contracts from %s", len(contracts), adapter.exchange_name)
+                adapter_contracts_count = 0
+                prefix = f"{exchange.exchange_id}:"
+                merged_hashes = {k: v for k, v in merged_hashes.items() if not k.startswith(prefix)}
+                for page in adapter.fetch(exchange.exchange_id):
+                    adapter_contracts_count += len(page)
+                    remaining = max(0, max_messages - total_sent)
+                    new_msgs, updated, page_active, _ = diff_contracts(
+                        page, known_contracts, [], exchange_by_name,
+                        min_event_volume=min_event_volume,
+                        max_messages=remaining,
+                    )
+                    if new_msgs:
+                        sqs_send_batch(sqs, queue_url, new_msgs)
+                        total_sent += len(new_msgs)
+                    merged_hashes.update(updated)
+                    active_by_exchange.update(page_active)
+                logger.info("Fetched %d contracts from %s, sent %d groups", adapter_contracts_count, adapter.exchange_name, total_sent)
+                successful_ids.add(exchange.exchange_id)
             except Exception as e:
                 logger.error("Failed to fetch from %s: %s", adapter.exchange_name, e)
                 failed.append(adapter.exchange_name)
-                continue
-
-            remaining = max(0, max_messages - len(all_new_messages))
-            new_msgs, updated, adapter_active, _ = diff_contracts(
-                contracts, known_contracts, [], exchange_by_name,
-                min_event_volume=min_event_volume,
-                max_messages=remaining,
-            )
-            del contracts
-
-            all_new_messages.extend(new_msgs)
-            prefix = f"{exchange.exchange_id}:"
-            merged_hashes = {k: v for k, v in merged_hashes.items() if not k.startswith(prefix)}
-            merged_hashes.update(updated)
-            active_by_exchange.update(adapter_active)
-            successful_ids.add(exchange.exchange_id)
 
         if failed:
             logger.warning("Failed to fetch contracts from: %s", failed)
 
-        if all_new_messages:
-            sqs_send_batch(sqs, queue_url, all_new_messages)
-            logger.info("Sent %d contract groups to contracts-queue", len(all_new_messages))
-
         _redis_save_known_contracts(r, merged_hashes)
-        logger.info("Fetch cycle complete: %d new/changed groups", len(all_new_messages))
+        logger.info("Fetch cycle complete: %d new/changed groups", total_sent)
         return active_by_exchange, successful_ids
 
     def _run_resolve(self, rc, r, sqs, registry):
+        logger.info("Starting resolve cycle")
         if not rc.config.feature_flags.resolve_enabled:
             logger.info("resolve_enabled=False, skipping resolve cycle")
             return
@@ -237,6 +235,7 @@ class FetchRunner:
         logger.info("Resolve cycle complete: %d newly resolved", len(new_messages))
 
     def _run_stale(self, rc, r, sqs, registry):
+        logger.info("Starting stale cycle")
         if not rc.config.feature_flags.stale_cleanup_enabled:
             logger.info("stale_cleanup_enabled=False, skipping stale cycle")
             return
@@ -257,10 +256,9 @@ class FetchRunner:
                 if not exchange:
                     continue
                 try:
-                    contracts = adapter.fetch(exchange.exchange_id)
-                    for contract in contracts:
-                        active_by_exchange.setdefault(contract.exchange_id, set()).add(contract.exchange_event_native_id)
-                    del contracts
+                    for page in adapter.fetch(exchange.exchange_id):
+                        for contract in page:
+                            active_by_exchange.setdefault(contract.exchange_id, set()).add(contract.exchange_event_native_id)
                 except Exception as e:
                     logger.error("Failed to fetch from %s: %s", adapter.exchange_name, e)
                     failed_exchange_ids.add(exchange.exchange_id)

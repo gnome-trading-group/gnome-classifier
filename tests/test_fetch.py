@@ -49,7 +49,7 @@ def test_fetch_all_limits_per_adapter():
 
     mock_adapter = MagicMock()
     mock_adapter.exchange_name = "polymarket"
-    mock_adapter.fetch.return_value = [_make_contract(f"Event {i}") for i in range(20)]
+    mock_adapter.fetch.return_value = iter([[_make_contract(f"Event {i}") for i in range(20)]])
 
     exchange_by_name = {"polymarket": _make_exchange("polymarket")}
 
@@ -118,7 +118,7 @@ def _run_fetch(moto_env, contracts, min_event_volume=None):
     runner = FetchRunner()
     mock_adapter = MagicMock()
     mock_adapter.exchange_name = "polymarket"
-    mock_adapter.fetch.return_value = contracts
+    mock_adapter.fetch.return_value = iter([contracts] if contracts else [])
     with (
         patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
         patch("classifier.workers.fetch.ADAPTERS", [mock_adapter]),

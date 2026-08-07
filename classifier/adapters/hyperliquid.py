@@ -50,11 +50,13 @@ class HyperliquidAdapter:
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.1)
 
-    def fetch(self, exchange_id: ExchangeId) -> list[AdapterContract]:
+    def fetch(self, exchange_id: ExchangeId):
         data = self._fetch_outcome_meta()
         outcomes = {o["outcome"]: o for o in data.get("outcomes", [])}
         questions = data.get("questions", [])
-        return self._map_all(exchange_id, outcomes, questions)
+        page = self._map_all(exchange_id, outcomes, questions)
+        if page:
+            yield page
 
     def fetch_resolved(self, exchange_id: ExchangeId, lookback_days: int) -> set[str]:
         data = self._fetch_outcome_meta()

@@ -134,9 +134,12 @@ def fetch_all(
             logger.warning("No exchange record for adapter '%s' — skipping", adapter.exchange_name)
             continue
         try:
-            contracts = adapter.fetch(exchange.exchange_id)
-            if max_per_adapter is not None:
-                contracts = contracts[:max_per_adapter]
+            contracts: list[AdapterContract] = []
+            for page in adapter.fetch(exchange.exchange_id):
+                contracts.extend(page)
+                if max_per_adapter is not None and len(contracts) >= max_per_adapter:
+                    contracts = contracts[:max_per_adapter]
+                    break
             logger.info("Fetched %d contracts from %s", len(contracts), adapter.exchange_name)
             all_contracts.extend(contracts)
         except Exception as e:
