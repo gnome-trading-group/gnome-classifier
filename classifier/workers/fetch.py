@@ -7,7 +7,8 @@ import time
 import boto3
 import redis as redis_lib
 
-from classifier.stages.fetch import diff_contracts, fetch_all, fetch_exchanges, fetch_resolved_outcomes
+from classifier.adapters import ADAPTERS
+from classifier.stages.fetch import diff_contracts, fetch_exchanges, fetch_resolved_outcomes
 from classifier.stages.stale import update_stale_tracker
 from classifier.workers.base import sqs_send_batch
 from classifier.workers.config import init_registry, init_runtime_config
@@ -151,23 +152,52 @@ class FetchRunner:
         queue_url = os.environ["CONTRACTS_QUEUE_URL"]
         known_contracts = _redis_load_known_contracts(r)
         exchange_by_name = fetch_exchanges(registry)
-        active_contracts, failed = fetch_all(exchange_by_name)
+        min_event_volume = rc.config.thresholds.min_event_volume
+        max_messages = rc.config.processing.fetch_max_sqs_messages
+
+        all_new_messages: list[dict] = []
+        merged_hashes: dict[str, str] = dict(known_contracts)
+        active_by_exchange: dict[int, set[str]] = {}
+        successful_ids: set[int] = set()
+        failed: list[str] = []
+
+        for adapter in ADAPTERS:
+            exchange = exchange_by_name.get(adapter.exchange_name)
+            if not exchange:
+                logger.warning("No exchange record for adapter '%s' — skipping", adapter.exchange_name)
+                continue
+            try:
+                contracts = adapter.fetch(exchange.exchange_id)
+                logger.info("Fetched %d contracts from %s", len(contracts), adapter.exchange_name)
+            except Exception as e:
+                logger.error("Failed to fetch from %s: %s", adapter.exchange_name, e)
+                failed.append(adapter.exchange_name)
+                continue
+
+            remaining = max(0, max_messages - len(all_new_messages))
+            new_msgs, updated, adapter_active, _ = diff_contracts(
+                contracts, known_contracts, [], exchange_by_name,
+                min_event_volume=min_event_volume,
+                max_messages=remaining,
+            )
+            del contracts
+
+            all_new_messages.extend(new_msgs)
+            prefix = f"{exchange.exchange_id}:"
+            merged_hashes = {k: v for k, v in merged_hashes.items() if not k.startswith(prefix)}
+            merged_hashes.update(updated)
+            active_by_exchange.update(adapter_active)
+            successful_ids.add(exchange.exchange_id)
 
         if failed:
             logger.warning("Failed to fetch contracts from: %s", failed)
 
-        new_messages, updated_hashes, active_by_exchange, successful_ids = diff_contracts(
-            active_contracts, known_contracts, failed, exchange_by_name,
-            min_event_volume=rc.config.thresholds.min_event_volume,
-            max_messages=rc.config.processing.fetch_max_sqs_messages,
-        )
+        if all_new_messages:
+            sqs_send_batch(sqs, queue_url, all_new_messages)
+            logger.info("Sent %d contract groups to contracts-queue", len(all_new_messages))
 
-        if new_messages:
-            sqs_send_batch(sqs, queue_url, new_messages)
-            logger.info("Sent %d contract groups to contracts-queue", len(new_messages))
-
-        _redis_save_known_contracts(r, updated_hashes)
-        logger.info("Fetch cycle complete: %d new/changed groups", len(new_messages))
+        _redis_save_known_contracts(r, merged_hashes)
+        logger.info("Fetch cycle complete: %d new/changed groups", len(all_new_messages))
         return active_by_exchange, successful_ids
 
     def _run_resolve(self, rc, r, sqs, registry):
@@ -220,15 +250,20 @@ class FetchRunner:
         else:
             logger.warning("stale_cleanup: no active events in memory, falling back to fetch_all")
             exchange_by_name = fetch_exchanges(registry)
-            active_contracts, failed_exchanges = fetch_all(exchange_by_name)
             failed_exchange_ids = set()
-            for name in failed_exchanges:
-                ex = exchange_by_name.get(name)
-                if ex:
-                    failed_exchange_ids.add(ex.exchange_id)
             active_by_exchange = {}
-            for contract in active_contracts:
-                active_by_exchange.setdefault(contract.exchange_id, set()).add(contract.exchange_event_native_id)
+            for adapter in ADAPTERS:
+                exchange = exchange_by_name.get(adapter.exchange_name)
+                if not exchange:
+                    continue
+                try:
+                    contracts = adapter.fetch(exchange.exchange_id)
+                    for contract in contracts:
+                        active_by_exchange.setdefault(contract.exchange_id, set()).add(contract.exchange_event_native_id)
+                    del contracts
+                except Exception as e:
+                    logger.error("Failed to fetch from %s: %s", adapter.exchange_name, e)
+                    failed_exchange_ids.add(exchange.exchange_id)
 
         tracker = _redis_load_stale_tracker(r)
         stale_messages, new_tracker = update_stale_tracker(

@@ -116,9 +116,12 @@ def _run_fetch(moto_env, contracts, min_event_volume=None):
     r = MagicMock()
     r.get.return_value = None
     runner = FetchRunner()
+    mock_adapter = MagicMock()
+    mock_adapter.exchange_name = "polymarket"
+    mock_adapter.fetch.return_value = contracts
     with (
         patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
-        patch("classifier.workers.fetch.fetch_all", return_value=(contracts, [])),
+        patch("classifier.workers.fetch.ADAPTERS", [mock_adapter]),
     ):
         runner._run_fetch(rc, r, moto_env["sqs"], MagicMock())
     messages = []

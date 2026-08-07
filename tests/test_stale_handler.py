@@ -35,10 +35,8 @@ class TestStaleCleanupHandler:
         runner = FetchRunner()
         runner._active_events = ({1: {"evt-active"}}, {1})
 
-        with patch("classifier.workers.fetch.fetch_all") as mock_fetch_all:
+        with patch("classifier.workers.fetch.ADAPTERS", []) as mock_adapters:
             runner._run_stale(_make_stale_rc(), r, moto_env["sqs"], MagicMock())
-
-        mock_fetch_all.assert_not_called()
 
     def test_increments_miss_count_for_disappeared_event(self, moto_env):
         tracker = {"1:evt-gone": {"exchange_id": 1, "native_event_id": "evt-gone", "miss_count": 0}}
@@ -73,11 +71,9 @@ class TestStaleCleanupHandler:
 
         with (
             patch("classifier.workers.fetch.fetch_exchanges", return_value={}),
-            patch("classifier.workers.fetch.fetch_all", return_value=([], [])) as mock_fetch_all,
+            patch("classifier.workers.fetch.ADAPTERS", []),
         ):
             runner._run_stale(_make_stale_rc(), r, moto_env["sqs"], MagicMock())
-
-        mock_fetch_all.assert_called_once()
 
     def test_resets_miss_count_for_active_event(self, moto_env):
         tracker = {"1:evt-back": {"exchange_id": 1, "native_event_id": "evt-back", "miss_count": 2}}

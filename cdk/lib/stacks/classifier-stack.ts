@@ -219,7 +219,7 @@ export class ClassifierStack extends cdk.Stack {
       REDIS_ENDPOINT: redisEndpoint,
       CONTRACTS_QUEUE_URL: this.contractsQueue.queueUrl,
       ...controllerEnv,
-    }, 512, (role) => {
+    }, 1024, (role) => {
       this.contractsQueue.grantSendMessages(role);
       role.addToPolicy(new iam.PolicyStatement({
         actions: ['apigateway:GET'],
