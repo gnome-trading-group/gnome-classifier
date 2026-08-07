@@ -839,6 +839,42 @@
     },
     {
       "category": "Sports",
+      "event_ticker": "KXNFLGAME-26AUG06CARARI",
+      "series_ticker": "KXNFLGAME",
+      "title": "Hall of Fame Game: Carolina vs Arizona",
+      "sub_title": "CAR vs ARI (Aug 6)",
+      "mutually_exclusive": true,
+      "markets": [
+        {
+          "close_time": "2026-08-07T03:59:00Z",
+          "event_ticker": "KXNFLGAME-26AUG06CARARI",
+          "market_type": "binary",
+          "result": "",
+          "rules_primary": "If Arizona wins the Carolina vs Arizona professional football game originally scheduled for Aug 6, 2026, then the market resolves to Yes.",
+          "rules_secondary": "The following market refers to the team who wins the Carolina vs Arizona professional football game originally scheduled for Aug 6, 2026. If the game ends in a tie, the market will resolve to $0.50 for each team.",
+          "status": "active",
+          "ticker": "KXNFLGAME-26AUG06CARARI-ARI",
+          "title": "Hall of Fame Game: Carolina vs Arizona Winner?",
+          "volume_fp": "8000.00",
+          "yes_sub_title": "Arizona"
+        },
+        {
+          "close_time": "2026-08-07T03:59:00Z",
+          "event_ticker": "KXNFLGAME-26AUG06CARARI",
+          "market_type": "binary",
+          "result": "",
+          "rules_primary": "If Carolina wins the Carolina vs Arizona professional football game originally scheduled for Aug 6, 2026, then the market resolves to Yes.",
+          "rules_secondary": "The following market refers to the team who wins the Carolina vs Arizona professional football game originally scheduled for Aug 6, 2026. If the game ends in a tie, the market will resolve to $0.50 for each team.",
+          "status": "active",
+          "ticker": "KXNFLGAME-26AUG06CARARI-CAR",
+          "title": "Hall of Fame Game: Carolina vs Arizona Winner?",
+          "volume_fp": "6000.00",
+          "yes_sub_title": "Carolina"
+        }
+      ]
+    },
+    {
+      "category": "Sports",
       "event_ticker": "KXCS2TOTALMAPS-26AUG04EXG",
       "mutually_exclusive": false,
       "series_ticker": "KXCS2TOTALMAPS",

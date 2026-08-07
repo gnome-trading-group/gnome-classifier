@@ -90,6 +90,18 @@ def test_multi_outcome_security_ids_are_market_tickers():
     assert "KXNEWPOPE-70-PPAR" in ids
 
 
+def test_multi_outcome_description_uses_rules_secondary_when_present():
+    contracts = _map("KXNFLGAME-26AUG06CARARI")
+    expected = EVENTS_BY_TICKER["KXNFLGAME-26AUG06CARARI"]["markets"][0]["rules_secondary"]
+    assert all(c.event_description == expected for c in contracts)
+
+
+def test_multi_outcome_description_falls_back_to_rules_primary_when_rules_secondary_empty():
+    contracts = _map("KXNEWPOPE-70")
+    expected = EVENTS_BY_TICKER["KXNEWPOPE-70"]["markets"][0]["rules_primary"]
+    assert all(c.event_description == expected for c in contracts)
+
+
 # ── Sub-markets ───────────────────────────────────────────────────────────────
 
 def test_sub_market_contract_count():
@@ -214,6 +226,17 @@ def test_threshold_binary_security_ids():
         "KXCS2TOTALMAPS-26AUG04EXG-3:yes",
         "KXCS2TOTALMAPS-26AUG04EXG-3:no",
     }
+
+
+def test_single_binary_description_uses_rules_primary():
+    contracts = _map("KXELONMARS-99")
+    expected = EVENTS_BY_TICKER["KXELONMARS-99"]["markets"][0]["rules_primary"]
+    assert all(c.event_description == expected for c in contracts)
+
+
+def test_single_binary_description_falls_back_to_sub_title_when_rules_primary_absent():
+    contracts = _map("KXCS2TOTALMAPS-26AUG04EXG")
+    assert all(c.event_description == "Total Maps: EXG vs. YAW (Aug 4)" for c in contracts)
 
 
 def test_redundant_sub_title_not_duplicated():

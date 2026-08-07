@@ -149,6 +149,9 @@ class KalshiAdapter:
             return []
         is_multi = event.get("mutually_exclusive", False) and len(markets) > 1
 
+        if is_multi:
+            event_description = markets[0].get("rules_secondary") or markets[0].get("rules_primary") or event_description
+
         has_sub_markets = not is_multi and len(markets) > 1
 
         series_ticker = event.get("series_ticker", "")
@@ -228,7 +231,7 @@ class KalshiAdapter:
                         market_event_title = event_title
                     native_id = event_ticker
                     market_volume = event_volume
-                    market_description = event_description
+                    market_description = market.get("rules_primary") or event_description
                 exchange_security_symbol_base = f"{market_event_title[:60]} -- "
                 for side in ("Yes", "No"):
                     contracts.append(AdapterContract(
