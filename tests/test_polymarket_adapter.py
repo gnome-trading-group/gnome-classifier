@@ -284,3 +284,120 @@ def test_single_binary_description_prefers_market_description():
     contracts = _map("elon-mars")
     market_desc = EVENTS_BY_SLUG["elon-mars"]["markets"][0]["description"]
     assert all(c.event_description == market_desc for c in contracts)
+
+
+# ── Event-level endDate fallback ──────────────────────────────────────────────
+
+def test_neg_risk_event_expiry_falls_back_to_event_end_date():
+    contracts = _map("iowa-governor-2026")
+    assert len(contracts) == 2
+    assert all(c.event_expiry == "2026-11-03T00:00:00Z" for c in contracts)
+
+
+def test_binary_event_expiry_falls_back_to_event_end_date():
+    contracts = _map("bitcoin-200k")
+    assert len(contracts) == 2
+    assert all(c.event_expiry == "2027-01-01T00:00:00Z" for c in contracts)
+
+
+def test_market_end_date_preferred_over_event_level():
+    contracts = _map("elon-mars")
+    assert all(c.event_expiry == "2030-01-01T00:00:00Z" for c in contracts)
+
+
+def test_market_end_date_takes_precedence_over_event_end_date():
+    import copy
+    event = copy.deepcopy(EVENTS_BY_SLUG["elon-mars"])
+    event["endDate"] = "2099-01-01T00:00:00Z"
+    contracts = adapter._map_event(EXCHANGE_ID, event)
+    assert all(c.event_expiry == "2030-01-01T00:00:00Z" for c in contracts)
+
+
+# ── Tick size and min notional ────────────────────────────────────────────────
+
+def test_binary_tick_size():
+    contracts = _map("elon-mars")
+    assert all(c.tick_size == 10_000_000 for c in contracts)  # 0.01 * 1e9
+
+
+def test_binary_min_notional():
+    contracts = _map("elon-mars")
+    assert all(c.min_notional == 5_000_000_000_000_000 for c in contracts)  # 5 * 1e9 * 1e6
+
+
+def test_neg_risk_tick_size():
+    contracts = _map("harvey-weinstein-prison-time")
+    assert all(c.tick_size == 10_000_000 for c in contracts)
+
+
+def test_neg_risk_min_notional():
+    contracts = _map("harvey-weinstein-prison-time")
+    assert all(c.min_notional == 5_000_000_000_000_000 for c in contracts)
+
+
+def test_ladder_per_market_tick_size():
+    contracts = _map("kraken-ipo-by")
+    markets = EVENTS_BY_SLUG["kraken-ipo-by"]["markets"]
+    expected = {
+        markets[0]["conditionId"]: 10_000_000,   # 0.01 * 1e9
+        markets[1]["conditionId"]: 1_000_000,    # 0.001 * 1e9
+        markets[2]["conditionId"]: 10_000_000,
+    }
+    for c in contracts:
+        assert c.tick_size == expected[c.exchange_event_native_id]
+
+
+def test_ladder_per_market_min_notional():
+    contracts = _map("kraken-ipo-by")
+    markets = EVENTS_BY_SLUG["kraken-ipo-by"]["markets"]
+    expected = {
+        markets[0]["conditionId"]: 5_000_000_000_000_000,    # 5 * 1e15
+        markets[1]["conditionId"]: 10_000_000_000_000_000,   # 10 * 1e15
+        markets[2]["conditionId"]: 5_000_000_000_000_000,
+    }
+    for c in contracts:
+        assert c.min_notional == expected[c.exchange_event_native_id]
+
+
+def test_sports_tick_size():
+    contracts = _map("wnba-sea-nyl-2026-08-05")
+    assert all(c.tick_size == 1_000_000 for c in contracts)  # 0.001 * 1e9
+
+
+def test_missing_tick_size_falls_back_to_default():
+    contracts = _map("bitcoin-200k")
+    assert all(c.tick_size == 10_000_000 for c in contracts)
+
+
+def test_missing_min_notional_falls_back_to_zero():
+    contracts = _map("bitcoin-200k")
+    assert all(c.min_notional == 0 for c in contracts)
+
+
+def test_lot_size_unchanged():
+    for slug in ["elon-mars", "kraken-ipo-by", "harvey-weinstein-prison-time", "wnba-sea-nyl-2026-08-05"]:
+        contracts = _map(slug)
+        assert all(c.lot_size == 1_000_000 for c in contracts)
+
+
+# ── Listing spec update detection ─────────────────────────────────────────────
+
+def test_listing_spec_updated_on_tick_size_change(stub_registry, stub_db, mock_anthropic):
+    contracts = _map("elon-mars")
+    result1 = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    assert result1.listing_specs_created == 2
+    assert result1.listing_specs_updated == 0
+
+    for c in contracts:
+        c.tick_size = 1_000_000  # changed from 10_000_000
+    result2 = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    assert result2.listing_specs_updated == 2
+    assert result2.listing_specs_created == 0
+
+
+def test_listing_spec_not_updated_when_unchanged(stub_registry, stub_db, mock_anthropic):
+    contracts = _map("elon-mars")
+    create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    assert result.listing_specs_created == 0
+    assert result.listing_specs_updated == 0

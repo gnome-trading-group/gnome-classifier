@@ -138,17 +138,21 @@ class ClassifierDB:
                 )
                 return {(row[0], row[1]) for row in cur.fetchall()}
 
-    def get_existing_listing_specs(self, listing_ids: list[int]) -> set[int]:
-        """Returns set of listing_ids that already have at least one spec."""
+    def get_existing_listing_specs(self, listing_ids: list[int]) -> dict[int, tuple[int, int, int, int]]:
+        """Returns mapping of listing_id -> (tick_size, lot_size, min_notional, contract_multiplier)."""
         if not listing_ids:
-            return set()
+            return {}
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT DISTINCT listing_id FROM sm.listing_spec WHERE listing_id = ANY(%s)",
+                    "SELECT DISTINCT ON (listing_id)"
+                    " listing_id, tick_size, lot_size, min_notional, contract_multiplier"
+                    " FROM sm.listing_spec"
+                    " WHERE listing_id = ANY(%s)"
+                    " ORDER BY listing_id, recorded_at DESC",
                     (listing_ids,),
                 )
-                return {row[0] for row in cur.fetchall()}
+                return {row[0]: (row[1], row[2], row[3], row[4]) for row in cur.fetchall()}
 
     def get_unresolved_events(self) -> list[Event]:
         with self._conn() as conn:

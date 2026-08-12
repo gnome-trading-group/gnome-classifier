@@ -16,7 +16,9 @@
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"1001\", \"1002\"]",
           "endDate": "2025-12-31T12:00:00Z",
-          "volumeNum": 2000.0
+          "volumeNum": 2000.0,
+          "orderPriceMinTickSize": 0.01,
+          "orderMinSize": 5
         },
         {
           "conditionId": "0xe2b48e3b44de9658ee00000000000000000000000000000000000000000000002",
@@ -28,7 +30,9 @@
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"2001\", \"2002\"]",
           "endDate": "2025-12-31T12:00:00Z",
-          "volumeNum": 2000.0
+          "volumeNum": 2000.0,
+          "orderPriceMinTickSize": 0.01,
+          "orderMinSize": 5
         },
         {
           "conditionId": "0x3209617364a0d59843000000000000000000000000000000000000000000000003",
@@ -40,7 +44,9 @@
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"3001\", \"3002\"]",
           "endDate": "2025-12-31T12:00:00Z",
-          "volumeNum": 1000.0
+          "volumeNum": 1000.0,
+          "orderPriceMinTickSize": 0.01,
+          "orderMinSize": 5
         }
       ]
     },
@@ -60,7 +66,9 @@
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"4001\", \"4002\"]",
           "endDate": "2025-12-31T12:00:00Z",
-          "volumeNum": 500.0
+          "volumeNum": 500.0,
+          "orderPriceMinTickSize": 0.01,
+          "orderMinSize": 5
         },
         {
           "conditionId": "0x9b3c3177fe473124c700000000000000000000000000000000000000000000002",
@@ -72,7 +80,9 @@
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"5001\", \"5002\"]",
           "endDate": "2026-04-01T04:00:00Z",
-          "volumeNum": 800.0
+          "volumeNum": 800.0,
+          "orderPriceMinTickSize": 0.001,
+          "orderMinSize": 10
         },
         {
           "conditionId": "0xaabbcc1234567890ab00000000000000000000000000000000000000000000003",
@@ -84,7 +94,9 @@
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"6001\", \"6002\"]",
           "endDate": "2027-01-01T04:00:00Z",
-          "volumeNum": 300.0
+          "volumeNum": 300.0,
+          "orderPriceMinTickSize": 0.01,
+          "orderMinSize": 5
         }
       ]
     },
@@ -106,7 +118,9 @@
           "outcomes": "[\"Seattle Storm\", \"New York Liberty\"]",
           "clobTokenIds": "[\"8001\", \"8002\"]",
           "endDate": "2026-08-06T03:00:00Z",
-          "volumeNum": 10000.0
+          "volumeNum": 10000.0,
+          "orderPriceMinTickSize": 0.001,
+          "orderMinSize": 5
         },
         {
           "conditionId": "0xsprt020000000000000000000000000000000000000000000000000000000002",
@@ -120,7 +134,9 @@
           "outcomes": "[\"New York Liberty\", \"Seattle Storm\"]",
           "clobTokenIds": "[\"9001\", \"9002\"]",
           "endDate": "2026-08-06T03:00:00Z",
-          "volumeNum": 5000.0
+          "volumeNum": 5000.0,
+          "orderPriceMinTickSize": 0.001,
+          "orderMinSize": 5
         },
         {
           "conditionId": "0xsprt030000000000000000000000000000000000000000000000000000000003",
@@ -134,7 +150,9 @@
           "outcomes": "[\"Over\", \"Under\"]",
           "clobTokenIds": "[\"9101\", \"9102\"]",
           "endDate": "2026-08-06T03:00:00Z",
-          "volumeNum": 8000.0
+          "volumeNum": 8000.0,
+          "orderPriceMinTickSize": 0.001,
+          "orderMinSize": 5
         },
         {
           "conditionId": "0xsprt040000000000000000000000000000000000000000000000000000000004",
@@ -148,7 +166,9 @@
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"9201\", \"9202\"]",
           "endDate": "2026-08-06T03:00:00Z",
-          "volumeNum": 3000.0
+          "volumeNum": 3000.0,
+          "orderPriceMinTickSize": 0.001,
+          "orderMinSize": 5
         }
       ]
     },
@@ -168,7 +188,62 @@
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"7001\", \"7002\"]",
           "endDate": "2030-01-01T00:00:00Z",
-          "volumeNum": 1500.0
+          "volumeNum": 1500.0,
+          "orderPriceMinTickSize": 0.01,
+          "orderMinSize": 5
+        }
+      ]
+    },
+    {
+      "title": "Iowa Governor Election Winner",
+      "slug": "iowa-governor-2026",
+      "endDate": "2026-11-03T00:00:00Z",
+      "description": "This market resolves based on the winner of the 2026 Iowa gubernatorial election.",
+      "tags": [{"label": "Politics", "slug": "politics"}],
+      "markets": [
+        {
+          "conditionId": "0xiowa010000000000000000000000000000000000000000000000000000000001",
+          "question": "Will the Democrats win the Iowa governor race in 2026?",
+          "groupItemTitle": "Democrats",
+          "negRisk": true,
+          "closed": false,
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"10001\", \"10002\"]",
+          "volumeNum": 4000.0,
+          "orderPriceMinTickSize": 0.01,
+          "orderMinSize": 5
+        },
+        {
+          "conditionId": "0xiowa020000000000000000000000000000000000000000000000000000000002",
+          "question": "Will the Republicans win the Iowa governor race in 2026?",
+          "groupItemTitle": "Republicans",
+          "negRisk": true,
+          "closed": false,
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"10003\", \"10004\"]",
+          "volumeNum": 6000.0,
+          "orderPriceMinTickSize": 0.01,
+          "orderMinSize": 5
+        }
+      ]
+    },
+    {
+      "title": "Will Bitcoin reach $200k?",
+      "slug": "bitcoin-200k",
+      "endDate": "2027-01-01T00:00:00Z",
+      "description": "This market resolves to Yes if Bitcoin reaches $200,000 before 2027.",
+      "tags": [{"label": "Crypto", "slug": "crypto"}],
+      "markets": [
+        {
+          "conditionId": "0xbtc200k0000000000000000000000000000000000000000000000000000000001",
+          "question": "Will Bitcoin reach $200k before 2027?",
+          "description": "Resolves Yes if BTC hits $200,000 on any major exchange before January 1, 2027.",
+          "groupItemTitle": null,
+          "negRisk": false,
+          "closed": false,
+          "outcomes": "[\"Yes\", \"No\"]",
+          "clobTokenIds": "[\"11001\", \"11002\"]",
+          "volumeNum": 25000.0
         }
       ]
     }

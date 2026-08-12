@@ -136,7 +136,7 @@ def create_entities_from_canonical(
     if not contracts:
         return EntityResult(
             events_created=0, securities_created=0, listings_created=0,
-            event_contracts_created=0, listing_specs_created=0,
+            event_contracts_created=0, listing_specs_created=0, listing_specs_updated=0,
             new_security_ids=[], new_security_symbols=[],
             created_event_ids=[], created_event_names=[],
         )
@@ -256,10 +256,9 @@ def create_entities_from_canonical(
         if f"{c.exchange_id}:{c.exchange_security_id}" in listing_by_key
         and listing_by_key[f"{c.exchange_id}:{c.exchange_security_id}"] is not None
     ]
-    existing_specs = db.get_existing_listing_specs(list(set(listing_ids_needed)))
-    spec_by_listing_id: dict[int, object] = {lid: True for lid in existing_specs}
+    spec_by_listing_id = db.get_existing_listing_specs(list(set(listing_ids_needed)))
 
-    listing_specs_created = _create_listing_specs(registry, contracts, listing_by_key, spec_by_listing_id)
+    listing_specs_created, listing_specs_updated = _sync_listing_specs(registry, contracts, listing_by_key, spec_by_listing_id)
 
     # ── Deactivate stale listings/securities for pre-existing events ─
     _reconcile_stale_entities(
@@ -293,6 +292,7 @@ def create_entities_from_canonical(
         listings_created=listings_created,
         event_contracts_created=event_contracts_created,
         listing_specs_created=listing_specs_created,
+        listing_specs_updated=listing_specs_updated,
         new_security_ids=new_security_ids,
         new_security_symbols=new_security_symbols,
         created_event_ids=created_event_ids_out,
@@ -364,7 +364,7 @@ def create_entities(
     if not contracts:
         return EntityResult(
             events_created=0, securities_created=0, listings_created=0,
-            event_contracts_created=0, listing_specs_created=0,
+            event_contracts_created=0, listing_specs_created=0, listing_specs_updated=0,
             new_security_ids=[], new_security_symbols=[],
             created_event_ids=[], created_event_names=[],
         )
@@ -635,13 +635,15 @@ def _create_event_contracts(
     return event_contracts_created
 
 
-def _create_listing_specs(
+def _sync_listing_specs(
     registry: RegistryClient,
     contracts: list[AdapterContract],
     listing_by_key: dict[str, object],
-    spec_by_listing_id: dict[int, object],
-) -> int:
+    spec_by_listing_id: dict[int, tuple[int, int, int, int]],
+) -> tuple[int, int]:
     pending_specs: list[dict] = []
+    seen: set[int] = set()
+    updates = 0
 
     for c in contracts:
         key = f"{c.exchange_id}:{c.exchange_security_id}"
@@ -649,9 +651,18 @@ def _create_listing_specs(
         if listing is None:
             continue
         listing_id = listing.listing_id if hasattr(listing, "listing_id") else listing["listing_id"]
-        if listing_id in spec_by_listing_id:
+        if listing_id in seen:
             continue
-        spec_by_listing_id[listing_id] = True  # type: ignore[assignment]
+        seen.add(listing_id)
+
+        new_vals = (int(c.tick_size), int(c.lot_size), int(c.min_notional), int(c.contract_multiplier))
+        existing = spec_by_listing_id.get(listing_id)
+        if existing == new_vals:
+            continue
+
+        if existing is not None:
+            updates += 1
+
         pending_specs.append(dict(
             listing_id=listing_id,
             tick_size=c.tick_size,
@@ -660,11 +671,11 @@ def _create_listing_specs(
             contract_multiplier=c.contract_multiplier,
         ))
 
-    listing_specs_created = 0
+    posted = 0
     for _, chunk in bulk_create_chunked(pending_specs, "listing specs"):
         try:
             created_list = registry.bulk_create_listing_specs(chunk)
-            listing_specs_created += len(created_list)
+            posted += len(created_list)
         except Exception as e:
             logger.error("Bulk listing_spec creation failed: %s", e)
-    return listing_specs_created
+    return posted - updates, updates

@@ -75,9 +75,6 @@ export class MonitoringStack extends cdk.Stack {
         ec2Service: service,
         humanReadableName: `${name} Worker`,
         alarmFriendlyName: `${name}Worker`,
-        addRunningTaskCountAlarm: {
-          Critical: { maxRunningTasks: 0 },
-        },
       });
     }
   }

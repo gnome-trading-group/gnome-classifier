@@ -435,9 +435,13 @@ class StubDB:
             if (ec.event_id, ec.security_id) in key_set
         }
 
-    def get_existing_listing_specs(self, listing_ids: list[int]) -> set[int]:
+    def get_existing_listing_specs(self, listing_ids: list[int]) -> dict[int, tuple[int, int, int, int]]:
         id_set = set(listing_ids)
-        return {s.listing_id for s in self._r._listing_specs if s.listing_id in id_set}
+        seen: dict[int, tuple[int, int, int, int]] = {}
+        for s in self._r._listing_specs:
+            if s.listing_id in id_set:
+                seen[s.listing_id] = (s.tick_size, s.lot_size, s.min_notional, s.contract_multiplier)
+        return seen
 
     def get_unresolved_events(self) -> list[Event]:
         return self._r.get_event(resolved=False)

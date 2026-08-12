@@ -20,6 +20,26 @@ TICK_SIZE = 10_000_000
 LOT_SIZE = 1_000_000
 
 
+def _market_tick_size(market: dict) -> int:
+    raw = market.get("orderPriceMinTickSize")
+    if raw is None:
+        return TICK_SIZE
+    try:
+        return round(float(raw) * CONTRACT_MULTIPLIER)
+    except (ValueError, TypeError):
+        return TICK_SIZE
+
+
+def _market_min_notional(market: dict) -> int:
+    raw = market.get("orderMinSize")
+    if raw is None:
+        return 0
+    try:
+        return round(float(raw) * CONTRACT_MULTIPLIER) * LOT_SIZE
+    except (ValueError, TypeError):
+        return 0
+
+
 def _build_sports_event_title(event_title: str, market: dict) -> str | None:
     question = market.get("question", "")
     if question and question != event_title:
@@ -174,6 +194,7 @@ class PolymarketAdapter:
         tags = event.get("tags") or []
         event_category = tags[0]["label"] if tags else None
 
+        event_end_date = event.get("endDate")
         is_neg_risk_group = all(m.get("negRisk") for m in markets) and len(markets) >= 1
 
         if is_neg_risk_group:
@@ -181,6 +202,7 @@ class PolymarketAdapter:
             return self._map_neg_risk_group(
                 exchange_id, markets, event_title, event_slug, event_description, event_volume,
                 event_category=event_category,
+                event_end_date=event_end_date,
             )
 
         contracts: list[AdapterContract] = []
@@ -190,6 +212,7 @@ class PolymarketAdapter:
                 exchange_id, market, event_description, event_slug, market_volume,
                 event_title_override=_build_sports_event_title(event_title, market),
                 event_category=event_category,
+                event_end_date=event_end_date,
             ))
         return contracts
 
@@ -202,6 +225,7 @@ class PolymarketAdapter:
         event_description: str | None,
         event_volume: float = 0.0,
         event_category: str | None = None,
+        event_end_date: str | None = None,
     ) -> list[AdapterContract]:
         symbol_base = f"{event_title[:60]} -- "
         contracts: list[AdapterContract] = []
@@ -230,15 +254,15 @@ class PolymarketAdapter:
                 asset_class=AssetClass.PREDICTION,
                 inverse=False,
                 is_quanto=False,
-                tick_size=TICK_SIZE,
+                tick_size=_market_tick_size(market),
                 lot_size=LOT_SIZE,
-                min_notional=0.0,
+                min_notional=_market_min_notional(market),
                 contract_multiplier=CONTRACT_MULTIPLIER,
                 event_title=event_title,
                 outcome_label=outcome_label,
                 event_description=event_description,
                 event_category=event_category,
-                event_expiry=market.get("endDate"),
+                event_expiry=market.get("endDate") or event_end_date,
                 exchange_event_native_id=event_slug,
                 exchange_event_native_url=f"https://polymarket.com/event/{event_slug}",
                 event_volume=event_volume,
@@ -254,12 +278,13 @@ class PolymarketAdapter:
         event_volume: float = 0.0,
         event_title_override: str | None = None,
         event_category: str | None = None,
+        event_end_date: str | None = None,
     ) -> list[AdapterContract]:
         question = market.get("question", "")
         condition_id = market.get("conditionId", "")
         if not condition_id:
             return []
-        expiry = market.get("endDate")
+        expiry = market.get("endDate") or event_end_date
 
         raw_outcomes = market.get("outcomes", "[]")
         raw_token_ids = market.get("clobTokenIds", "[]")
@@ -290,9 +315,9 @@ class PolymarketAdapter:
                 asset_class=AssetClass.PREDICTION,
                 inverse=False,
                 is_quanto=False,
-                tick_size=TICK_SIZE,
+                tick_size=_market_tick_size(market),
                 lot_size=LOT_SIZE,
-                min_notional=0.0,
+                min_notional=_market_min_notional(market),
                 contract_multiplier=CONTRACT_MULTIPLIER,
                 event_title=event_title_override or question,
                 outcome_label=outcome,

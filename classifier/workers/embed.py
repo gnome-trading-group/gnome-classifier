@@ -42,7 +42,7 @@ class EmbedWorker(BaseWorker):
         cfg = self._runtime_config.config
         entity_result = EntityResult(
             events_created=0, securities_created=0, listings_created=0,
-            event_contracts_created=0, listing_specs_created=0,
+            event_contracts_created=0, listing_specs_created=0, listing_specs_updated=0,
             new_security_ids=security_ids, new_security_symbols=[symbol_by_id[sid] for sid in security_ids],
             created_event_ids=[], created_event_names=[],
         )
