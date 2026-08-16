@@ -299,5 +299,10 @@ export class ClassifierStack extends cdk.Stack {
       value: redisEndpoint,
       description: 'ElastiCache Redis endpoint for SSM tunnel',
     });
+
+    new cdk.CfnOutput(this, 'NotificationsTopicArn', {
+      value: this.notificationsTopic.topicArn,
+      exportName: 'ClassifierNotificationsTopicArn',
+    });
   }
 }
