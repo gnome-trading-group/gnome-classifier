@@ -53,7 +53,6 @@ class RelationshipsWorker(BaseWorker):
             cache=self._cache, db=self._db,
             skip_semantic=not cfg.feature_flags.semantic_judgements_enabled,
             min_confidence=cfg.thresholds.min_confidence,
-            structural_confidence=cfg.thresholds.structural_confidence,
             hedgeable_with_confidence=cfg.thresholds.hedgeable_with_confidence,
             threshold=cfg.thresholds.embedding_similarity_threshold,
             neighbor_limit=cfg.processing.neighbor_search_limit,

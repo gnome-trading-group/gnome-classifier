@@ -9,7 +9,6 @@ from classifier.constants import (
     DEFAULT_MIN_CONFIDENCE,
     DEFAULT_NEIGHBOR_SEARCH_LIMIT,
     DEFAULT_SEMANTIC_JUDGMENT_MODEL,
-    DEFAULT_STRUCTURAL_CONFIDENCE,
     DEFAULT_SYNC_THRESHOLD,
 )
 from classifier.db import ClassifierDB
@@ -21,7 +20,6 @@ from classifier.relationships.semantic import (
     find_semantic_candidates,
     parse_judgment_responses,
 )
-from classifier.relationships.structural import find_complement_pairs, find_mutually_exclusive_pairs
 from classifier.types import Confidence, JudgedRelationship, RelationshipMatch, RelationshipType, SecurityId, EventId
 from gnomepy.registry import RegistryClient
 
@@ -120,29 +118,24 @@ def classify_structural(
     *,
     db: ClassifierDB,
     min_confidence: Confidence = DEFAULT_MIN_CONFIDENCE,
-    structural_confidence: float = DEFAULT_STRUCTURAL_CONFIDENCE,
     hedgeable_with_confidence: float = DEFAULT_HEDGEABLE_WITH_CONFIDENCE,
     debug: bool = False,
 ) -> tuple[dict, list[dict]]:
-    """Run structural + rule-based classification (complement, ME, hedgeable).
+    """Run rule-based classification (hedgeable pairs).
 
     Writes relationships to the registry and returns (summary_counts, written_relationships).
     """
     new_sids, _, event_contracts, events = _load_event_data(db, new_security_ids)
     hedge_keywords = db.get_hedge_keywords()
 
-    complement_matches = find_complement_pairs(event_contracts, confidence=structural_confidence)
-    me_matches = find_mutually_exclusive_pairs(event_contracts, confidence=structural_confidence)
-    hedgeable_matches = find_hedgeable_pairs(event_contracts, events, hedge_keywords, confidence=hedgeable_with_confidence)
-    pending: list[RelationshipMatch] = complement_matches + me_matches + hedgeable_matches
+    pending: list[RelationshipMatch] = find_hedgeable_pairs(event_contracts, events, hedge_keywords, confidence=hedgeable_with_confidence)
 
-    logger.debug("structural pending: %d, new_sids: %d", len(pending), len(new_sids))
+    logger.debug("rule-based pending: %d, new_sids: %d", len(pending), len(new_sids))
     if debug:
-        logger.info("[DEBUG] structural: %d complement, %d ME, %d hedgeable (%d total candidates)",
-                    len(complement_matches), len(me_matches), len(hedgeable_matches), len(pending))
+        logger.info("[DEBUG] rule-based: %d hedgeable candidates", len(pending))
     return _dedup_and_write_relationships(
         registry, pending, new_security_ids,
-        db=db, min_confidence=min_confidence, label="structural relationships", debug=debug,
+        db=db, min_confidence=min_confidence, label="rule-based relationships", debug=debug,
     )
 
 
@@ -290,7 +283,6 @@ def run_classification_sync(
     db,
     skip_semantic: bool = False,
     min_confidence: Confidence = DEFAULT_MIN_CONFIDENCE,
-    structural_confidence: float = DEFAULT_STRUCTURAL_CONFIDENCE,
     hedgeable_with_confidence: float = DEFAULT_HEDGEABLE_WITH_CONFIDENCE,
     threshold: float = DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD,
     neighbor_limit: int = DEFAULT_NEIGHBOR_SEARCH_LIMIT,
@@ -302,7 +294,6 @@ def run_classification_sync(
     structural_counts, structural_rels = classify_structural(
         registry, new_security_ids, db=db,
         min_confidence=min_confidence,
-        structural_confidence=structural_confidence,
         hedgeable_with_confidence=hedgeable_with_confidence,
         debug=debug,
     )

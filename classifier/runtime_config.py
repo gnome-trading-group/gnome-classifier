@@ -29,7 +29,6 @@ from classifier.constants import (
     DEFAULT_STALE_INTERVAL_SECONDS,
     DEFAULT_STALE_MAX_SQS_MESSAGES,
     DEFAULT_STALE_MISS_THRESHOLD,
-    DEFAULT_STRUCTURAL_CONFIDENCE,
     DEFAULT_SYNC_THRESHOLD,
     DEFAULT_VOYAGE_EMBED_CHUNK_SIZE,
     DEFAULT_VOYAGE_EMBEDDING_MODEL,
@@ -71,7 +70,6 @@ class Models:
 class Thresholds:
     embedding_similarity_threshold: float = DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD
     min_confidence: float = DEFAULT_MIN_CONFIDENCE
-    structural_confidence: float = DEFAULT_STRUCTURAL_CONFIDENCE
     hedgeable_with_confidence: float = DEFAULT_HEDGEABLE_WITH_CONFIDENCE
     min_event_volume: float | None = DEFAULT_MIN_EVENT_VOLUME
 

@@ -22,7 +22,6 @@ type Embedding = list[float]
 # ── Relationship type enum ───────────────────────────────────────────
 
 class RelationshipType(StrEnum):
-    COMPLEMENT = "COMPLEMENT"
     MUTUALLY_EXCLUSIVE = "MUTUALLY_EXCLUSIVE"
     EQUIVALENT = "EQUIVALENT"
     IMPLIES = "IMPLIES"

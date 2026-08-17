@@ -2,8 +2,7 @@ from collections import defaultdict
 
 from gnomepy.registry.types import EventContract
 
-from classifier.constants import DEFAULT_STRUCTURAL_CONFIDENCE
-from classifier.types import EventId, JudgedRelationship, RelationshipMatch, RelationshipType, SecurityId
+from classifier.types import EventId, JudgedRelationship, RelationshipType, SecurityId
 
 
 def primary_contracts(contracts: list[EventContract]) -> list[EventContract]:
@@ -27,17 +26,6 @@ def build_complement_map(
             complement_of[ecs[0].security_id] = ecs[1].security_id
             complement_of[ecs[1].security_id] = ecs[0].security_id
     return complement_of
-
-
-def find_complement_pairs(
-    event_contracts: list[EventContract],
-    confidence: float = DEFAULT_STRUCTURAL_CONFIDENCE,
-) -> list[RelationshipMatch]:
-    complement_of = build_complement_map(event_contracts)
-    return [
-        RelationshipMatch(a, b, RelationshipType.COMPLEMENT, confidence, "structural")
-        for a, b in complement_of.items()
-    ]
 
 
 def derive_complement_relationships(
@@ -67,25 +55,3 @@ def derive_complement_relationships(
             if comp_a is not None:
                 derived.append(JudgedRelationship(r.security_id_b, comp_a, RelationshipType.IMPLIES, r.confidence))
     return derived
-
-
-def find_mutually_exclusive_pairs(
-    event_contracts: list[EventContract],
-    confidence: float = DEFAULT_STRUCTURAL_CONFIDENCE,
-) -> list[RelationshipMatch]:
-    by_event: dict[EventId, list[SecurityId]] = defaultdict(list)
-    for ec in event_contracts:
-        by_event[ec.event_id].append(ec.security_id)
-
-    pairs: list[RelationshipMatch] = []
-    for ids in by_event.values():
-        for i in range(len(ids)):
-            for j in range(len(ids)):
-                if i != j:
-                    pairs.append(RelationshipMatch(
-                        ids[i], ids[j],
-                        RelationshipType.MUTUALLY_EXCLUSIVE,
-                        confidence,
-                        "structural",
-                    ))
-    return pairs
