@@ -377,7 +377,7 @@ def test_missing_min_notional_falls_back_to_zero():
 def test_lot_size_unchanged():
     for slug in ["elon-mars", "kraken-ipo-by", "harvey-weinstein-prison-time", "wnba-sea-nyl-2026-08-05"]:
         contracts = _map(slug)
-        assert all(c.lot_size == 1_000_000 for c in contracts)
+        assert all(c.lot_size == 10_000 for c in contracts)
 
 
 # ── Listing spec update detection ─────────────────────────────────────────────

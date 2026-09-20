@@ -16,8 +16,22 @@ BASE_URL = "https://external-api.kalshi.com/trade-api/v2"
 PAGE_SIZE = 200
 
 CONTRACT_MULTIPLIER = 1_000_000_000
-TICK_SIZE = 1_000_000
-LOT_SIZE = 1_000_000
+SIZE_SCALE = 1_000_000
+TICK_SIZE = 10_000_000
+LOT_SIZE = 10_000
+
+
+def _market_tick_size(market: dict) -> int:
+    ranges = market.get("price_ranges")
+    if not ranges:
+        return TICK_SIZE
+    try:
+        steps = [float(r["step"]) for r in ranges if "step" in r]
+        if not steps:
+            return TICK_SIZE
+        return round(min(steps) * CONTRACT_MULTIPLIER)
+    except (ValueError, TypeError):
+        return TICK_SIZE
 
 
 def _slugify(text: str) -> str:
@@ -209,7 +223,7 @@ class KalshiAdapter:
                     asset_class=AssetClass.PREDICTION,
                     inverse=False,
                     is_quanto=False,
-                    tick_size=TICK_SIZE,
+                    tick_size=_market_tick_size(market),
                     lot_size=LOT_SIZE,
                     min_notional=0.0,
                     contract_multiplier=CONTRACT_MULTIPLIER,
@@ -252,7 +266,7 @@ class KalshiAdapter:
                         asset_class=AssetClass.PREDICTION,
                         inverse=False,
                         is_quanto=False,
-                        tick_size=TICK_SIZE,
+                        tick_size=_market_tick_size(market),
                         lot_size=LOT_SIZE,
                         min_notional=0.0,
                         contract_multiplier=CONTRACT_MULTIPLIER,

@@ -16,8 +16,9 @@ GAMMA_API_URL = "https://gamma-api.polymarket.com"
 PAGE_SIZE = 500
 
 CONTRACT_MULTIPLIER = 1e9
+SIZE_SCALE = 1_000_000
 TICK_SIZE = 10_000_000
-LOT_SIZE = 1_000_000
+LOT_SIZE = 10_000
 
 
 def _market_tick_size(market: dict) -> int:
@@ -35,7 +36,7 @@ def _market_min_notional(market: dict) -> int:
     if raw is None:
         return 0
     try:
-        return round(float(raw) * CONTRACT_MULTIPLIER) * LOT_SIZE
+        return round(float(raw) * CONTRACT_MULTIPLIER) * SIZE_SCALE
     except (ValueError, TypeError):
         return 0
 
