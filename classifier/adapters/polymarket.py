@@ -16,9 +16,11 @@ GAMMA_API_URL = "https://gamma-api.polymarket.com"
 PAGE_SIZE = 500
 
 CONTRACT_MULTIPLIER = 1e9
+PRICE_SCALE = 1_000_000_000
 SIZE_SCALE = 1_000_000
 TICK_SIZE = 10_000_000
 LOT_SIZE = 10_000
+MIN_NOTIONAL = 1 * PRICE_SCALE * SIZE_SCALE
 
 
 def _market_tick_size(market: dict) -> int:
@@ -29,16 +31,6 @@ def _market_tick_size(market: dict) -> int:
         return round(float(raw) * CONTRACT_MULTIPLIER)
     except (ValueError, TypeError):
         return TICK_SIZE
-
-
-def _market_min_notional(market: dict) -> int:
-    raw = market.get("orderMinSize")
-    if raw is None:
-        return 0
-    try:
-        return round(float(raw) * CONTRACT_MULTIPLIER) * SIZE_SCALE
-    except (ValueError, TypeError):
-        return 0
 
 
 def _build_sports_event_title(event_title: str, market: dict) -> str | None:
@@ -257,7 +249,7 @@ class PolymarketAdapter:
                 is_quanto=False,
                 tick_size=_market_tick_size(market),
                 lot_size=LOT_SIZE,
-                min_notional=_market_min_notional(market),
+                min_notional=MIN_NOTIONAL,
                 contract_multiplier=CONTRACT_MULTIPLIER,
                 event_title=event_title,
                 outcome_label=outcome_label,
@@ -318,7 +310,7 @@ class PolymarketAdapter:
                 is_quanto=False,
                 tick_size=_market_tick_size(market),
                 lot_size=LOT_SIZE,
-                min_notional=_market_min_notional(market),
+                min_notional=MIN_NOTIONAL,
                 contract_multiplier=CONTRACT_MULTIPLIER,
                 event_title=event_title_override or question,
                 outcome_label=outcome,

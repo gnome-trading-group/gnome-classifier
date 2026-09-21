@@ -322,7 +322,7 @@ def test_binary_tick_size():
 
 def test_binary_min_notional():
     contracts = _map("elon-mars")
-    assert all(c.min_notional == 5_000_000_000_000_000 for c in contracts)  # 5 * 1e9 * 1e6
+    assert all(c.min_notional == 1_000_000_000_000_000 for c in contracts)  # $1 * 1e9 * 1e6
 
 
 def test_neg_risk_tick_size():
@@ -332,7 +332,7 @@ def test_neg_risk_tick_size():
 
 def test_neg_risk_min_notional():
     contracts = _map("harvey-weinstein-prison-time")
-    assert all(c.min_notional == 5_000_000_000_000_000 for c in contracts)
+    assert all(c.min_notional == 1_000_000_000_000_000 for c in contracts)  # $1 * 1e9 * 1e6
 
 
 def test_ladder_per_market_tick_size():
@@ -347,16 +347,9 @@ def test_ladder_per_market_tick_size():
         assert c.tick_size == expected[c.exchange_event_native_id]
 
 
-def test_ladder_per_market_min_notional():
+def test_ladder_min_notional():
     contracts = _map("kraken-ipo-by")
-    markets = EVENTS_BY_SLUG["kraken-ipo-by"]["markets"]
-    expected = {
-        markets[0]["conditionId"]: 5_000_000_000_000_000,    # 5 * 1e15
-        markets[1]["conditionId"]: 10_000_000_000_000_000,   # 10 * 1e15
-        markets[2]["conditionId"]: 5_000_000_000_000_000,
-    }
-    for c in contracts:
-        assert c.min_notional == expected[c.exchange_event_native_id]
+    assert all(c.min_notional == 1_000_000_000_000_000 for c in contracts)  # $1 * 1e9 * 1e6
 
 
 def test_sports_tick_size():
@@ -369,9 +362,9 @@ def test_missing_tick_size_falls_back_to_default():
     assert all(c.tick_size == 10_000_000 for c in contracts)
 
 
-def test_missing_min_notional_falls_back_to_zero():
+def test_min_notional_is_constant():
     contracts = _map("bitcoin-200k")
-    assert all(c.min_notional == 0 for c in contracts)
+    assert all(c.min_notional == 1_000_000_000_000_000 for c in contracts)  # $1 regardless of orderMinSize
 
 
 def test_lot_size_unchanged():
