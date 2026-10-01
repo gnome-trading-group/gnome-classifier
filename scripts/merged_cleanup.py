@@ -180,18 +180,36 @@ def plan(stage: str, output: str):
 
 
 def _load_graph_sql(cur) -> tuple[dict, dict, dict]:
+    """Load only the rows _select_targets can act on, so the full graph never sits in memory.
+
+    Events with a single native event and securities on a single event and exchange can never
+    be targets, so they are filtered out in SQL with GROUP BY ... HAVING.
+    """
     natives_by_event: dict[int, set[tuple[int, str]]] = defaultdict(set)
-    cur.execute("SELECT event_id, exchange_id, native_event_id FROM sm.exchange_event")
+    cur.execute(
+        "SELECT event_id, exchange_id, native_event_id FROM sm.exchange_event"
+        " WHERE event_id IN (SELECT event_id FROM sm.exchange_event GROUP BY event_id HAVING count(*) > 1)"
+    )
     for eid, xid, nid in cur.fetchall():
         natives_by_event[eid].add((xid, nid))
+
     events_by_security: dict[int, set[int]] = defaultdict(set)
-    cur.execute("SELECT security_id, event_id FROM sm.event_contract")
+    cur.execute(
+        "SELECT security_id, event_id FROM sm.event_contract"
+        " WHERE security_id IN (SELECT security_id FROM sm.event_contract"
+        "                       GROUP BY security_id HAVING count(DISTINCT event_id) > 1)"
+        " OR event_id = ANY(%s)",
+        (list(natives_by_event),),
+    )
     for sid, eid in cur.fetchall():
         events_by_security[sid].add(eid)
+
     exchanges_by_security: dict[int, set[int]] = defaultdict(set)
     cur.execute(
         "SELECT DISTINCT l.security_id, l.exchange_id FROM sm.listing l"
-        " WHERE EXISTS (SELECT 1 FROM sm.event_contract ec WHERE ec.security_id = l.security_id)"
+        " WHERE l.security_id IN (SELECT security_id FROM sm.listing"
+        "                         GROUP BY security_id HAVING count(DISTINCT exchange_id) > 1)"
+        " AND EXISTS (SELECT 1 FROM sm.event_contract ec WHERE ec.security_id = l.security_id)"
     )
     for sid, xid in cur.fetchall():
         exchanges_by_security[sid].add(xid)

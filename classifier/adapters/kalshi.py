@@ -1,3 +1,4 @@
+import itertools
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -76,20 +77,9 @@ class KalshiAdapter:
     def fetch_resolved(self, exchange_id: ExchangeId, lookback_days: int) -> set[str]:
         resolved: set[str] = set()
 
-        for event in self._fetch_settled_events(lookback_days):
-            markets = event.get("markets", [])
-            is_multi = event.get("mutually_exclusive", False) and len(markets) > 1
-            for market in markets:
-                ticker = market.get("ticker", "")
-                if not ticker:
-                    continue
-                if is_multi:
-                    resolved.add(ticker)
-                else:
-                    resolved.add(f"{ticker}:yes")
-                    resolved.add(f"{ticker}:no")
-
-        for event in self._fetch_active_events():
+        # Kalshi lists events as settled while some of their markets are still trading, so
+        # only each market's own status decides whether it resolved.
+        for event in itertools.chain(self._fetch_settled_events(lookback_days), self._fetch_active_events()):
             markets = event.get("markets", [])
             is_multi = event.get("mutually_exclusive", False) and len(markets) > 1
             for market in markets:

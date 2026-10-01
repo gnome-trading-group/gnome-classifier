@@ -338,3 +338,19 @@ def test_multi_outcome_symbols_are_prefixed_ticker():
 def test_symbols_unique_across_fixture():
     contracts = [c for e in FIXTURE["events"] for c in adapter._map_event(EXCHANGE_ID, e)]
     assert len({c.security_symbol for c in contracts}) == len({c.exchange_security_id for c in contracts})
+
+
+# ── Resolved detection ────────────────────────────────────────────────────────
+
+def test_settled_event_with_active_markets_only_resolves_finished_markets(monkeypatch):
+    settled_event = {
+        "event_ticker": "KXNFLRETIRE-MSTAFFORD9",
+        "mutually_exclusive": False,
+        "markets": [
+            {"ticker": "KXNFLRETIRE-MSTAFFORD9-26", "status": "finalized"},
+            {"ticker": "KXNFLRETIRE-MSTAFFORD9-27", "status": "active"},
+        ],
+    }
+    monkeypatch.setattr(adapter, "_fetch_settled_events", lambda lookback_days: iter([settled_event]))
+    monkeypatch.setattr(adapter, "_fetch_active_events", lambda: iter([]))
+    assert adapter.fetch_resolved(EXCHANGE_ID, 3) == {"KXNFLRETIRE-MSTAFFORD9-26:yes", "KXNFLRETIRE-MSTAFFORD9-26:no"}

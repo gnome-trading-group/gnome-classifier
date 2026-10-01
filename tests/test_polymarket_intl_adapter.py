@@ -416,3 +416,16 @@ def test_symbol_falls_back_to_condition_id_without_slug():
 def test_symbols_unique_across_fixture():
     contracts = [c for e in FIXTURE["events"] for c in adapter._map_event(EXCHANGE_ID, e)]
     assert len({c.security_symbol for c in contracts}) == len({c.exchange_security_id for c in contracts})
+
+
+# ── Resolved detection ────────────────────────────────────────────────────────
+
+def test_closed_event_resolves_all_its_markets(monkeypatch):
+    # Closed events keep archived options with closed=false; they never trade again.
+    closed_event = {"markets": [
+        {"conditionId": "0xclosed", "closed": True, "clobTokenIds": '["1", "2"]'},
+        {"conditionId": "0xarchived", "closed": False, "clobTokenIds": '["3", "4"]'},
+    ]}
+    monkeypatch.setattr(adapter, "_fetch_closed_events", lambda lookback_days: iter([closed_event]))
+    monkeypatch.setattr(adapter, "_fetch_all_events", lambda: iter([]))
+    assert adapter.fetch_resolved(EXCHANGE_ID, 3) == {"0xclosed:1", "0xclosed:2", "0xarchived:3", "0xarchived:4"}
