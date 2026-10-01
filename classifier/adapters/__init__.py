@@ -1,9 +1,9 @@
 from classifier.adapters.hyperliquid import HyperliquidAdapter
 from classifier.adapters.kalshi import KalshiAdapter
-from classifier.adapters.polymarket import PolymarketAdapter
+from classifier.adapters.polymarket_intl import PolymarketIntlAdapter
 
 ADAPTERS = [
-    PolymarketAdapter(),
+    PolymarketIntlAdapter(),
     KalshiAdapter(),
     HyperliquidAdapter(),
 ]

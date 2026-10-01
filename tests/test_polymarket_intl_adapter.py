@@ -3,15 +3,15 @@ from pathlib import Path
 
 import pytest
 
-from classifier.adapters.polymarket import PolymarketAdapter
+from classifier.adapters.polymarket_intl import PolymarketIntlAdapter
 from classifier.stages.entities import create_entities
 from gnomepy.registry.types import ContractType
 
-FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "polymarket_events.json").read_text())
+FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "polymarket_intl_events.json").read_text())
 EVENTS_BY_SLUG = {e["slug"]: e for e in FIXTURE["events"]}
 
 EXCHANGE_ID = 3
-adapter = PolymarketAdapter()
+adapter = PolymarketIntlAdapter()
 
 
 def _map(slug: str) -> list:

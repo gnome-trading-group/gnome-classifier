@@ -294,7 +294,7 @@ All three adapters produce `AdapterContract` objects (`classifier/adapters/types
 
 ---
 
-### Polymarket (`classifier/adapters/polymarket.py`)
+### Polymarket International (`classifier/adapters/polymarket_intl.py`)
 
 - **API base:** `https://gamma-api.polymarket.com`
 - **Active fetch:** `GET /events/keyset?active=true&closed=false&limit=500` with cursor-based pagination
