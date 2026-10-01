@@ -9,6 +9,7 @@ from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
+from classifier.utils import format_security_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +63,14 @@ def _build_sports_event_title(event_title: str, market: dict) -> str | None:
     return f"{event_title}: {stat}"
 
 
+def _market_symbol_base(market: dict, condition_id: str) -> str:
+    # Market slugs are unique per market, unlike event slugs, which several binary markets share.
+    return (market.get("slug") or condition_id)[:120]
+
+
 class PolymarketIntlAdapter:
     exchange_code = "POLYMARKET_INTL"
+    symbol_prefix = "PM_I"
 
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.1)
@@ -80,10 +87,10 @@ class PolymarketIntlAdapter:
                 data = res.json()
             except requests.exceptions.RetryError as e:
                 logger.error("Polymarket API retries exhausted at cursor=%s: %s", after_cursor, e)
-                return
+                raise
             except requests.exceptions.RequestException as e:
                 logger.error("Polymarket API error at cursor=%s: %s", after_cursor, e)
-                return
+                raise
             page = [c for event in data.get("events", []) for c in self._map_event(exchange_id, event)]
             if page:
                 yield page
@@ -142,10 +149,10 @@ class PolymarketIntlAdapter:
                 data = res.json()
             except requests.exceptions.RetryError as e:
                 logger.error("Polymarket closed events retries exhausted at cursor=%s: %s", after_cursor, e)
-                return
+                raise
             except requests.exceptions.RequestException as e:
                 logger.error("Polymarket closed events API error at cursor=%s: %s", after_cursor, e)
-                return
+                raise
             yield from data.get("events", [])
             after_cursor = data.get("next_cursor")
             if after_cursor is None:
@@ -167,10 +174,10 @@ class PolymarketIntlAdapter:
                 data = res.json()
             except requests.exceptions.RetryError as e:
                 logger.error("Polymarket API retries exhausted at cursor=%s: %s", after_cursor, e)
-                return
+                raise
             except requests.exceptions.RequestException as e:
                 logger.error("Polymarket API error at cursor=%s: %s", after_cursor, e)
-                return
+                raise
             yield from data.get("events", [])
             after_cursor = data.get("next_cursor")
             if after_cursor is None:
@@ -257,6 +264,7 @@ class PolymarketIntlAdapter:
                 event_category=event_category,
                 event_expiry=market.get("endDate") or event_end_date,
                 exchange_event_native_id=event_slug,
+                security_symbol=format_security_symbol(self.symbol_prefix, _market_symbol_base(market, condition_id)),
                 exchange_event_native_url=f"https://polymarket.com/event/{event_slug}",
                 event_volume=event_volume,
             ))
@@ -318,6 +326,7 @@ class PolymarketIntlAdapter:
                 event_category=event_category,
                 event_expiry=expiry,
                 exchange_event_native_id=condition_id,
+                security_symbol=format_security_symbol(self.symbol_prefix, _market_symbol_base(market, condition_id), outcome),
                 exchange_event_native_url=native_url,
                 event_volume=event_volume,
             ))

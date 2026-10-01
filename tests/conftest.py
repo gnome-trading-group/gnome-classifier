@@ -78,7 +78,6 @@ def moto_env(aws_credentials, monkeypatch):
     with mock_aws():
         sqs = boto3.client("sqs", region_name="us-east-1")
         sns = boto3.client("sns", region_name="us-east-1")
-        s3 = boto3.client("s3", region_name="us-east-1")
 
         contracts_q = sqs.create_queue(QueueName="contracts")["QueueUrl"]
         entities_q = sqs.create_queue(QueueName="entities")["QueueUrl"]
@@ -91,14 +90,11 @@ def moto_env(aws_credentials, monkeypatch):
         )["Attributes"]["QueueArn"]
         sns.subscribe(TopicArn=topic_arn, Protocol="sqs", Endpoint=slack_arn)
 
-        s3.create_bucket(Bucket="test-cache")
-
         monkeypatch.setenv("CONTRACTS_QUEUE_URL", contracts_q)
         monkeypatch.setenv("ENTITIES_QUEUE_URL", entities_q)
         monkeypatch.setenv("EMBEDDINGS_QUEUE_URL", embeddings_q)
         monkeypatch.setenv("SLACK_QUEUE_URL", slack_q)
         monkeypatch.setenv("NOTIFICATIONS_TOPIC_ARN", topic_arn)
-        monkeypatch.setenv("CACHE_BUCKET", "test-cache")
         monkeypatch.setenv("SLACK_CHANNEL", "test-channel")
         monkeypatch.setenv("SLACK_BOT_TOKEN_SECRET", "")
         monkeypatch.setenv("REGISTRY_API_URL", "http://localhost")
@@ -107,22 +103,12 @@ def moto_env(aws_credentials, monkeypatch):
         yield {
             "sqs": sqs,
             "sns": sns,
-            "s3": s3,
             "contracts_queue": contracts_q,
             "entities_queue": entities_q,
             "embeddings_queue": embeddings_q,
             "slack_queue": slack_q,
             "topic_arn": topic_arn,
-            "bucket": "test-cache",
         }
-
-
-@pytest.fixture
-def s3_bucket(aws_credentials):
-    with mock_aws():
-        s3 = boto3.client("s3", region_name="us-east-1")
-        s3.create_bucket(Bucket="test-bucket")
-        yield "test-bucket"
 
 
 @pytest.fixture

@@ -1,46 +1,43 @@
 import dataclasses
 import logging
-from collections import defaultdict
-from datetime import timedelta
 
 from classifier.adapters.types import AdapterContract
 from classifier.cache import ClassifierCache
 from classifier.client import BatchAnthropicClient
 from classifier.db import ClassifierDB
 from classifier.types import CanonicalizeInput, EntityResult, EventId, NativeKey, SecurityId
-from classifier.constants import DEFAULT_CANONICALIZE_BATCH_SIZE, DEFAULT_CANONICALIZE_MODEL, DEFAULT_DEDUP_EXPIRY_TOLERANCE_HOURS
+from classifier.constants import DEFAULT_CANONICALIZE_BATCH_SIZE, DEFAULT_CANONICALIZE_MODEL
 from classifier.stages.canonicalize import canonicalize_events
-from classifier.utils import bulk_create_chunked, expiry_close, from_dict, generate_security_symbol
+from classifier.utils import bulk_create_chunked
 from gnomepy.registry import RegistryClient
-from gnomepy.registry.types import EventContract, Listing, SecurityType
+from gnomepy.registry.types import SecurityType
 
 logger = logging.getLogger(__name__)
 
-
-class _CurrencyProxy:
-    # Wraps a currency_id int so downstream helpers can call .currency_id
-    # without needing a full ORM object.
-    def __init__(self, currency_id: int):
-        self.currency_id = currency_id
-
-
-class _ListingProxy:
-    # Wraps a listing_id int so downstream helpers can call .listing_id
-    # without needing a full ORM object.
-    def __init__(self, listing_id: int):
-        self.listing_id = listing_id
+ListingKey = tuple[int, str]
 
 
 def _native_key(c: AdapterContract) -> NativeKey:
     return (c.exchange_id, c.exchange_event_native_id)
 
 
+def _listing_key(c: AdapterContract) -> ListingKey:
+    return (c.exchange_id, c.exchange_security_id)
+
+
+def _empty_result() -> EntityResult:
+    return EntityResult(
+        events_created=0, securities_created=0, listings_created=0,
+        event_contracts_created=0, listing_specs_created=0, listing_specs_updated=0,
+        new_security_ids=[], new_security_symbols=[],
+        created_event_ids=[], created_event_names=[],
+    )
+
+
 @dataclasses.dataclass
 class EntityContext:
     contracts_by_native: dict[NativeKey, list[AdapterContract]]
     event_id_by_native: dict[NativeKey, EventId]
-    seen_exchange_events: set[NativeKey]
-    known_event_info: dict[NativeKey, dict]
 
 
 def prepare_canonicalization_inputs(
@@ -48,73 +45,36 @@ def prepare_canonicalization_inputs(
     cache: ClassifierCache | None,
     db: ClassifierDB,
 ) -> tuple[list[CanonicalizeInput], EntityContext]:
-    """Determine which events need canonicalization and pre-fetch info for existing events.
+    """Determine which native events are new and need categorization.
 
     Returns (events_to_canonicalize, entity_context).
-    entity_context carries the state needed by create_entities_from_canonical.
     """
-    if not contracts:
-        return [], EntityContext(
-            contracts_by_native={},
-            event_id_by_native={},
-            seen_exchange_events=set(),
-            known_event_info={},
-        )
-
     contracts_by_native: dict[NativeKey, list[AdapterContract]] = {}
     for c in contracts:
         contracts_by_native.setdefault(_native_key(c), []).append(c)
 
-    # ── Skip already-registered contracts ────────────────────────────
-    # Most runs (99%) find nothing new. Checking exchange_events first
-    # lets us skip canonicalization/embedding entirely for known contracts.
-    # Cache is checked before DB to avoid a query per contract group.
-    event_id_by_native: dict[NativeKey, EventId] = {}
-    events_to_canonicalize: list[CanonicalizeInput] = []
-    seen_exchange_events: set[NativeKey] = set()
-
     all_native_keys = list(contracts_by_native.keys())
-
-    cached: dict[NativeKey, int] = {}
-    if cache is not None:
-        cached = cache.get_exchange_event_bulk(all_native_keys)
-
+    cached: dict[NativeKey, int] = cache.get_exchange_event_bulk(all_native_keys) if cache is not None else {}
     cache_miss_keys = [nk for nk in all_native_keys if nk not in cached]
     db_results = db.get_exchange_events(cache_miss_keys) if cache_miss_keys else {}
-
     if cache is not None and db_results:
         cache.put_exchange_event_bulk(db_results)
 
+    event_id_by_native: dict[NativeKey, EventId] = {}
+    events_to_canonicalize: list[CanonicalizeInput] = []
     for nk, group in contracts_by_native.items():
         event_id = cached.get(nk) or db_results.get(nk)
         if event_id is not None:
             event_id_by_native[nk] = event_id
-            seen_exchange_events.add(nk)
         else:
             c = group[0]
-            exchange_id, native_id = nk
             events_to_canonicalize.append(
-                CanonicalizeInput(
-                    c.event_title, c.event_description, c.event_category,
-                    exchange_id, native_id,
-                )
+                CanonicalizeInput(c.event_title, c.event_description, c.event_category, nk[0], nk[1])
             )
-
-    # Pre-fetch info for already-known events so create_entities_from_canonical
-    # can merge them with canonical results without another DB query.
-    mapped_event_ids = list(set(event_id_by_native.values()))
-    mapped_event_info = db.get_events(mapped_event_ids) if mapped_event_ids else {}
-    known_event_info: dict[NativeKey, dict] = {}
-    for nk, event_id in event_id_by_native.items():
-        info = mapped_event_info.get(event_id)
-        if info:
-            known_event_info[nk] = info
 
     return events_to_canonicalize, EntityContext(
         contracts_by_native=contracts_by_native,
         event_id_by_native=event_id_by_native,
-        seen_exchange_events=seen_exchange_events,
-        known_event_info=known_event_info,
     )
 
 
@@ -128,166 +88,59 @@ def create_entities_from_canonical(
     db: ClassifierDB,
     debug: bool = False,
 ) -> EntityResult:
-    """Create events, securities, listings from canonical titles.
+    """Create events, securities, listings and event contracts for a batch of contracts.
 
-    Takes canonical_by_native (from prepare_canon_batch + parse_canon_results) and
-    entity_ctx (from prepare_canonicalization_inputs) and writes all entities.
+    Events are identified by their native exchange event and securities by their listing
+    (exchange_id, exchange_security_id); titles and symbols never decide identity.
     """
     if not contracts:
-        return EntityResult(
-            events_created=0, securities_created=0, listings_created=0,
-            event_contracts_created=0, listing_specs_created=0, listing_specs_updated=0,
-            new_security_ids=[], new_security_symbols=[],
-            created_event_ids=[], created_event_names=[],
-        )
+        return _empty_result()
 
     contracts_by_native = entity_ctx.contracts_by_native
     event_id_by_native = dict(entity_ctx.event_id_by_native)
-    seen_exchange_events = set(entity_ctx.seen_exchange_events)
 
-    # Merge DB info for existing events with newly canonicalized titles
-    event_info_by_native: dict[NativeKey, dict] = {}
-    event_info_by_native.update(entity_ctx.known_event_info)
-    event_info_by_native.update(canonical_by_native)
-
-    # Resolve securities that existed before this run to correctly compute new_security_ids
-    seen_symbols = _collect_seen_symbols(contracts, event_info_by_native)
-    all_symbols_needed = list(seen_symbols.keys())
-    existing_secs = db.get_existing_securities(all_symbols_needed)
-    pre_existing_security_ids = set(existing_secs.values())
-
-    # ── Title + expiry dedup ─────────────────────────────────────────
-    # Match on Claude's canonical title — deterministic, not probabilistic.
-    # Semantic equivalence (different titles, same meaning) is handled by
-    # the relationship classifier with LLM verification, not here.
-    batch_titles = list({info["title"] for info in event_info_by_native.values()})
-    created_event_records: list[tuple[str, str | None, int]] = list(db.get_events_for_dedup(batch_titles))
-    pending_events, pending_native_to_event_idx, event_id_by_native = _title_expiry_dedup(
-        event_info_by_native, contracts_by_native, created_event_records, event_id_by_native,
+    created_event_ids, created_event_names = _create_events(
+        registry, contracts_by_native, canonical_by_native, event_id_by_native,
     )
+    if cache is not None and created_event_ids:
+        created = set(created_event_ids)
+        cache.put_exchange_event_bulk({nk: eid for nk, eid in event_id_by_native.items() if eid in created})
 
-    # ── Create events in registry ────────────────────────────────────
-    events_created, created_event_ids = _create_events(registry, pending_events, created_event_records)
+    unique_contracts = list({_listing_key(c): c for c in contracts}.values())
+    existing_listings = db.get_existing_listings([_listing_key(c) for c in unique_contracts])
+    listing_id_by_key: dict[ListingKey, int] = {k: lid for k, (lid, _) in existing_listings.items()}
+    security_id_by_key: dict[ListingKey, SecurityId] = {k: sid for k, (_, sid) in existing_listings.items()}
 
-    created_event_ids_out: list[int] = []
-    created_event_names_out: list[str] = []
-    for nk, event_idx in pending_native_to_event_idx.items():
-        eid = created_event_ids[event_idx] if event_idx < len(created_event_ids) else None
-        if eid is not None:
-            event_id_by_native[nk] = eid
-            created_event_ids_out.append(eid)
-            created_event_names_out.append(pending_events[event_idx]["title"])
-
-    # ── Map exchange events ──────────────────────────────────────────
-    _create_exchange_events(registry, contracts_by_native, event_id_by_native, seen_exchange_events)
-
-    # ── Resolve reference data (currencies, securities, listings) ────
-    currency_by_symbol_ids = db.get_currencies()
-    currency_by_symbol: dict[str, object] = {}
-    all_currency_symbols = (
-        {c.base_currency for c in contracts}
-        | {c.quote_currency for c in contracts}
-        | {c.settle_currency for c in contracts}
+    unlisted_contracts = [c for c in unique_contracts if _listing_key(c) not in listing_id_by_key]
+    currency_ids = _resolve_currencies(registry, db, unlisted_contracts)
+    securities_created, new_security_ids, new_security_symbols = _create_securities(
+        registry, db, unlisted_contracts, currency_ids, security_id_by_key,
     )
-    for sym in all_currency_symbols:
-        if sym in currency_by_symbol_ids:
-            currency_by_symbol[sym] = _CurrencyProxy(currency_by_symbol_ids[sym])
-        else:
-            try:
-                created_curr = registry.create_currency(symbol=sym)
-                cid = created_curr["currency_id"]
-                currency_by_symbol[sym] = _CurrencyProxy(cid)
-                currency_by_symbol_ids[sym] = cid
-            except Exception as e:
-                logger.error("Failed to create currency '%s': %s", sym, e)
-
-    security_id_by_symbol: dict[str, SecurityId] = dict(existing_secs)
-    security_id_by_outcome: dict[tuple[NativeKey, str], SecurityId] = {}
-
-    securities_created, security_id_by_symbol, security_id_by_outcome = _create_securities(
-        registry, seen_symbols, event_info_by_native, contracts_by_native,
-        security_id_by_symbol, security_id_by_outcome, currency_by_symbol,
-    )
-
-    # Back-fill outcome map for contracts whose NativeKey wasn't the "first seen" for their symbol.
-    # Happens when two exchanges share the same canonical title — seen_symbols records one NativeKey
-    # per symbol, but all exchanges' contracts must resolve to the same security.
-    for c in contracts:
-        nk = _native_key(c)
-        if (nk, c.outcome_label) in security_id_by_outcome:
-            continue
-        info = event_info_by_native.get(nk)
-        if info is None:
-            continue
-        symbol = generate_security_symbol(info["title"], c.outcome_label, c.event_expiry)
-        sid = security_id_by_symbol.get(symbol)
-        if sid is not None:
-            security_id_by_outcome[(nk, c.outcome_label)] = sid
-
-    listing_keys_needed = [
-        (c.exchange_id, c.exchange_security_id)
-        for c in contracts
-        if security_id_by_outcome.get((_native_key(c), c.outcome_label)) is not None
-    ]
-    existing_listing_map = db.get_existing_listings(list(set(listing_keys_needed)))
-    listing_by_key: dict[str, object] = {
-        f"{eid}:{esid}": _ListingProxy(lid)
-        for (eid, esid), lid in existing_listing_map.items()
-    }
-
-    listings_created = _create_listings(registry, contracts, security_id_by_outcome, listing_by_key)
-
-    ec_keys_needed = [
-        (event_id_by_native[_native_key(c)], security_id_by_outcome[(_native_key(c), c.outcome_label)])
-        for c in contracts
-        if _native_key(c) in event_id_by_native
-        and (_native_key(c), c.outcome_label) in security_id_by_outcome
-    ]
-    existing_ecs = db.get_existing_event_contracts(list(set(ec_keys_needed)))
-    event_contract_by_key: dict[str, object] = {f"{eid}:{sid}": True for eid, sid in existing_ecs}
-
+    listings_created = _create_listings(registry, unlisted_contracts, security_id_by_key, listing_id_by_key)
     event_contracts_created = _create_event_contracts(
-        registry, contracts, event_id_by_native, security_id_by_outcome, event_contract_by_key,
+        registry, db, unique_contracts, event_id_by_native, security_id_by_key,
+    )
+    spec_by_listing_id = db.get_existing_listing_specs(list(set(listing_id_by_key.values())))
+    listing_specs_created, listing_specs_updated = _sync_listing_specs(
+        registry, unique_contracts, listing_id_by_key, spec_by_listing_id,
     )
 
-    listing_ids_needed = [
-        listing_by_key[f"{c.exchange_id}:{c.exchange_security_id}"].listing_id
-        for c in contracts
-        if f"{c.exchange_id}:{c.exchange_security_id}" in listing_by_key
-        and listing_by_key[f"{c.exchange_id}:{c.exchange_security_id}"] is not None
-    ]
-    spec_by_listing_id = db.get_existing_listing_specs(list(set(listing_ids_needed)))
+    _reconcile_stale_entities(registry, contracts, entity_ctx.event_id_by_native, db)
 
-    listing_specs_created, listing_specs_updated = _sync_listing_specs(registry, contracts, listing_by_key, spec_by_listing_id)
-
-    # ── Deactivate stale listings/securities for pre-existing events ─
-    _reconcile_stale_entities(
-        registry, contracts, contracts_by_native,
-        event_id_by_native, entity_ctx.seen_exchange_events, db,
-    )
-
-    # ── Compute new security IDs ─────────────────────────────────────
-    new_security_ids = list({
-        sid for sid in security_id_by_outcome.values()
-        if sid not in pre_existing_security_ids
-    })
-    all_new_symbols = {v: k for k, v in security_id_by_symbol.items() if k not in existing_secs}
-    new_security_symbols = [all_new_symbols.get(sid, "") for sid in new_security_ids]
-
-    if debug and (events_created or securities_created):
+    if debug and (created_event_ids or securities_created):
         logger.info("[DEBUG] entities: %d events created, %d securities created, %d listings created",
-                    events_created, securities_created, listings_created)
-        for eid, name in zip(created_event_ids_out[:50], created_event_names_out[:50]):
+                    len(created_event_ids), securities_created, listings_created)
+        for eid, name in zip(created_event_ids[:50], created_event_names[:50]):
             logger.info("[DEBUG] entities:   event id=%d %r", eid, name[:80])
-        if len(created_event_ids_out) > 50:
-            logger.info("[DEBUG] entities:   ... and %d more events", len(created_event_ids_out) - 50)
+        if len(created_event_ids) > 50:
+            logger.info("[DEBUG] entities:   ... and %d more events", len(created_event_ids) - 50)
         for sid, sym in zip(new_security_ids[:50], new_security_symbols[:50]):
             logger.info("[DEBUG] entities:   security id=%d %s", sid, sym)
         if len(new_security_ids) > 50:
             logger.info("[DEBUG] entities:   ... and %d more securities", len(new_security_ids) - 50)
 
     return EntityResult(
-        events_created=events_created,
+        events_created=len(created_event_ids),
         securities_created=securities_created,
         listings_created=listings_created,
         event_contracts_created=event_contracts_created,
@@ -295,57 +148,9 @@ def create_entities_from_canonical(
         listing_specs_updated=listing_specs_updated,
         new_security_ids=new_security_ids,
         new_security_symbols=new_security_symbols,
-        created_event_ids=created_event_ids_out,
-        created_event_names=created_event_names_out,
+        created_event_ids=created_event_ids,
+        created_event_names=created_event_names,
     )
-
-
-def _reconcile_stale_entities(
-    registry: RegistryClient,
-    contracts: list[AdapterContract],
-    contracts_by_native: dict[NativeKey, list[AdapterContract]],
-    event_id_by_native: dict[NativeKey, EventId],
-    seen_exchange_events: set[NativeKey],
-    db: ClassifierDB,
-) -> None:
-    pre_existing_nks = [nk for nk in contracts_by_native if nk in seen_exchange_events]
-    if not pre_existing_nks:
-        return
-
-    event_ids = [event_id_by_native[nk] for nk in pre_existing_nks if nk in event_id_by_native]
-    if not event_ids:
-        return
-
-    old_security_ids = db.get_security_ids_for_events(event_ids)
-    if not old_security_ids:
-        return
-
-    existing_listings = db.get_active_listings_for_securities(list(old_security_ids))
-    if not existing_listings:
-        return
-
-    current_esids_by_exchange: dict[int, set[str]] = {}
-    for c in contracts:
-        current_esids_by_exchange.setdefault(c.exchange_id, set()).add(c.exchange_security_id)
-
-    stale_listing_ids: list[int] = []
-    stale_security_ids: set[int] = set()
-    for lid, sid, lex_id, lex_esid in existing_listings:
-        current = current_esids_by_exchange.get(lex_id, set())
-        if lex_esid not in current:
-            stale_listing_ids.append(lid)
-            stale_security_ids.add(sid)
-
-    if stale_listing_ids:
-        registry.bulk_patch_listings([{"listing_id": lid, "active": False} for lid in stale_listing_ids])
-        logger.info("Deactivated %d stale listings", len(stale_listing_ids))
-
-    if stale_security_ids:
-        still_active = db.get_securities_with_active_listings(list(stale_security_ids))
-        sids_to_deactivate = list(stale_security_ids - still_active)
-        if sids_to_deactivate:
-            registry.bulk_patch_securities([{"security_id": sid, "active": False} for sid in sids_to_deactivate])
-            logger.info("Deactivated %d stale securities", len(sids_to_deactivate))
 
 
 def create_entities(
@@ -362,12 +167,7 @@ def create_entities(
     debug: bool = False,
 ) -> EntityResult:
     if not contracts:
-        return EntityResult(
-            events_created=0, securities_created=0, listings_created=0,
-            event_contracts_created=0, listing_specs_created=0, listing_specs_updated=0,
-            new_security_ids=[], new_security_symbols=[],
-            created_event_ids=[], created_event_names=[],
-        )
+        return _empty_result()
     events_to_canon, entity_ctx = prepare_canonicalization_inputs(contracts, cache, db)
     if canonicalize_enabled:
         canonical = canonicalize_events(
@@ -377,292 +177,183 @@ def create_entities(
         )
     else:
         canonical = {
-            (ev.exchange_id, ev.native_id): {
-                "title": ev.raw_title,
-                "category": ev.category or "OTHER",
-                "tags": [],
-            }
+            (ev.exchange_id, ev.native_id): {"category": ev.category or "OTHER", "tags": []}
             for ev in events_to_canon
         }
     return create_entities_from_canonical(registry, canonical, entity_ctx, contracts, cache=cache, db=db, debug=debug)
 
 
-def _title_expiry_dedup(
-    event_info_by_native: dict[NativeKey, dict],
-    contracts_by_native: dict[NativeKey, list[AdapterContract]],
-    created_event_records: list[tuple[str, str | None, int]],
-    event_id_by_native: dict[NativeKey, EventId],
-) -> tuple[list[dict], dict[NativeKey, int], dict[NativeKey, EventId]]:
-    event_id_by_native = dict(event_id_by_native)
-    records_by_title: dict[str, list[tuple[str | None, int]]] = defaultdict(list)
-    for title, expiry, eid in created_event_records:
-        records_by_title[title].append((expiry, eid))
-
-    pending_events: list[dict] = []
-    pending_native_to_event_idx: dict[NativeKey, int] = {}
-    pending_by_title: list[tuple[str, str | None, int]] = []
-
-    for nk, canonical_info in event_info_by_native.items():
-        if nk in event_id_by_native:
-            continue
-        canonical_title = canonical_info["title"]
-        group = contracts_by_native[nk]
-        expiry = group[0].event_expiry
-
-        existing_match_id = next(
-            (eid for exp, eid in records_by_title.get(canonical_title, [])
-             if expiry_close(expiry, exp, timedelta(hours=DEFAULT_DEDUP_EXPIRY_TOLERANCE_HOURS))),
-            None,
-        )
-        if existing_match_id is not None:
-            event_id_by_native[nk] = existing_match_id
-            continue
-
-        pending_match_idx = next(
-            (idx for idx, (title, exp, _) in enumerate(pending_by_title)
-             if title == canonical_title
-             and expiry_close(expiry, exp, timedelta(hours=DEFAULT_DEDUP_EXPIRY_TOLERANCE_HOURS))),
-            None,
-        )
-        if pending_match_idx is not None:
-            pending_native_to_event_idx[nk] = pending_match_idx
-            continue
-
-        event_idx = len(pending_events)
-        pending_native_to_event_idx[nk] = event_idx
-        pending_events.append(dict(
-            title=canonical_title,
-            description=group[0].event_description,
-            category=canonical_info["category"],
-            tags=canonical_info["tags"],
-            expiry=expiry,
-        ))
-        pending_by_title.append((canonical_title, expiry, event_idx))
-
-    return pending_events, pending_native_to_event_idx, event_id_by_native
-
-
 def _create_events(
     registry: RegistryClient,
-    pending_events: list[dict],
-    created_event_records: list[tuple[str, str | None, int]],
-) -> tuple[int, list[int | None]]:
-    events_created = 0
-    created_event_ids: list[int | None] = [None] * len(pending_events)
-    for chunk_start, chunk in bulk_create_chunked(pending_events, "events"):
-        created_list = registry.bulk_create_events(chunk)
-        events_created += len(created_list)
-        for chunk_idx, created in enumerate(created_list):
-            idx = chunk_start + chunk_idx
-            new_eid = created["event_id"]
-            created_event_ids[idx] = new_eid
-            ev = pending_events[idx]
-            created_event_records.append((ev["title"], ev.get("expiry"), new_eid))
-    return events_created, created_event_ids
-
-
-def _create_exchange_events(
-    registry: RegistryClient,
     contracts_by_native: dict[NativeKey, list[AdapterContract]],
+    canonical_by_native: dict[NativeKey, dict],
     event_id_by_native: dict[NativeKey, EventId],
-    seen_exchange_events: set[NativeKey],
-) -> int:
-    pending: list[dict] = []
+) -> tuple[list[EventId], list[str]]:
+    pending_keys: list[NativeKey] = []
+    pending_events: list[dict] = []
     for nk, group in contracts_by_native.items():
-        if nk in seen_exchange_events:
+        if nk in event_id_by_native:
             continue
-        exchange_id, native_id = nk
-        eid = event_id_by_native.get(nk)
-        if eid is None:
-            continue
-        pending.append(dict(
-            exchange_id=exchange_id,
-            event_id=eid,
-            native_event_id=native_id,
-            raw_title=group[0].event_title,
-            native_url=group[0].exchange_event_native_url,
+        c = group[0]
+        info = canonical_by_native.get(nk, {})
+        pending_keys.append(nk)
+        pending_events.append(dict(
+            title=c.event_title,
+            description=c.event_description,
+            category=info.get("category", "OTHER"),
+            tags=info.get("tags", []),
+            expiry=c.event_expiry,
+            exchange_id=c.exchange_id,
+            native_event_id=c.exchange_event_native_id,
+            native_url=c.exchange_event_native_url,
         ))
-        seen_exchange_events.add(nk)
-    for _, chunk in bulk_create_chunked(pending, "exchange events"):
-        registry.bulk_create_exchange_events(chunk)
-    return len(pending)
+
+    created_ids: list[EventId] = []
+    created_names: list[str] = []
+    for chunk_start, chunk in bulk_create_chunked(pending_events, "events"):
+        for chunk_idx, created in enumerate(registry.bulk_create_events(chunk)):
+            idx = chunk_start + chunk_idx
+            event_id_by_native[pending_keys[idx]] = created["event_id"]
+            created_ids.append(created["event_id"])
+            created_names.append(pending_events[idx]["title"])
+    return created_ids, created_names
 
 
-def _collect_seen_symbols(
+def _resolve_currencies(
+    registry: RegistryClient,
+    db: ClassifierDB,
     contracts: list[AdapterContract],
-    event_info_by_native: dict[NativeKey, dict],
-) -> dict[str, AdapterContract]:
-    seen: dict[str, AdapterContract] = {}
-    for c in contracts:
-        info = event_info_by_native.get(_native_key(c))
-        if info is None:
-            continue
-        symbol = generate_security_symbol(info["title"], c.outcome_label, c.event_expiry)
-        if symbol not in seen:
-            seen[symbol] = c
-    return seen
+) -> dict[str, int]:
+    currency_ids = db.get_currencies()
+    needed = {c.base_currency for c in contracts} | {c.quote_currency for c in contracts} | {c.settle_currency for c in contracts}
+    for sym in needed - currency_ids.keys():
+        currency_ids[sym] = registry.create_currency(symbol=sym)["currency_id"]
+    return currency_ids
 
 
 def _create_securities(
     registry: RegistryClient,
-    seen_symbols: dict[str, AdapterContract],
-    event_info_by_native: dict[NativeKey, dict],
-    contracts_by_native: dict[NativeKey, list[AdapterContract]],
-    security_id_by_symbol: dict[str, SecurityId],
-    security_id_by_outcome: dict[tuple[NativeKey, str], SecurityId],
-    currency_by_symbol: dict,
-) -> tuple[int, dict[str, SecurityId], dict[tuple[NativeKey, str], SecurityId]]:
-    pending_securities: list[dict] = []
-    pending_symbols: list[str] = []
-    pending_outcomes: list[tuple[NativeKey, str]] = []
+    db: ClassifierDB,
+    contracts: list[AdapterContract],
+    currency_ids: dict[str, int],
+    security_id_by_key: dict[ListingKey, SecurityId],
+) -> tuple[int, list[SecurityId], list[str]]:
+    """Create one security per unlisted contract.
 
-    for symbol, c in seen_symbols.items():
-        nk = _native_key(c)
-        canonical_info = event_info_by_native[nk]
-        if symbol in security_id_by_symbol:
-            security_id_by_outcome[(nk, c.outcome_label)] = security_id_by_symbol[symbol]
+    A security left without a listing by an earlier failed attempt is reused, since nothing
+    else can own it. Any other symbol clash fails the insert on sm.security's unique symbol,
+    so two contracts can never silently share a security.
+    """
+    orphan_by_symbol = db.get_unlisted_securities([c.security_symbol for c in contracts])
+
+    new_security_ids: list[SecurityId] = []
+    new_symbols: list[str] = []
+    pending: list[dict] = []
+    pending_keys: list[ListingKey] = []
+    for c in contracts:
+        orphan_sid = orphan_by_symbol.pop(c.security_symbol, None)
+        if orphan_sid is not None:
+            security_id_by_key[_listing_key(c)] = orphan_sid
+            new_security_ids.append(orphan_sid)
+            new_symbols.append(c.security_symbol)
             continue
-
-        base_ccy = currency_by_symbol.get(c.base_currency)
-        quote_ccy = currency_by_symbol.get(c.quote_currency)
-        settle_ccy = currency_by_symbol.get(c.settle_currency)
-
-        pending_securities.append(dict(
-            symbol=symbol,
+        pending_keys.append(_listing_key(c))
+        pending.append(dict(
+            symbol=c.security_symbol,
             type=SecurityType.EVENT_CONTRACT,
             contract_type=c.contract_type,
             asset_class=c.asset_class,
-            base_currency_id=base_ccy.currency_id if base_ccy else None,
-            quote_currency_id=quote_ccy.currency_id if quote_ccy else None,
-            settle_currency_id=settle_ccy.currency_id if settle_ccy else None,
+            base_currency_id=currency_ids.get(c.base_currency),
+            quote_currency_id=currency_ids.get(c.quote_currency),
+            settle_currency_id=currency_ids.get(c.settle_currency),
             inverse=c.inverse,
             quanto=c.is_quanto,
             expiry=c.event_expiry,
             active=True,
         ))
-        pending_symbols.append(symbol)
-        pending_outcomes.append((nk, c.outcome_label))
 
-    securities_created = 0
-    for chunk_start, chunk in bulk_create_chunked(pending_securities, "securities"):
+    created_count = 0
+    for chunk_start, chunk in bulk_create_chunked(pending, "securities"):
         created_list = registry.bulk_create_securities(chunk)
-        securities_created += len(created_list)
+        created_count += len(created_list)
         for chunk_idx, created in enumerate(created_list):
             idx = chunk_start + chunk_idx
-            new_sid = created["security_id"]
-            sym = pending_symbols[idx]
-            security_id_by_symbol[sym] = new_sid
-            security_id_by_outcome[pending_outcomes[idx]] = new_sid
-
-    return securities_created, security_id_by_symbol, security_id_by_outcome
+            security_id_by_key[pending_keys[idx]] = created["security_id"]
+            new_security_ids.append(created["security_id"])
+            new_symbols.append(pending[idx]["symbol"])
+    return created_count, new_security_ids, new_symbols
 
 
 def _create_listings(
     registry: RegistryClient,
     contracts: list[AdapterContract],
-    security_id_by_outcome: dict[tuple[NativeKey, str], SecurityId],
-    listing_by_key: dict[str, object],
+    security_id_by_key: dict[ListingKey, SecurityId],
+    listing_id_by_key: dict[ListingKey, int],
 ) -> int:
-    pending_listings: list[dict] = []
-    pending_listing_keys: list[str] = []
-
-    for c in contracts:
-        key = f"{c.exchange_id}:{c.exchange_security_id}"
-        if key in listing_by_key:
-            continue
-        sid = security_id_by_outcome.get((_native_key(c), c.outcome_label))
-        if sid is None:
-            continue
-        listing_by_key[key] = None  # type: ignore[assignment]
-        pending_listings.append(dict(
+    pending = [
+        dict(
             exchange_id=c.exchange_id,
-            security_id=sid,
+            security_id=security_id_by_key[_listing_key(c)],
             exchange_security_id=c.exchange_security_id,
             exchange_security_symbol=c.exchange_security_symbol,
-        ))
-        pending_listing_keys.append(key)
-
-    listings_created = 0
-    for chunk_start, chunk in bulk_create_chunked(pending_listings, "listings"):
-        try:
-            created_list = registry.bulk_create_listings(chunk)
-            listings_created += len(created_list)
-            for chunk_idx, created in enumerate(created_list):
-                idx = chunk_start + chunk_idx
-                listing_by_key[pending_listing_keys[idx]] = from_dict(Listing, created)
-        except Exception as e:
-            logger.error(
-                "Bulk listing creation failed (chunk starting at %d): %s — first item: %s",
-                chunk_start, e, chunk[0] if chunk else None,
-            )
-    return listings_created
+        )
+        for c in contracts
+    ]
+    created_count = 0
+    for chunk_start, chunk in bulk_create_chunked(pending, "listings"):
+        created_list = registry.bulk_create_listings(chunk)
+        created_count += len(created_list)
+        for chunk_idx, created in enumerate(created_list):
+            c = contracts[chunk_start + chunk_idx]
+            listing_id_by_key[_listing_key(c)] = created["listing_id"]
+    return created_count
 
 
 def _create_event_contracts(
     registry: RegistryClient,
+    db: ClassifierDB,
     contracts: list[AdapterContract],
     event_id_by_native: dict[NativeKey, EventId],
-    security_id_by_outcome: dict[tuple[NativeKey, str], SecurityId],
-    event_contract_by_key: dict[str, object],
+    security_id_by_key: dict[ListingKey, SecurityId],
 ) -> int:
-    pending_ecs: list[dict] = []
-    pending_ec_keys: list[str] = []
-
+    wanted: dict[tuple[EventId, SecurityId], str] = {}
     for c in contracts:
-        nk = _native_key(c)
-        event_id = event_id_by_native.get(nk)
-        sid = security_id_by_outcome.get((nk, c.outcome_label))
-        if event_id is None or sid is None:
+        event_id = event_id_by_native.get(_native_key(c))
+        security_id = security_id_by_key.get(_listing_key(c))
+        if event_id is None or security_id is None:
             continue
-        ec_key = f"{event_id}:{sid}"
-        if ec_key in event_contract_by_key:
-            continue
-        event_contract_by_key[ec_key] = None  # type: ignore[assignment]
-        pending_ecs.append(dict(
-            event_id=event_id,
-            security_id=sid,
-            outcome_label=c.outcome_label,
-        ))
-        pending_ec_keys.append(ec_key)
+        wanted.setdefault((event_id, security_id), c.outcome_label)
 
-    event_contracts_created = 0
-    for chunk_start, chunk in bulk_create_chunked(pending_ecs, "event contracts"):
-        created_list = registry.bulk_create_event_contracts(chunk)
-        event_contracts_created += len(created_list)
-        for chunk_idx, created in enumerate(created_list):
-            idx = chunk_start + chunk_idx
-            event_contract_by_key[pending_ec_keys[idx]] = from_dict(EventContract, created)
-    return event_contracts_created
+    existing = db.get_existing_event_contracts(list(wanted))
+    pending = [
+        dict(event_id=eid, security_id=sid, outcome_label=label)
+        for (eid, sid), label in wanted.items()
+        if (eid, sid) not in existing
+    ]
+    created_count = 0
+    for _, chunk in bulk_create_chunked(pending, "event contracts"):
+        created_count += len(registry.bulk_create_event_contracts(chunk))
+    return created_count
 
 
 def _sync_listing_specs(
     registry: RegistryClient,
     contracts: list[AdapterContract],
-    listing_by_key: dict[str, object],
+    listing_id_by_key: dict[ListingKey, int],
     spec_by_listing_id: dict[int, tuple[int, int, int, int]],
 ) -> tuple[int, int]:
     pending_specs: list[dict] = []
-    seen: set[int] = set()
     updates = 0
-
     for c in contracts:
-        key = f"{c.exchange_id}:{c.exchange_security_id}"
-        listing = listing_by_key.get(key)
-        if listing is None:
+        listing_id = listing_id_by_key.get(_listing_key(c))
+        if listing_id is None:
             continue
-        listing_id = listing.listing_id if hasattr(listing, "listing_id") else listing["listing_id"]
-        if listing_id in seen:
-            continue
-        seen.add(listing_id)
-
         new_vals = (int(c.tick_size), int(c.lot_size), int(c.min_notional), int(c.contract_multiplier))
         existing = spec_by_listing_id.get(listing_id)
         if existing == new_vals:
             continue
-
         if existing is not None:
             updates += 1
-
         pending_specs.append(dict(
             listing_id=listing_id,
             tick_size=c.tick_size,
@@ -674,8 +365,51 @@ def _sync_listing_specs(
     posted = 0
     for _, chunk in bulk_create_chunked(pending_specs, "listing specs"):
         try:
-            created_list = registry.bulk_create_listing_specs(chunk)
-            posted += len(created_list)
+            posted += len(registry.bulk_create_listing_specs(chunk))
         except Exception as e:
             logger.error("Bulk listing_spec creation failed: %s", e)
     return posted - updates, updates
+
+
+def _reconcile_stale_entities(
+    registry: RegistryClient,
+    contracts: list[AdapterContract],
+    preexisting_event_id_by_native: dict[NativeKey, EventId],
+    db: ClassifierDB,
+) -> None:
+    """Deactivate listings of pre-existing events that the exchange no longer lists.
+
+    Every message carries the full contract group of its native event, so any active
+    listing of that event missing from the batch has been removed by the exchange.
+    """
+    if not preexisting_event_id_by_native:
+        return
+    old_security_ids = db.get_security_ids_for_events(list(set(preexisting_event_id_by_native.values())))
+    if not old_security_ids:
+        return
+    existing_listings = db.get_active_listings_for_securities(list(old_security_ids))
+    if not existing_listings:
+        return
+
+    batch_exchange_ids = {nk[0] for nk in preexisting_event_id_by_native}
+    current_keys = {_listing_key(c) for c in contracts}
+    stale_listing_ids: list[int] = []
+    stale_security_ids: set[int] = set()
+    for lid, sid, lex_id, lex_esid in existing_listings:
+        # Only judge listings on exchanges this batch speaks for.
+        if lex_id not in batch_exchange_ids:
+            continue
+        if (lex_id, lex_esid) not in current_keys:
+            stale_listing_ids.append(lid)
+            stale_security_ids.add(sid)
+
+    if stale_listing_ids:
+        registry.bulk_patch_listings([{"listing_id": lid, "active": False} for lid in stale_listing_ids])
+        logger.info("Deactivated %d stale listings", len(stale_listing_ids))
+
+    if stale_security_ids:
+        still_active = db.get_securities_with_active_listings(list(stale_security_ids))
+        sids_to_deactivate = list(stale_security_ids - still_active)
+        if sids_to_deactivate:
+            registry.bulk_patch_securities([{"security_id": sid, "active": False} for sid in sids_to_deactivate])
+            logger.info("Deactivated %d stale securities", len(sids_to_deactivate))

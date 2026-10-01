@@ -8,6 +8,7 @@ from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
+from classifier.utils import format_security_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ def _fmt_price(value: str) -> str:
 
 class HyperliquidAdapter:
     exchange_code = "HYPERLIQUID"
+    symbol_prefix = "HL"
 
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.1)
@@ -75,10 +77,10 @@ class HyperliquidAdapter:
             return res.json()
         except requests.exceptions.RetryError as e:
             logger.error("Hyperliquid API retries exhausted: %s", e)
-            return {}
+            raise
         except requests.exceptions.RequestException as e:
             logger.error("Hyperliquid API error: %s", e)
-            return {}
+            raise
 
     def _map_all(self, exchange_id: ExchangeId, outcomes: dict, questions: list[dict]) -> list[AdapterContract]:
         contracts: list[AdapterContract] = []
@@ -202,6 +204,7 @@ class HyperliquidAdapter:
                 event_category=event_category,
                 event_expiry=expiry_iso,
                 exchange_event_native_id=exchange_event_native_id,
+                security_symbol=format_security_symbol(self.symbol_prefix, str(outcome_id)),
             ))
         return contracts
 
@@ -244,6 +247,7 @@ class HyperliquidAdapter:
                 event_category=event_category,
                 event_expiry=event_expiry,
                 exchange_event_native_id=exchange_event_native_id,
+                security_symbol=format_security_symbol(self.symbol_prefix, str(outcome_id), side_name),
             ))
         return contracts
 

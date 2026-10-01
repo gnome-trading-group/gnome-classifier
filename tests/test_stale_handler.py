@@ -85,3 +85,18 @@ class TestStaleCleanupHandler:
 
         saved = _saved_tracker(r)
         assert saved["1:evt-back"]["miss_count"] == 0
+
+    def test_skips_miss_counting_for_exchange_whose_fetch_failed(self, moto_env):
+        tracker = {"1:evt-1": {"exchange_id": 1, "native_event_id": "evt-1", "miss_count": 2}}
+        r = _make_redis(tracker)
+        runner = FetchRunner()
+        runner._active_events = ({}, set())
+
+        runner._run_stale(_make_stale_rc(miss_threshold=3), r, moto_env["sqs"], MagicMock())
+
+        saved = _saved_tracker(r)
+        assert saved["1:evt-1"]["miss_count"] == 2
+        resp = moto_env["sqs"].receive_message(
+            QueueUrl=moto_env["contracts_queue"], MaxNumberOfMessages=10, WaitTimeSeconds=0
+        )
+        assert resp.get("Messages", []) == []

@@ -19,7 +19,7 @@ def _parse_response(response: Any) -> Any:
     return json.loads(text)
 
 
-def _parse_canonical_result(item: dict, raw_title: str) -> dict:
+def _parse_canonical_result(item: dict) -> dict:
     category = item.get("category", "OTHER")
     if category not in STANDARDIZED_CATEGORIES:
         category = "OTHER"
@@ -28,7 +28,7 @@ def _parse_canonical_result(item: dict, raw_title: str) -> dict:
         tags = []
     else:
         tags = [t for t in tags if isinstance(t, str)][:8]
-    return {"title": item.get("title", raw_title), "category": category, "tags": tags}
+    return {"category": category, "tags": tags}
 
 
 def _title_key(raw_title: str) -> str:
@@ -40,19 +40,18 @@ def _build_chunk_prompt(batch: list[CanonicalizeInput]) -> str:
         f"[{j + 1}] (key: {_title_key(ev.raw_title)}) Title: {ev.raw_title} | Description: {(ev.description or '')[:200]} | Category: {ev.category or ''}"
         for j, ev in enumerate(batch)
     )
-    return f"""You are standardizing prediction market events for a cross-exchange registry.
+    return f"""You are categorizing prediction market events for a cross-exchange registry.
 
 For each event below, generate:
-1. title: Clean, exchange-neutral title for this prediction market question. Preserve all dates, numeric thresholds, price targets, and outcome conditions (e.g., "7,750 or above", "$100,000", "at least 3 times") exactly as stated.
-2. category: One of {_CATEGORIES_STR}
-3. tags: 3-8 lowercase keyword tags
-4. key: Echo the 6-character key shown in parentheses for this event (verbatim, for validation).
+1. category: One of {_CATEGORIES_STR}
+2. tags: 3-8 lowercase keyword tags
+3. key: Echo the 6-character key shown in parentheses for this event (verbatim, for validation).
 
 Events:
 {event_lines}
 
 Respond with a JSON array, one object per event, echoing the input number as "id":
-[{{"id": 1, "key": "a3f2b1", "title": "...", "category": "...", "tags": ["..."]}}, ...]"""
+[{{"id": 1, "key": "a3f2b1", "category": "...", "tags": ["..."]}}, ...]"""
 
 
 def prepare_canon_batch(
@@ -169,15 +168,13 @@ def parse_canon_results(
                     )
                     missed.append(ev_info)
                     continue
-                result = _parse_canonical_result(item, ev_info["raw_title"])
+                result = _parse_canonical_result(item)
                 results[nk] = result
                 if cache is not None:
                     cache.put_canonicalization(model, nk[0], nk[1], result)
                 if debug:
-                    raw_t = ev_info["raw_title"][:60]
-                    canon_t = result["title"][:60]
-                    logger.info("[DEBUG] canonicalize: %r -> %r [%s] tags=%s",
-                                raw_t, canon_t, result["category"], result["tags"])
+                    logger.info("[DEBUG] canonicalize: %r [%s] tags=%s",
+                                ev_info["raw_title"][:60], result["category"], result["tags"])
             else:
                 missed.append(ev_info)
 
@@ -197,9 +194,7 @@ def parse_canon_results(
                 if cache is not None:
                     cache.put_canonicalization(model, nk[0], nk[1], result)
                 if debug:
-                    raw_t = ev_info["raw_title"][:60]
-                    canon_t = result["title"][:60]
-                    logger.info("[DEBUG] canonicalize (retry): %r -> %r [%s]", raw_t, canon_t, result["category"])
+                    logger.info("[DEBUG] canonicalize (retry): %r [%s]", ev_info["raw_title"][:60], result["category"])
 
     uncached_total = sum(len(c["events"]) for c in canon_context)
     failed = uncached_total - len(results)
@@ -228,8 +223,8 @@ def canonicalize_events(
     sync_threshold: int = 10,
     debug: bool = False,
 ) -> dict[NativeKey, dict[str, Any]]:
-    """Canonicalize a list of CanonicalizeInput records.
-    Returns a mapping from (exchange_id, native_id) to {"title", "category", "tags"}."""
+    """Categorize a list of CanonicalizeInput records.
+    Returns a mapping from (exchange_id, native_id) to {"category", "tags"}."""
     if not events:
         return {}
     api_requests, canon_context, cached_results = prepare_canon_batch(events, cache, model=model, batch_size=batch_size, debug=debug)
@@ -249,18 +244,17 @@ def _canonicalize_single(
     exchange_category: str | None,
     model: str = DEFAULT_CANONICALIZE_MODEL,
 ) -> dict | None:
-    prompt = f"""You are standardizing a prediction market event for a cross-exchange registry.
+    prompt = f"""You are categorizing a prediction market event for a cross-exchange registry.
 
 Exchange-provided title: {raw_title}
 Description: {description or ''}
 Exchange category: {exchange_category or ''}
 
 Generate:
-1. title: Clean, exchange-neutral title for this prediction market question. Preserve all dates, numeric thresholds, price targets, and outcome conditions (e.g., "7,750 or above", "$100,000", "at least 3 times") exactly as stated.
-2. category: One of {_CATEGORIES_STR}
-3. tags: 3-8 lowercase keyword tags
+1. category: One of {_CATEGORIES_STR}
+2. tags: 3-8 lowercase keyword tags
 
-Respond with JSON only: {{"title": "...", "category": "...", "tags": ["..."]}}"""
+Respond with JSON only: {{"category": "...", "tags": ["..."]}}"""
 
     response = None
     try:
@@ -270,7 +264,7 @@ Respond with JSON only: {{"title": "...", "category": "...", "tags": ["..."]}}""
             messages=[{"role": "user", "content": prompt}],
         )
         result = _parse_response(response)
-        return _parse_canonical_result(result, raw_title)
+        return _parse_canonical_result(result)
     except Exception as e:
         raw = response.content[0].text if response is not None else "<no response>"
         logger.warning("Canonicalization failed for '%s': %s stop_reason=%s raw=%r", raw_title, e,

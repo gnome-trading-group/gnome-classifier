@@ -6,7 +6,7 @@ import psycopg2.extras
 import psycopg2.pool
 from pgvector.psycopg2 import register_vector
 
-from gnomepy.registry.types import ContractRelationship, Currency, Event, EventContract, ExchangeEvent, Listing, Security
+from gnomepy.registry.types import ContractRelationship, Currency, Event, EventContract, Listing, Security
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class ClassifierDB:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT event_id FROM sm.exchange_event"
+                    "SELECT event_id FROM sm.event"
                     " WHERE exchange_id = %s AND native_event_id = %s",
                     (exchange_id, native_id),
                 )
@@ -43,7 +43,7 @@ class ClassifierDB:
                 exchange_ids, native_ids = zip(*keys)
                 cur.execute(
                     "SELECT exchange_id, native_event_id, event_id"
-                    " FROM sm.exchange_event"
+                    " FROM sm.event"
                     " WHERE (exchange_id, native_event_id) IN"
                     " (SELECT unnest(%s::int[]), unnest(%s::text[]))",
                     (list(exchange_ids), list(native_ids)),
@@ -66,32 +66,22 @@ class ClassifierDB:
                     for row in cur.fetchall()
                 }
 
-    def get_events_for_dedup(self, titles: list[str]) -> list[tuple[str, str | None, int]]:
-        """Returns (title, expiry, event_id) for unresolved events matching the given titles."""
-        if not titles:
-            return []
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT title, expiry, event_id FROM sm.event"
-                    " WHERE resolved = false AND title = ANY(%s)",
-                    (titles,),
-                )
-                return [(row[0], str(row[1]) if row[1] else None, row[2]) for row in cur.fetchall()]
-
     def get_currencies(self) -> dict[str, int]:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT symbol, currency_id FROM sm.currency")
                 return {row[0]: row[1] for row in cur.fetchall()}
 
-    def get_existing_securities(self, symbols: list[str]) -> dict[str, int]:
+    def get_unlisted_securities(self, symbols: list[str]) -> dict[str, int]:
+        """Returns {symbol: security_id} for securities with these symbols that have no listing."""
         if not symbols:
             return {}
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT symbol, security_id FROM sm.security WHERE symbol = ANY(%s)",
+                    "SELECT s.symbol, s.security_id FROM sm.security s"
+                    " WHERE s.symbol = ANY(%s)"
+                    " AND NOT EXISTS (SELECT 1 FROM sm.listing l WHERE l.security_id = s.security_id)",
                     (symbols,),
                 )
                 return {row[0]: row[1] for row in cur.fetchall()}
@@ -104,8 +94,8 @@ class ClassifierDB:
 
     def get_existing_listings(
         self, keys: list[tuple[int, str]]
-    ) -> dict[tuple[int, str], int]:
-        """Returns {(exchange_id, exchange_security_id): listing_id}."""
+    ) -> dict[tuple[int, str], tuple[int, int]]:
+        """Returns {(exchange_id, exchange_security_id): (listing_id, security_id)}."""
         if not keys:
             return {}
         exchange_ids = [k[0] for k in keys]
@@ -113,12 +103,12 @@ class ClassifierDB:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT exchange_id, exchange_security_id, listing_id FROM sm.listing"
+                    "SELECT exchange_id, exchange_security_id, listing_id, security_id FROM sm.listing"
                     " WHERE (exchange_id, exchange_security_id)"
                     " IN (SELECT * FROM unnest(%s::int[], %s::text[]))",
                     (exchange_ids, security_ids),
                 )
-                return {(row[0], row[1]): row[2] for row in cur.fetchall()}
+                return {(row[0], row[1]): (row[2], row[3]) for row in cur.fetchall()}
 
     def get_existing_event_contracts(
         self, keys: list[tuple[int, int]]
@@ -159,7 +149,8 @@ class ClassifierDB:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT event_id, title, description, category,"
-                    " tags, resolved, resolved_at, expiry, date_modified, date_created"
+                    " tags, resolved, resolved_at, expiry, date_modified, date_created,"
+                    " exchange_id, native_event_id, native_url"
                     " FROM sm.event WHERE resolved = false"
                 )
                 return [
@@ -169,6 +160,7 @@ class ClassifierDB:
                         resolved=row[5], resolved_at=str(row[6]) if row[6] else None,
                         expiry=str(row[7]) if row[7] else None,
                         date_modified=str(row[8]), date_created=str(row[9]),
+                        exchange_id=row[10], native_event_id=row[11], native_url=row[12],
                     )
                     for row in cur.fetchall()
                 ]
@@ -258,7 +250,8 @@ class ClassifierDB:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT event_id, title, description, category,"
-                    " tags, resolved, resolved_at, expiry, date_modified, date_created"
+                    " tags, resolved, resolved_at, expiry, date_modified, date_created,"
+                    " exchange_id, native_event_id, native_url"
                     " FROM sm.event WHERE event_id = ANY(%s)",
                     (event_ids,),
                 )
@@ -269,6 +262,7 @@ class ClassifierDB:
                         resolved=row[5], resolved_at=str(row[6]) if row[6] else None,
                         expiry=str(row[7]) if row[7] else None,
                         date_modified=str(row[8]), date_created=str(row[9]),
+                        exchange_id=row[10], native_event_id=row[11], native_url=row[12],
                     )
                     for row in cur.fetchall()
                 ]
@@ -571,35 +565,10 @@ class ClassifierDB:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT ee.exchange_id, ee.native_event_id"
-                    " FROM sm.exchange_event ee"
-                    " JOIN sm.event e ON e.event_id = ee.event_id"
-                    " WHERE e.resolved = false"
+                    "SELECT exchange_id, native_event_id FROM sm.event"
+                    " WHERE resolved = false AND native_event_id IS NOT NULL"
                 )
                 result: dict[int, set[str]] = {}
                 for exchange_id, native_id in cur.fetchall():
                     result.setdefault(exchange_id, set()).add(native_id)
                 return result
-
-    def get_all_active_exchange_events(self) -> list[ExchangeEvent]:
-        """Returns exchange events for unresolved events."""
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT ee.exchange_event_id, ee.exchange_id, ee.event_id,"
-                    " ee.native_event_id, ee.raw_title, ee.date_created"
-                    " FROM sm.exchange_event ee"
-                    " JOIN sm.event e ON e.event_id = ee.event_id"
-                    " WHERE e.resolved = false"
-                )
-                return [
-                    ExchangeEvent(
-                        exchange_event_id=row[0],
-                        exchange_id=row[1],
-                        event_id=row[2],
-                        native_event_id=row[3],
-                        raw_title=row[4] or "",
-                        date_created=str(row[5]),
-                    )
-                    for row in cur.fetchall()
-                ]

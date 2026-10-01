@@ -3,26 +3,22 @@ import dataclasses
 import pytest
 
 from classifier.stages.stale import deactivate_stale_events
-from gnomepy.registry.types import Event, EventContract, ExchangeEvent, Listing, Security
+from gnomepy.registry.types import Event, EventContract, Listing, Security
 from scripts.testing import StubDB, StubRegistry
 
 
-def _seed_event(registry: StubRegistry, event_id: int, resolved: bool = False) -> None:
+def _seed_event(
+    registry: StubRegistry,
+    event_id: int,
+    resolved: bool = False,
+    exchange_id: int | None = None,
+    native_event_id: str | None = None,
+) -> None:
     registry._events.append(Event(
         event_id=event_id, title=f"Event {event_id}", description=None,
         category=None, tags=None, resolved=resolved, resolved_at=None,
         expiry=None, date_modified="", date_created="",
-    ))
-
-
-def _seed_exchange_event(registry: StubRegistry, event_id: int, exchange_id: int, native_event_id: str) -> None:
-    registry._exchange_events.append(ExchangeEvent(
-        exchange_event_id=event_id * 100 + exchange_id,
-        exchange_id=exchange_id,
-        event_id=event_id,
-        native_event_id=native_event_id,
-        raw_title="",
-        date_created="",
+        exchange_id=exchange_id, native_event_id=native_event_id,
     ))
 
 
@@ -74,8 +70,7 @@ def test_unknown_native_key_is_skipped(registry, db):
 
 
 def test_already_resolved_event_is_skipped(registry, db):
-    _seed_event(registry, 1, resolved=True)
-    _seed_exchange_event(registry, 1, exchange_id=1, native_event_id="evt-1")
+    _seed_event(registry, 1, resolved=True, exchange_id=1, native_event_id="evt-1")
 
     result = deactivate_stale_events([(1, "evt-1")], registry, db)
 
@@ -84,8 +79,7 @@ def test_already_resolved_event_is_skipped(registry, db):
 
 
 def test_single_event_fully_deactivated(registry, db):
-    _seed_event(registry, 1)
-    _seed_exchange_event(registry, 1, exchange_id=1, native_event_id="evt-1")
+    _seed_event(registry, 1, exchange_id=1, native_event_id="evt-1")
     _seed_security(registry, 10)
     _seed_security(registry, 11)
     _seed_listing(registry, 100, 10, exchange_id=1, exchange_security_id="sec-yes")
@@ -109,8 +103,7 @@ def test_single_event_fully_deactivated(registry, db):
 
 
 def test_stale_on_one_exchange_leaves_other_exchange_intact(registry, db):
-    _seed_event(registry, 1)
-    _seed_exchange_event(registry, 1, exchange_id=1, native_event_id="evt-1")
+    _seed_event(registry, 1, exchange_id=1, native_event_id="evt-1")
     _seed_security(registry, 10)
     _seed_listing(registry, 100, 10, exchange_id=1, exchange_security_id="sec-poly")
     _seed_listing(registry, 101, 10, exchange_id=2, exchange_security_id="sec-kalshi")
@@ -130,14 +123,12 @@ def test_stale_on_one_exchange_leaves_other_exchange_intact(registry, db):
 
 
 def test_multiple_stale_events_processed_together(registry, db):
-    _seed_event(registry, 1)
-    _seed_exchange_event(registry, 1, exchange_id=1, native_event_id="evt-1")
+    _seed_event(registry, 1, exchange_id=1, native_event_id="evt-1")
     _seed_security(registry, 10)
     _seed_listing(registry, 100, 10, exchange_id=1, exchange_security_id="sec-1")
     _seed_event_contract(registry, 1, event_id=1, security_id=10)
 
-    _seed_event(registry, 2)
-    _seed_exchange_event(registry, 2, exchange_id=1, native_event_id="evt-2")
+    _seed_event(registry, 2, exchange_id=1, native_event_id="evt-2")
     _seed_security(registry, 20)
     _seed_listing(registry, 200, 20, exchange_id=1, exchange_security_id="sec-2")
     _seed_event_contract(registry, 2, event_id=2, security_id=20)
@@ -150,8 +141,7 @@ def test_multiple_stale_events_processed_together(registry, db):
 
 
 def test_event_not_resolved_while_active_security_remains(registry, db):
-    _seed_event(registry, 1)
-    _seed_exchange_event(registry, 1, exchange_id=1, native_event_id="evt-1")
+    _seed_event(registry, 1, exchange_id=1, native_event_id="evt-1")
     _seed_security(registry, 10)
     _seed_security(registry, 11)
     _seed_listing(registry, 100, 10, exchange_id=1, exchange_security_id="sec-yes")

@@ -394,3 +394,25 @@ def test_listing_spec_not_updated_when_unchanged(stub_registry, stub_db, mock_an
     result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
     assert result.listing_specs_created == 0
     assert result.listing_specs_updated == 0
+
+
+# ── Security symbols ──────────────────────────────────────────────────────────
+
+def test_binary_symbol_uses_market_slug_and_outcome():
+    event = json.loads(json.dumps(EVENTS_BY_SLUG["elon-mars"]))
+    event["markets"][0]["slug"] = "will-elon-land-on-mars"
+    contracts = adapter._map_event(EXCHANGE_ID, event)
+    assert {c.security_symbol for c in contracts} == {
+        f"PM_I-WILL-ELON-LAND-ON-MARS-{c.outcome_label.upper()}" for c in contracts
+    }
+
+
+def test_symbol_falls_back_to_condition_id_without_slug():
+    contracts = _map("elon-mars")
+    condition_id = contracts[0].exchange_event_native_id
+    assert all(c.security_symbol.startswith(f"PM_I-{condition_id.upper()}-") for c in contracts)
+
+
+def test_symbols_unique_across_fixture():
+    contracts = [c for e in FIXTURE["events"] for c in adapter._map_event(EXCHANGE_ID, e)]
+    assert len({c.security_symbol for c in contracts}) == len({c.exchange_security_id for c in contracts})

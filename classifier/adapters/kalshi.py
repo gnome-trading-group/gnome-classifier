@@ -9,6 +9,7 @@ from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
+from classifier.utils import format_security_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ def _slugify(text: str) -> str:
 
 class KalshiAdapter:
     exchange_code = "KALSHI"
+    symbol_prefix = "KX"
 
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.15)
@@ -60,10 +62,10 @@ class KalshiAdapter:
                 data = res.json()
             except requests.exceptions.RetryError as e:
                 logger.error("Kalshi API retries exhausted: %s", e)
-                return
+                raise
             except requests.exceptions.RequestException as e:
                 logger.error("Kalshi API error: %s", e)
-                return
+                raise
             page = [c for event in data.get("events", []) for c in self._map_event(exchange_id, event)]
             if page:
                 yield page
@@ -122,10 +124,10 @@ class KalshiAdapter:
                 data = res.json()
             except requests.exceptions.RetryError as e:
                 logger.error("Kalshi settled API retries exhausted: %s", e)
-                return
+                raise
             except requests.exceptions.RequestException as e:
                 logger.error("Kalshi settled API error: %s", e)
-                return
+                raise
             yield from data.get("events", [])
             cursor = data.get("cursor", "")
             if not cursor:
@@ -147,10 +149,10 @@ class KalshiAdapter:
                 data = res.json()
             except requests.exceptions.RetryError as e:
                 logger.error("Kalshi API retries exhausted: %s", e)
-                return
+                raise
             except requests.exceptions.RequestException as e:
                 logger.error("Kalshi API error: %s", e)
-                return
+                raise
             yield from data.get("events", [])
             cursor = data.get("cursor", "")
             if not cursor:
@@ -233,6 +235,7 @@ class KalshiAdapter:
                     event_category=event_category,
                     event_expiry=expiry,
                     exchange_event_native_id=event_ticker,
+                    security_symbol=format_security_symbol(self.symbol_prefix, ticker),
                     exchange_event_native_url=native_url,
                     event_volume=event_volume,
                 ))
@@ -276,6 +279,7 @@ class KalshiAdapter:
                         event_category=event_category,
                         event_expiry=expiry,
                         exchange_event_native_id=native_id,
+                        security_symbol=format_security_symbol(self.symbol_prefix, ticker, side),
                         exchange_event_native_url=native_url,
                         event_volume=market_volume,
                     ))

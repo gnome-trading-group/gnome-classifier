@@ -65,6 +65,7 @@ def _make_adapter_contract(
         event_title=event_title,
         outcome_label=outcome_label,
         exchange_event_native_id=native_event_id,
+        security_symbol="PM_I-SEC-1",
     )
 
 
@@ -165,7 +166,7 @@ class TestNormalizeWorker:
         assert "new_events" not in types_seen
 
     def test_resolved_contracts_publishes_resolved(self, moto_env, stub_registry, stub_db, mock_anthropic):
-        stub_registry.bulk_create_events([{"title": "Test event"}])
+        stub_registry.bulk_create_events([{"title": "Test event", "exchange_id": 1, "native_event_id": "evt-1"}])
         event_id = stub_registry._events[0].event_id
         stub_registry.bulk_create_securities([{"symbol": "SYM", "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
         sec_id = stub_registry._securities[0].security_id
@@ -189,7 +190,7 @@ class TestNormalizeWorker:
 
 class TestEmbedWorker:
     def test_produces_embeddings_queue_messages(self, moto_env, stub_registry, stub_db, mock_voyage):
-        stub_registry.bulk_create_events([{"title": "BTC question"}])
+        stub_registry.bulk_create_events([{"title": "BTC question", "exchange_id": 1, "native_event_id": "evt-1"}])
         event_id = stub_registry._events[0].event_id
         stub_registry.bulk_create_securities([{"symbol": "SYM", "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
         sec_id = stub_registry._securities[0].security_id
@@ -210,7 +211,7 @@ class TestEmbedWorker:
             assert msg["security_symbol"] == "SYM"
 
     def test_preserves_created_event_info(self, moto_env, stub_registry, stub_db, mock_voyage):
-        stub_registry.bulk_create_events([{"title": "BTC question"}])
+        stub_registry.bulk_create_events([{"title": "BTC question", "exchange_id": 1, "native_event_id": "evt-1"}])
         event_id = stub_registry._events[0].event_id
         stub_registry.bulk_create_securities([{"symbol": "SYM", "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
         sec_id = stub_registry._securities[0].security_id
@@ -244,7 +245,7 @@ class TestEmbedWorker:
 
 class TestRelationshipsWorker:
     def test_publishes_new_events_to_sns(self, moto_env, stub_registry, stub_db, mock_anthropic, mock_voyage):
-        stub_registry.bulk_create_events([{"title": "BTC event"}])
+        stub_registry.bulk_create_events([{"title": "BTC event", "exchange_id": 1, "native_event_id": "evt-1"}])
         event_id = stub_registry._events[0].event_id
         for sym in ("SYM-YES", "SYM-NO"):
             stub_registry.bulk_create_securities([{"symbol": sym, "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
@@ -278,7 +279,7 @@ class TestRelationshipsWorker:
         assert "BTC event" in new_events_payload["created_event_names"]
 
     def test_no_new_events_no_sns_publish(self, moto_env, stub_registry, stub_db, mock_anthropic, mock_voyage):
-        stub_registry.bulk_create_events([{"title": "BTC event"}])
+        stub_registry.bulk_create_events([{"title": "BTC event", "exchange_id": 1, "native_event_id": "evt-1"}])
         event_id = stub_registry._events[0].event_id
         stub_registry.bulk_create_securities([{"symbol": "SYM-YES", "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
         sid_yes = stub_registry._securities[0].security_id

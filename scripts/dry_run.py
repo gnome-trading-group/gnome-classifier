@@ -7,14 +7,14 @@ Subcommands run progressively deeper pipeline stages:
       Fetch raw contracts from an adapter and display them grouped by event.
 
   dry-run canonicalize [ADAPTER] [-n N] [--no-cache]
-      Fetch + canonicalize event titles via Claude. Shows raw→canonical mapping
-      and reports collisions (multiple raw titles mapping to the same canonical title).
+      Fetch + categorize events via Claude (category and tags). Shows the per-event
+      result and the category distribution.
       Requires ANTHROPIC_API_KEY.
 
   dry-run entities [ADAPTER] [-n N] [--no-canonicalize] [--no-cache] [--verbose]
       Fetch + create entities (events, securities, listings). Prints summary counts.
       --verbose shows every created entity in detail.
-      --no-canonicalize skips Claude and keeps raw titles (no API key required).
+      --no-canonicalize skips Claude and uses the exchange category with no tags (no API key required).
 
   dry-run classify [ADAPTER] [-n N] [--no-canonicalize] [--structural-only] [--skip-judgment] [--no-cache]
       Full pipeline: fetch + entities + relationship classification.
@@ -32,7 +32,7 @@ Subcommands run progressively deeper pipeline stages:
 Common options (on every subcommand):
   --debug          Enable debug logging
   -o / --output    JSON output path (default: dry_run_output.json)
-  --no-cache       Ignore cache even if CACHE_BUCKET / REDIS_URL is set
+  --no-cache       Ignore the Redis cache even if REDIS_URL is set
 
 All subcommands use in-memory stubs by default (no DB writes). Set DATABASE_URL
 and REDIS_URL to use real Postgres + Redis via `poetry run tunnel`.
@@ -40,7 +40,7 @@ and REDIS_URL to use real Postgres + Redis via `poetry run tunnel`.
 import json
 import logging
 import os
-from collections import defaultdict
+from collections import Counter
 
 import anthropic
 import click
@@ -209,39 +209,24 @@ def _run_canonicalize(contracts, batch_client, cache, output_path: str):
     canonical_by_native = canonicalize_events(batch_client, events_to_canonicalize, cache=cache)
     print(f"Done. {len(canonical_by_native)} results.\n")
 
-    raw_titles_by_canonical: dict[str, list[dict]] = defaultdict(list)
-    for (exchange_id, native_id), info in canonical_by_native.items():
-        group = contracts_by_native[(exchange_id, native_id)]
-        raw_titles_by_canonical[info["title"]].append({
-            "raw_title": group[0].event_title,
-            "native_id": native_id,
-            "expiry": group[0].event_expiry,
-            "exchange_id": exchange_id,
-            "category": info["category"],
-            "tags": info["tags"],
-        })
-
-    collisions = {k: v for k, v in raw_titles_by_canonical.items() if len(v) > 1}
-    print(f"Canonical titles with multiple raw sources (potential false merges): {len(collisions)}")
-    for canonical_title, entries in list(collisions.items())[:20]:
-        print(f"\n  [{canonical_title}]")
-        for e in entries:
-            print(f"    expiry={e['expiry']}  exchange={e['exchange_id']}  raw={e['raw_title'][:80]}")
+    category_counts = Counter(info["category"] for info in canonical_by_native.values())
+    print("Events per category:")
+    for category, count in category_counts.most_common():
+        print(f"  {category:<15} {count}")
 
     output = {
         "total_contracts": len(contracts),
         "unique_events": len(contracts_by_native),
         "canonical_results": len(canonical_by_native),
-        "collision_count": len(collisions),
+        "category_counts": dict(category_counts),
         "mapping": {
             f"{exchange_id}:{native_id}": {
                 **info,
-                "raw_title": contracts_by_native[(exchange_id, native_id)][0].event_title,
+                "title": contracts_by_native[(exchange_id, native_id)][0].event_title,
                 "expiry": contracts_by_native[(exchange_id, native_id)][0].event_expiry,
             }
             for (exchange_id, native_id), info in canonical_by_native.items()
         },
-        "collisions": collisions,
     }
     with open(output_path, "w") as f:
         json.dump(output, f, indent=2)
@@ -281,10 +266,10 @@ def fetch(adapter: str, max_contracts: int | None, min_volume: float):
 @main.command()
 @click.argument("adapter", required=False, default=None)
 @click.option("-n", "max_contracts", type=int, default=None, help="Limit to first N contracts")
-@click.option("--no-cache", is_flag=True, help="Ignore cache even if CACHE_BUCKET / REDIS_URL is set")
+@click.option("--no-cache", is_flag=True, help="Ignore the Redis cache even if REDIS_URL is set")
 @click.pass_context
 def canonicalize(ctx, adapter: str | None, max_contracts: int | None, no_cache: bool):
-    """Fetch + canonicalize event titles. Shows raw→canonical mapping and collision report."""
+    """Fetch + categorize events via Claude. Shows category and tags per event."""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise click.ClickException("ANTHROPIC_API_KEY not set")
@@ -301,8 +286,8 @@ def canonicalize(ctx, adapter: str | None, max_contracts: int | None, no_cache: 
 @main.command()
 @click.argument("adapter", required=False, default=None)
 @click.option("-n", "max_contracts", type=int, default=None, help="Limit to first N contracts")
-@click.option("--no-canonicalize", is_flag=True, help="Skip Claude — keep raw titles (no API key required)")
-@click.option("--no-cache", is_flag=True, help="Ignore cache even if CACHE_BUCKET / REDIS_URL is set")
+@click.option("--no-canonicalize", is_flag=True, help="Skip Claude — use exchange category, no tags (no API key required)")
+@click.option("--no-cache", is_flag=True, help="Ignore the Redis cache even if REDIS_URL is set")
 @click.option("--verbose", is_flag=True, help="Show every created event, security, and event_contract")
 @click.pass_context
 def entities(ctx, adapter: str | None, max_contracts: int | None, no_canonicalize: bool, no_cache: bool, verbose: bool):
@@ -335,10 +320,10 @@ def entities(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
 @main.command()
 @click.argument("adapter", required=False, default=None)
 @click.option("-n", "max_contracts", type=int, default=None, help="Limit to first N contracts")
-@click.option("--no-canonicalize", is_flag=True, help="Skip Claude canonicalization — keep raw titles")
+@click.option("--no-canonicalize", is_flag=True, help="Skip Claude categorization — use exchange category, no tags")
 @click.option("--structural-only", is_flag=True, help="Skip all semantic work — only structural + rule-based relationships")
 @click.option("--skip-judgment", is_flag=True, help="Run embedding search but skip Claude judgment calls")
-@click.option("--no-cache", is_flag=True, help="Ignore cache even if CACHE_BUCKET / REDIS_URL is set")
+@click.option("--no-cache", is_flag=True, help="Ignore the Redis cache even if REDIS_URL is set")
 @click.pass_context
 def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicalize: bool, structural_only: bool, skip_judgment: bool, no_cache: bool):
     """Full pipeline: fetch + entities + relationship classification."""
@@ -479,7 +464,6 @@ def stale(ctx, adapter: str | None, events: str | None):
         registry._securities = real_db.get_all_securities()
         registry._events = real_db.get_unresolved_events()
         registry._event_contracts = real_db.get_all_event_contracts()
-        registry._exchange_events = real_db.get_all_active_exchange_events()
         db = StubDB(registry)
 
         print(f"\nSimulating deactivation of {len(pairs)} event(s) (dry-run)...", flush=True)

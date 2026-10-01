@@ -168,10 +168,12 @@ class FetchRunner:
             if not exchange:
                 logger.warning("No exchange record for adapter '%s' — skipping", adapter.exchange_code)
                 continue
+            # Accumulate per exchange and only commit on success: a fetch that dies mid-pagination
+            # must not drop the unfetched contracts' hashes or count their events as missing.
+            exchange_hashes: dict[str, str] = {}
+            exchange_active: set[str] = set()
             try:
                 adapter_contracts_count = 0
-                prefix = f"{exchange.exchange_id}:"
-                merged_hashes = {k: v for k, v in merged_hashes.items() if not k.startswith(prefix)}
                 for page in adapter.fetch(exchange.exchange_id):
                     adapter_contracts_count += len(page)
                     remaining = max(0, max_messages - total_sent)
@@ -184,13 +186,19 @@ class FetchRunner:
                     if new_msgs:
                         sqs_send_batch(sqs, queue_url, new_msgs)
                         total_sent += len(new_msgs)
-                    merged_hashes.update(updated)
-                    active_by_exchange.update(page_active)
+                    exchange_hashes.update(updated)
+                    exchange_active.update(page_active.get(exchange.exchange_id, set()))
                 logger.info("Fetched %d contracts from %s, sent %d groups", adapter_contracts_count, adapter.exchange_code, total_sent)
+                prefix = f"{exchange.exchange_id}:"
+                merged_hashes = {k: v for k, v in merged_hashes.items() if not k.startswith(prefix)}
+                merged_hashes.update(exchange_hashes)
+                active_by_exchange[exchange.exchange_id] = exchange_active
                 successful_ids.add(exchange.exchange_id)
             except Exception as e:
                 logger.error("Failed to fetch from %s: %s", adapter.exchange_code, e)
                 failed.append(adapter.exchange_code)
+                # Groups already sent this cycle keep their new hashes so they aren't resent.
+                merged_hashes.update(exchange_hashes)
 
         if failed:
             logger.warning("Failed to fetch contracts from: %s", failed)
@@ -244,9 +252,11 @@ class FetchRunner:
 
         queue_url = os.environ["CONTRACTS_QUEUE_URL"]
 
+        tracker = _redis_load_stale_tracker(r)
+
         if self._active_events is not None:
             active_by_exchange, successful_ids = self._active_events
-            failed_exchange_ids: set[int] = set()
+            failed_exchange_ids = {entry["exchange_id"] for entry in tracker.values()} - successful_ids
             logger.info("stale_cleanup using in-memory active events (%d exchanges)", len(active_by_exchange))
         else:
             logger.warning("stale_cleanup: no active events in memory, falling back to fetch_all")
@@ -265,7 +275,6 @@ class FetchRunner:
                     logger.error("Failed to fetch from %s: %s", adapter.exchange_code, e)
                     failed_exchange_ids.add(exchange.exchange_id)
 
-        tracker = _redis_load_stale_tracker(r)
         stale_messages, new_tracker = update_stale_tracker(
             tracker, active_by_exchange, failed_exchange_ids,
             miss_threshold=rc.config.processing.stale_miss_threshold,

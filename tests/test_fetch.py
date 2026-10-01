@@ -48,6 +48,7 @@ def test_fetch_all_limits_per_adapter():
             event_title=title,
             outcome_label="Yes",
             exchange_event_native_id=f"native:{title}",
+            security_symbol=f"PM_I-{title}",
         )
 
     mock_adapter = MagicMock()
@@ -101,6 +102,7 @@ def _make_contract(
         event_title="Test Event",
         outcome_label="Yes",
         exchange_event_native_id=native_id,
+        security_symbol=f"PM_I-{security_id}",
         event_volume=event_volume,
     )
 
@@ -166,3 +168,53 @@ class TestVolumeFiltering:
         no_vol = _make_contract("evt-none", "sec-none", event_volume=None)
         msgs = _run_fetch(moto_env, [high, low, no_vol], min_event_volume=1000.0)
         assert len(msgs) == 2
+
+
+def _run_fetch_pages(moto_env, pages, known_contracts=None, raise_after_pages=False):
+    rc = _make_fetch_rc()
+    r = MagicMock()
+    r.get.return_value = json.dumps(known_contracts).encode() if known_contracts is not None else None
+    runner = FetchRunner()
+
+    def fetch(exchange_id):
+        yield from pages
+        if raise_after_pages:
+            raise RuntimeError("API error at page 2")
+
+    mock_adapter = MagicMock()
+    mock_adapter.exchange_code = "POLYMARKET_INTL"
+    mock_adapter.fetch.side_effect = fetch
+    with (
+        patch("classifier.workers.fetch.fetch_exchanges", return_value={"POLYMARKET_INTL": MagicMock(exchange_id=1)}),
+        patch("classifier.workers.fetch.ADAPTERS", [mock_adapter]),
+    ):
+        active_by_exchange, successful_ids = runner._run_fetch(rc, r, moto_env["sqs"], MagicMock())
+    saved_hashes = json.loads(r.set.call_args[0][1])
+    return active_by_exchange, successful_ids, saved_hashes
+
+
+class TestPaginatedFetch:
+    def test_active_events_accumulate_across_pages(self, moto_env):
+        pages = [
+            [_make_contract("evt-1", "sec-1")],
+            [_make_contract("evt-2", "sec-2")],
+            [_make_contract("evt-3", "sec-3")],
+        ]
+        active_by_exchange, successful_ids, _ = _run_fetch_pages(moto_env, pages)
+        assert active_by_exchange == {1: {"evt-1", "evt-2", "evt-3"}}
+        assert successful_ids == {1}
+
+    def test_failure_mid_pagination_keeps_unfetched_hashes(self, moto_env):
+        known = {"1:sec-1": "old-hash-1", "1:sec-2": "old-hash-2"}
+        pages = [[_make_contract("evt-1", "sec-1")]]
+        active_by_exchange, successful_ids, saved_hashes = _run_fetch_pages(
+            moto_env, pages, known_contracts=known, raise_after_pages=True,
+        )
+        assert saved_hashes["1:sec-2"] == "old-hash-2"
+        assert saved_hashes["1:sec-1"] != "old-hash-1"
+
+    def test_failure_mid_pagination_marks_exchange_failed(self, moto_env):
+        pages = [[_make_contract("evt-1", "sec-1")]]
+        active_by_exchange, successful_ids, _ = _run_fetch_pages(moto_env, pages, raise_after_pages=True)
+        assert 1 not in active_by_exchange
+        assert successful_ids == set()

@@ -11,29 +11,29 @@ Usage:
   export REDIS_URL=...               # printed by tunnel command
   export ANTHROPIC_API_KEY=...
   export VOYAGE_API_KEY=...
-  export CACHE_BUCKET=...            # optional S3 bucket (e.g. gnome-classifier-cache-dev)
   export REGISTRY_API_URL=...        # e.g. https://api.example.com
   export REGISTRY_API_KEY=...
-  poetry run bootstrap [--no-classify]
+  poetry run bootstrap [ADAPTER] [--no-classify] [--with-judgment] [--batch-size N]
 
 Phase 1 — Entity creation (always runs):
-  Fetches all adapters, canonicalizes event titles via Claude (cached to S3),
-  and writes events, securities, listings, and exchange_event mappings to the
-  real registry + Postgres DB.
+  Fetches all adapters, categorizes new events via Claude (cached in Redis),
+  and writes events (one per native exchange event), securities, and listings
+  to the real registry + Postgres DB.
 
 Phase 2 — Classification (skipped with --no-classify):
-  Runs relationship classification with skip_judgment=True. The structural
-  finders (complement pairs, mutually exclusive pairs, hedgeable pairs) run
-  and write relationships. Voyage embeddings are generated and stored in the
-  HNSW index so the worker's first incremental run has the full index ready.
-  Claude judgment calls are skipped — the cross-product of all initial
-  securities is too large to judge at once. The worker handles semantic
-  relationship judgment incrementally going forward.
+  Generates Voyage embeddings for every new event (stored in the HNSW index so
+  the worker's first incremental run has the full index ready) and writes
+  rule-based hedgeable relationships. Claude judgment calls are skipped unless
+  --with-judgment is passed — the cross-product of all initial securities is
+  too large to judge at once. The worker handles semantic relationship
+  judgment incrementally going forward.
 
 Options:
   --no-classify   Skip Phase 2 entirely (entity creation only). Useful when
                   re-seeding entities after a schema migration without wanting
-                  to re-derive all structural relationships.
+                  to re-derive relationships.
+  --with-judgment Run Claude judgment calls in Phase 2 (slow; use for small
+                  single-adapter runs).
   --batch-size N  Process contracts in chunks of N. Useful for large universes
                   to avoid memory pressure and long uninterruptible runs.
                   Entity creation is idempotent so a failed run can be safely

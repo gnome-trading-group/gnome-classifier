@@ -25,6 +25,7 @@ class AdapterContract:
     event_title: str
     outcome_label: str
     exchange_event_native_id: str
+    security_symbol: str
     event_description: str | None = None
     event_category: str | None = None
     event_expiry: str | None = None

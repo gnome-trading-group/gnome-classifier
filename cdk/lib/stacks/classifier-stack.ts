@@ -5,7 +5,6 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elasticache from 'aws-cdk-lib/aws-elasticache';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secrets from 'aws-cdk-lib/aws-secretsmanager';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
@@ -49,11 +48,6 @@ export class ClassifierStack extends cdk.Stack {
     const dbSecret = secrets.Secret.fromSecretNameV2(
       this, 'RegistryDbSecret', 'registry-database-root-user'
     );
-
-    const cacheBucket = new s3.Bucket(this, 'ClassifierCache', {
-      bucketName: `gnome-classifier-cache-${props.stage}`,
-      lifecycleRules: [{ expiration: cdk.Duration.days(90) }],
-    });
 
     const vpc = ec2.Vpc.fromLookup(this, 'RegistryVpc', {
       vpcName: 'registry-database-vpc',
@@ -164,7 +158,6 @@ export class ClassifierStack extends cdk.Stack {
       REGISTRY_API_KEY_ID: cdk.Fn.importValue('RegistryApiKeyId'),
       ANTHROPIC_API_KEY_SECRET: 'anthropic-api-key',
       VOYAGE_API_KEY_SECRET: 'voyage-api-key',
-      CACHE_BUCKET: cacheBucket.bucketName,
       REDIS_ENDPOINT: redisEndpoint,
       DB_SECRET_NAME: 'registry-database-root-user',
       CONTRACTS_QUEUE_URL: this.contractsQueue.queueUrl,
@@ -238,7 +231,6 @@ export class ClassifierStack extends cdk.Stack {
       this.notificationsTopic.grantPublish(role);
       anthropicApiKeySecret.grantRead(role);
       dbSecret.grantRead(role);
-      cacheBucket.grantReadWrite(role);
       role.addToPolicy(new iam.PolicyStatement({
         actions: ['apigateway:GET'],
         resources: [cdk.Fn.importValue('RegistryApiKeyArn'), controllerApiKeyArn],
@@ -272,7 +264,6 @@ export class ClassifierStack extends cdk.Stack {
       anthropicApiKeySecret.grantRead(role);
       voyageApiKeySecret.grantRead(role);
       dbSecret.grantRead(role);
-      cacheBucket.grantReadWrite(role);
       role.addToPolicy(new iam.PolicyStatement({
         actions: ['apigateway:GET'],
         resources: [cdk.Fn.importValue('RegistryApiKeyArn'), controllerApiKeyArn],

@@ -13,7 +13,6 @@ from gnomepy.registry.types import (
     Event,
     EventContract,
     Exchange,
-    ExchangeEvent,
     Listing,
     ListingSpec,
     Security,
@@ -114,7 +113,6 @@ class StubRegistry(RegistryClient):
         self._listings: list[Listing] = []
         self._listing_specs: list[ListingSpec] = []
         self._event_contracts: list[EventContract] = []
-        self._exchange_events: list[ExchangeEvent] = []
         self._contract_relationships: list[ContractRelationship] = []
         self._currencies: list[Currency] = []
         self._hedge_keywords: list[tuple[int, str]] = []
@@ -154,9 +152,6 @@ class StubRegistry(RegistryClient):
     def get_contract_relationships(self) -> list[ContractRelationship]:
         return list(self._contract_relationships)
 
-    def get_exchange_events(self) -> list[ExchangeEvent]:
-        return list(self._exchange_events)
-
     def bulk_create_events(self, items: list[dict]) -> list[dict]:
         results = []
         for item in items:
@@ -172,7 +167,15 @@ class StubRegistry(RegistryClient):
                 "expiry": item.get("expiry"),
                 "date_modified": "",
                 "date_created": "",
+                "exchange_id": item["exchange_id"],
+                "native_event_id": item["native_event_id"],
+                "native_url": item.get("native_url"),
             }
+            if any(
+                e.exchange_id == d["exchange_id"] and e.native_event_id == d["native_event_id"]
+                for e in self._events
+            ):
+                raise ValueError(f"duplicate native event {d['exchange_id']}:{d['native_event_id']}")
             self._events.append(Event(**d))
             results.append(d)
         return results
@@ -180,6 +183,8 @@ class StubRegistry(RegistryClient):
     def bulk_create_securities(self, items: list[dict]) -> list[dict]:
         results = []
         for item in items:
+            if any(s.symbol == item.get("symbol") for s in self._securities):
+                raise ValueError(f"duplicate security symbol {item.get('symbol')}")
             security_id = self._alloc_id()
             d = {"security_id": security_id, **item}
             self._securities.append(Security(
@@ -251,22 +256,6 @@ class StubRegistry(RegistryClient):
                 "recorded_at": "",
             }
             self._listing_specs.append(ListingSpec(**d))
-            results.append(d)
-        return results
-
-    def bulk_create_exchange_events(self, items: list[dict]) -> list[dict]:
-        results = []
-        for item in items:
-            ee_id = self._alloc_id()
-            d = {
-                "exchange_event_id": ee_id,
-                "exchange_id": item["exchange_id"],
-                "event_id": item["event_id"],
-                "native_event_id": item["native_event_id"],
-                "raw_title": item.get("raw_title", ""),
-                "date_created": "",
-            }
-            self._exchange_events.append(ExchangeEvent(**d))
             results.append(d)
         return results
 
@@ -386,17 +375,17 @@ class StubDB:
         self._embeddings: dict[int, list[float]] = {}
 
     def get_exchange_event(self, exchange_id: int, native_id: str) -> int | None:
-        for ee in self._r._exchange_events:
-            if ee.exchange_id == exchange_id and ee.native_event_id == native_id:
-                return ee.event_id
+        for ev in self._r._events:
+            if ev.exchange_id == exchange_id and ev.native_event_id == native_id:
+                return ev.event_id
         return None
 
     def get_exchange_events(self, keys: list[tuple[int, str]]) -> dict[tuple[int, str], int]:
         key_set = set(keys)
         return {
-            (ee.exchange_id, ee.native_event_id): ee.event_id
-            for ee in self._r._exchange_events
-            if (ee.exchange_id, ee.native_event_id) in key_set
+            (ev.exchange_id, ev.native_event_id): ev.event_id
+            for ev in self._r._events
+            if (ev.exchange_id, ev.native_event_id) in key_set
         }
 
     def get_events(self, event_ids: list[int]) -> dict[int, dict]:
@@ -406,24 +395,24 @@ class StubDB:
             if ev.event_id in event_ids
         }
 
-    def get_events_for_dedup(self, titles: list[str]) -> list[tuple[str, str | None, int]]:
-        title_set = set(titles)
-        return [(ev.title, ev.expiry, ev.event_id) for ev in self._r._events if ev.title in title_set]
-
     def get_currencies(self) -> dict[str, int]:
         return {c.symbol: c.currency_id for c in self._r._currencies}
 
-    def get_existing_securities(self, symbols: list[str]) -> dict[str, int]:
+    def get_unlisted_securities(self, symbols: list[str]) -> dict[str, int]:
         sym_set = set(symbols)
-        return {s.symbol: s.security_id for s in self._r._securities if s.symbol in sym_set}
+        listed = {l.security_id for l in self._r._listings}
+        return {
+            s.symbol: s.security_id for s in self._r._securities
+            if s.symbol in sym_set and s.security_id not in listed
+        }
 
     def get_all_security_ids(self) -> set[int]:
         return {s.security_id for s in self._r._securities if s.active}
 
-    def get_existing_listings(self, keys: list[tuple[int, str]]) -> dict[tuple[int, str], int]:
+    def get_existing_listings(self, keys: list[tuple[int, str]]) -> dict[tuple[int, str], tuple[int, int]]:
         key_set = set(keys)
         return {
-            (l.exchange_id, l.exchange_security_id): l.listing_id
+            (l.exchange_id, l.exchange_security_id): (l.listing_id, l.security_id)
             for l in self._r._listings
             if (l.exchange_id, l.exchange_security_id) in key_set
         }
@@ -580,11 +569,10 @@ class StubDB:
         return {ec.security_id for ec in self._r._event_contracts if ec.event_id in id_set}
 
     def get_active_exchange_native_ids(self) -> dict[int, set[str]]:
-        resolved_event_ids = {ev.event_id for ev in self._r._events if ev.resolved}
         result: dict[int, set[str]] = {}
-        for ee in self._r._exchange_events:
-            if ee.event_id not in resolved_event_ids:
-                result.setdefault(ee.exchange_id, set()).add(ee.native_event_id)
+        for ev in self._r._events:
+            if not ev.resolved and ev.native_event_id is not None:
+                result.setdefault(ev.exchange_id, set()).add(ev.native_event_id)
         return result
 
     def get_hedge_keywords(self) -> list[tuple[int, str]]:

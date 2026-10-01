@@ -1,7 +1,6 @@
 import dataclasses
 import logging
 import re
-from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
 from classifier.constants import DEFAULT_BULK_CREATE_BATCH_SIZE
@@ -22,36 +21,12 @@ def from_dict(cls, data: dict):
     return cls(**{k: v for k, v in data.items() if k in known})
 
 
-def _parse_utc(s: str) -> datetime:
-    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+_SYMBOL_PART_RE = re.compile(r"[^A-Z0-9.]+")
 
 
-def expiry_close(a: str | None, b: str | None, tolerance: timedelta) -> bool:
-    if a is None and b is None:
-        return True
-    if a is None or b is None:
-        return False
-    try:
-        return abs((_parse_utc(a) - _parse_utc(b)).total_seconds()) <= tolerance.total_seconds()
-    except ValueError:
-        return False
-
-
-def generate_security_symbol(canonical_title: str, outcome_label: str, expiry: str | None = None) -> str:
-    slug = re.sub(r'[^a-z0-9\s]', '', canonical_title.lower()).strip()
-    slug = re.sub(r'\s+', '-', slug)[:80]
-    outcome = re.sub(r'[^a-z0-9\s]', '', outcome_label.lower()).strip()
-    outcome = re.sub(r'\s+', '-', outcome)
-    if expiry is not None:
-        try:
-            date_str = _parse_utc(expiry).strftime("%Y%m%dT%H")
-            return f"{slug}-{date_str}-{outcome}".upper()
-        except ValueError:
-            pass
-    return f"{slug}-{outcome}".upper()
+def format_security_symbol(prefix: str, *parts: str) -> str:
+    cleaned = [_SYMBOL_PART_RE.sub("-", part.upper()).strip("-") for part in parts]
+    return "-".join([prefix, *cleaned])
 
 
 def strip_code_fences(text: str) -> str:

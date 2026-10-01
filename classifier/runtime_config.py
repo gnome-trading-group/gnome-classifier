@@ -10,7 +10,6 @@ from classifier.constants import (
     DEFAULT_CANONICALIZE_BATCH_SIZE,
     DEFAULT_CANONICALIZE_MODEL,
     DEFAULT_BULK_CREATE_BATCH_SIZE,
-    DEFAULT_DEDUP_EXPIRY_TOLERANCE_HOURS,
     DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD,
     DEFAULT_FETCH_INTERVAL_SECONDS,
     DEFAULT_FETCH_MAX_SQS_MESSAGES,
@@ -78,7 +77,6 @@ class Thresholds:
 class Processing:
     canonicalize_batch_size: int = DEFAULT_CANONICALIZE_BATCH_SIZE
     bulk_create_batch_size: int = DEFAULT_BULK_CREATE_BATCH_SIZE
-    dedup_expiry_tolerance_hours: int = DEFAULT_DEDUP_EXPIRY_TOLERANCE_HOURS
     resolution_lookback_days: int = DEFAULT_RESOLUTION_LOOKBACK_DAYS
     neighbor_search_limit: int = DEFAULT_NEIGHBOR_SEARCH_LIMIT
     voyage_embed_chunk_size: int = DEFAULT_VOYAGE_EMBED_CHUNK_SIZE

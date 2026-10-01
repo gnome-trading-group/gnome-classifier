@@ -80,7 +80,6 @@ class WorkerConfig:
     notifications_topic_arn: str = dataclasses.field(default_factory=lambda: os.environ.get("NOTIFICATIONS_TOPIC_ARN", ""))
     slack_queue_url: str = dataclasses.field(default_factory=lambda: os.environ.get("SLACK_QUEUE_URL", ""))
 
-    cache_bucket: str = dataclasses.field(default_factory=lambda: os.environ.get("CACHE_BUCKET", ""))
     slack_channel: str = dataclasses.field(default_factory=lambda: os.environ.get("SLACK_CHANNEL", ""))
     slack_bot_token_secret: str = dataclasses.field(
         default_factory=lambda: os.environ.get("SLACK_BOT_TOKEN_SECRET", "")

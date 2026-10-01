@@ -318,3 +318,23 @@ def test_sub_market_iphone_description_uses_rules_primary():
     jan_contracts = [c for c in contracts if c.exchange_event_native_id == "KXIPHONERELEASE-IPHONE18-27JAN01"]
     assert all("before Oct 1, 2026" in c.event_description for c in oct_contracts)
     assert all("before Jan 1, 2027" in c.event_description for c in jan_contracts)
+
+
+# ── Security symbols ──────────────────────────────────────────────────────────
+
+def test_binary_symbols_are_prefixed_ticker_and_side():
+    contracts = _map("KXELONMARS-99")
+    assert {c.security_symbol for c in contracts} == {
+        "KX-" + c.exchange_security_id.upper().replace(":", "-") for c in contracts
+    }
+    assert all(c.security_symbol.endswith(("-YES", "-NO")) for c in contracts)
+
+
+def test_multi_outcome_symbols_are_prefixed_ticker():
+    contracts = _map("KXNEWPOPE-70")
+    assert all(c.security_symbol == f"KX-{c.exchange_security_id.upper()}" for c in contracts)
+
+
+def test_symbols_unique_across_fixture():
+    contracts = [c for e in FIXTURE["events"] for c in adapter._map_event(EXCHANGE_ID, e)]
+    assert len({c.security_symbol for c in contracts}) == len({c.exchange_security_id for c in contracts})
