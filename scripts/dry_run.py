@@ -93,18 +93,18 @@ def _build_clients(*, no_canonicalize: bool, no_cache: bool):
 def _fetch_contracts(adapter: str | None, max_contracts: int | None):
     registry = StubRegistry()
     try:
-        exchange_by_name = fetch_exchanges(registry, adapter)
+        exchange_by_code = fetch_exchanges(registry, adapter)
     except ValueError as e:
         raise click.ClickException(str(e))
 
     database_url = os.environ.get("DATABASE_URL")
     db = ClassifierDB(dsn=database_url) if database_url else StubDB(registry)
 
-    contracts, failed = fetch_all(exchange_by_name, max_per_adapter=max_contracts)
+    contracts, failed = fetch_all(exchange_by_code, max_per_adapter=max_contracts)
     if failed:
         logger.warning("Adapter fetch failures: %s", failed)
 
-    return registry, db, contracts, exchange_by_name
+    return registry, db, contracts, exchange_by_code
 
 
 def _display_fetch_results(contracts, new_messages: list[dict], adapter: str | None, min_volume: float | None):
@@ -267,13 +267,13 @@ def main(ctx, debug: bool, output_path: str):
 @click.option("--min-volume", type=float, default=DEFAULT_MIN_EVENT_VOLUME, show_default=True, help="Exclude events below this $ volume (0 to disable)")
 def fetch(adapter: str, max_contracts: int | None, min_volume: float):
     """Fetch raw contracts from ADAPTER and display them grouped by event."""
-    _, _, contracts, exchange_by_name = _fetch_contracts(adapter, max_contracts)
+    _, _, contracts, exchange_by_code = _fetch_contracts(adapter, max_contracts)
     if not contracts:
         print("No contracts returned.")
         return
     volume_filter = min_volume if min_volume > 0 else None
     new_messages, _, _, _ = diff_contracts(
-        contracts, {}, [], exchange_by_name, volume_filter, max_messages=100_000,
+        contracts, {}, [], exchange_by_code, volume_filter, max_messages=100_000,
     )
     _display_fetch_results(contracts, new_messages, adapter, volume_filter)
 
@@ -308,7 +308,7 @@ def canonicalize(ctx, adapter: str | None, max_contracts: int | None, no_cache: 
 def entities(ctx, adapter: str | None, max_contracts: int | None, no_canonicalize: bool, no_cache: bool, verbose: bool):
     """Fetch + create entities (events, securities, listings). Prints summary counts."""
     batch_client, voyage_client, cache = _build_clients(no_canonicalize=no_canonicalize, no_cache=no_cache)
-    registry, db, contracts, exchange_by_name = _fetch_contracts(adapter, max_contracts)
+    registry, db, contracts, exchange_by_code = _fetch_contracts(adapter, max_contracts)
     if not contracts:
         print("No contracts returned.")
         return
@@ -345,7 +345,7 @@ def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
     batch_client, voyage_client, cache = _build_clients(
         no_canonicalize=no_canonicalize, no_cache=no_cache,
     )
-    registry, db, contracts, exchange_by_name = _fetch_contracts(adapter, max_contracts)
+    registry, db, contracts, exchange_by_code = _fetch_contracts(adapter, max_contracts)
     if not contracts:
         print("No contracts returned.")
         return
@@ -404,7 +404,7 @@ def resolve(ctx, adapter: str | None, lookback: int):
     """Detect resolved outcomes and show what would be deactivated (dry-run mode)."""
     registry = StubRegistry()
     try:
-        exchange_by_name = fetch_exchanges(registry, adapter)
+        exchange_by_code = fetch_exchanges(registry, adapter)
     except ValueError as e:
         raise click.ClickException(str(e))
 
@@ -423,15 +423,15 @@ def resolve(ctx, adapter: str | None, lookback: int):
     db = StubDB(registry)
 
     print(f"\nFetching resolved outcomes from exchanges (lookback={lookback}d)...", flush=True)
-    resolved_by_exchange, failed = fetch_resolved_outcomes(exchange_by_name, lookback_days=lookback)
+    resolved_by_exchange, failed = fetch_resolved_outcomes(exchange_by_code, lookback_days=lookback)
     if failed:
         print(f"Adapter failures: {failed}")
 
     for exchange_id, ids in resolved_by_exchange.items():
-        exchange_name = next(
-            (name for name, ex in exchange_by_name.items() if ex.exchange_id == exchange_id), str(exchange_id)
+        exchange_code = next(
+            (name for name, ex in exchange_by_code.items() if ex.exchange_id == exchange_id), str(exchange_id)
         )
-        print(f"  {exchange_name}: {len(ids)} resolved ids")
+        print(f"  {exchange_code}: {len(ids)} resolved ids")
 
     db_label = "real DB (seeded)" if database_url else "stub DB (empty)"
     print(f"\nRunning resolution detection ({db_label}, dry-run writes)...", flush=True)
@@ -494,12 +494,12 @@ def stale(ctx, adapter: str | None, events: str | None):
 
     stub_registry = StubRegistry()
     try:
-        exchange_by_name = fetch_exchanges(stub_registry, adapter)
+        exchange_by_code = fetch_exchanges(stub_registry, adapter)
     except ValueError as e:
         raise click.ClickException(str(e))
 
     print(f"\nFetching active events from exchanges...", flush=True)
-    active_contracts, failed = fetch_all(exchange_by_name)
+    active_contracts, failed = fetch_all(exchange_by_code)
     if failed:
         logger.warning("Adapter fetch failures: %s", failed)
 
@@ -510,10 +510,10 @@ def stale(ctx, adapter: str | None, events: str | None):
     real_db = ClassifierDB(dsn=database_url)
     db_native_ids = real_db.get_active_exchange_native_ids()
 
-    exchange_name_by_id = {ex.exchange_id: name for name, ex in exchange_by_name.items()}
+    exchange_code_by_id = {ex.exchange_id: name for name, ex in exchange_by_code.items()}
     missing: dict[int, set[str]] = {}
     for exchange_id, db_ids in db_native_ids.items():
-        if exchange_id not in exchange_name_by_id:
+        if exchange_id not in exchange_code_by_id:
             continue
         gone = db_ids - active_by_exchange.get(exchange_id, set())
         if gone:
@@ -525,7 +525,7 @@ def stale(ctx, adapter: str | None, events: str | None):
     print("STALE DETECTION SUMMARY")
     print(f"{'='*70}")
     for exchange_id, native_ids in missing.items():
-        name = exchange_name_by_id.get(exchange_id, str(exchange_id))
+        name = exchange_code_by_id.get(exchange_id, str(exchange_id))
         print(f"\n  {name.upper()} ({len(native_ids)} events missing from active listings):")
         for nid in sorted(native_ids):
             print(f"    {nid}")

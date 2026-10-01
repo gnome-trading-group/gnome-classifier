@@ -196,7 +196,7 @@ def test_sub_market_event_volume_per_market():
 def kalshi_exchange():
     ex = MagicMock()
     ex.exchange_id = EXCHANGE_ID
-    ex.exchange_name = "kalshi"
+    ex.exchange_code = "KALSHI"
     return ex
 
 

@@ -84,13 +84,13 @@ def main(adapter: str | None, no_classify: bool, with_judgment: bool, batch_size
     db = ClassifierDB(dsn=os.environ["DATABASE_URL"])
 
     try:
-        exchange_by_name = fetch_exchanges(registry, adapter)
+        exchange_by_code = fetch_exchanges(registry, adapter)
     except ValueError as e:
         raise click.ClickException(str(e))
-    contracts, failed_adapters = fetch_all(exchange_by_name)
+    contracts, failed_adapters = fetch_all(exchange_by_code)
     if failed_adapters:
         logger.warning("Adapter fetch failures: %s", failed_adapters)
-    print(f"Fetched {len(contracts)} contracts from {len(exchange_by_name)} exchanges", flush=True)
+    print(f"Fetched {len(contracts)} contracts from {len(exchange_by_code)} exchanges", flush=True)
 
     batches = (
         [contracts[i:i + batch_size] for i in range(0, len(contracts), batch_size)]

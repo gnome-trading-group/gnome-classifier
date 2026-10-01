@@ -10,13 +10,16 @@ from classifier.workers.fetch import FetchRunner
 from gnomepy.registry.types import AssetClass, ContractType, Exchange, SecurityType
 
 
-def _make_exchange(name: str, exchange_id: int = 1) -> Exchange:
-    return Exchange(exchange_id=exchange_id, exchange_name=name, region="", schema_type="", date_modified="", date_created="")
+def _make_exchange(code: str, exchange_id: int = 1) -> Exchange:
+    return Exchange(
+        exchange_id=exchange_id, exchange_code=code, exchange_name=code.title(),
+        region="", schema_type="", date_modified="", date_created="",
+    )
 
 
 def test_fetch_all_skips_unknown_adapter():
-    exchange_by_name = {"unknown": _make_exchange("unknown")}
-    contracts, failed = fetch_all(exchange_by_name)
+    exchange_by_code = {"unknown": _make_exchange("unknown")}
+    contracts, failed = fetch_all(exchange_by_code)
     assert contracts == []
     assert failed == []
 
@@ -48,13 +51,13 @@ def test_fetch_all_limits_per_adapter():
         )
 
     mock_adapter = MagicMock()
-    mock_adapter.exchange_name = "polymarket"
+    mock_adapter.exchange_code = "POLYMARKET_INTL"
     mock_adapter.fetch.return_value = iter([[_make_contract(f"Event {i}") for i in range(20)]])
 
-    exchange_by_name = {"polymarket": _make_exchange("polymarket")}
+    exchange_by_code = {"POLYMARKET_INTL": _make_exchange("POLYMARKET_INTL")}
 
     with patch("classifier.stages.fetch.ADAPTERS", [mock_adapter]):
-        contracts, failed = fetch_all(exchange_by_name, max_per_adapter=5)
+        contracts, failed = fetch_all(exchange_by_code, max_per_adapter=5)
 
     assert len(contracts) == 5
     assert failed == []
@@ -62,16 +65,16 @@ def test_fetch_all_limits_per_adapter():
 
 def test_fetch_all_handles_adapter_error():
     mock_adapter = MagicMock()
-    mock_adapter.exchange_name = "polymarket"
+    mock_adapter.exchange_code = "POLYMARKET_INTL"
     mock_adapter.fetch.side_effect = RuntimeError("API down")
 
-    exchange_by_name = {"polymarket": _make_exchange("polymarket")}
+    exchange_by_code = {"POLYMARKET_INTL": _make_exchange("POLYMARKET_INTL")}
 
     with patch("classifier.stages.fetch.ADAPTERS", [mock_adapter]):
-        contracts, failed = fetch_all(exchange_by_name)
+        contracts, failed = fetch_all(exchange_by_code)
 
     assert contracts == []
-    assert failed == ["polymarket"]
+    assert failed == ["POLYMARKET_INTL"]
 
 
 def _make_contract(
@@ -117,10 +120,10 @@ def _run_fetch(moto_env, contracts, min_event_volume=None):
     r.get.return_value = None
     runner = FetchRunner()
     mock_adapter = MagicMock()
-    mock_adapter.exchange_name = "polymarket"
+    mock_adapter.exchange_code = "POLYMARKET_INTL"
     mock_adapter.fetch.return_value = iter([contracts] if contracts else [])
     with (
-        patch("classifier.workers.fetch.fetch_exchanges", return_value={"polymarket": MagicMock(exchange_id=1)}),
+        patch("classifier.workers.fetch.fetch_exchanges", return_value={"POLYMARKET_INTL": MagicMock(exchange_id=1)}),
         patch("classifier.workers.fetch.ADAPTERS", [mock_adapter]),
     ):
         runner._run_fetch(rc, r, moto_env["sqs"], MagicMock())

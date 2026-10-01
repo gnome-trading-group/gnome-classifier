@@ -29,7 +29,7 @@ def diff_contracts(
     active_contracts: list[AdapterContract],
     known_hashes: dict[str, str],
     failed_adapters: list[str],
-    exchange_by_name: dict[str, Exchange],
+    exchange_by_code: dict[str, Exchange],
     min_event_volume: float | None,
     max_messages: int,
     debug: bool = False,
@@ -47,7 +47,7 @@ def diff_contracts(
         active_by_exchange.setdefault(contract.exchange_id, set()).add(contract.exchange_event_native_id)
 
     successful_exchange_ids = {
-        ex.exchange_id for name, ex in exchange_by_name.items() if name not in failed_adapters
+        ex.exchange_id for name, ex in exchange_by_code.items() if name not in failed_adapters
     }
 
     if min_event_volume is not None:
@@ -93,50 +93,50 @@ def diff_contracts(
 
 def fetch_exchanges(
     registry: RegistryClient,
-    adapter_name: str | None = None,
+    exchange_code: str | None = None,
 ) -> dict[str, Exchange]:
     exchanges = registry.get_exchange()
-    exchange_by_name = {e.exchange_name.lower(): e for e in exchanges}
-    if adapter_name:
-        key = adapter_name.lower()
-        if key not in exchange_by_name:
-            raise ValueError(f"Unknown adapter '{adapter_name}'. Choices: {list(exchange_by_name)}")
-        return {key: exchange_by_name[key]}
-    return exchange_by_name
+    exchange_by_code = {e.exchange_code: e for e in exchanges}
+    if exchange_code:
+        key = exchange_code.upper()
+        if key not in exchange_by_code:
+            raise ValueError(f"Unknown exchange code '{exchange_code}'. Choices: {list(exchange_by_code)}")
+        return {key: exchange_by_code[key]}
+    return exchange_by_code
 
 
 def fetch_resolved_outcomes(
-    exchange_by_name: dict,
+    exchange_by_code: dict,
     lookback_days: int,
 ) -> tuple[dict[int, set[str]], list[str]]:
     resolved_by_exchange: dict[int, set[str]] = {}
     failed: list[str] = []
     for adapter in ADAPTERS:
-        exchange = exchange_by_name.get(adapter.exchange_name)
+        exchange = exchange_by_code.get(adapter.exchange_code)
         if not exchange:
-            logger.warning("No exchange record for adapter '%s' — skipping", adapter.exchange_name)
+            logger.warning("No exchange record for adapter '%s' — skipping", adapter.exchange_code)
             continue
         try:
             resolved_ids = adapter.fetch_resolved(exchange.exchange_id, lookback_days)
             if resolved_ids:
                 resolved_by_exchange[exchange.exchange_id] = resolved_ids
-            logger.info("Fetched %d resolved ids from %s", len(resolved_ids), adapter.exchange_name)
+            logger.info("Fetched %d resolved ids from %s", len(resolved_ids), adapter.exchange_code)
         except Exception as e:
-            logger.error("Failed to fetch resolved from %s: %s", adapter.exchange_name, e)
-            failed.append(adapter.exchange_name)
+            logger.error("Failed to fetch resolved from %s: %s", adapter.exchange_code, e)
+            failed.append(adapter.exchange_code)
     return resolved_by_exchange, failed
 
 
 def fetch_all(
-    exchange_by_name: dict,
+    exchange_by_code: dict,
     max_per_adapter: int | None = None,
 ) -> tuple[list[AdapterContract], list[str]]:
     all_contracts: list[AdapterContract] = []
     failed: list[str] = []
     for adapter in ADAPTERS:
-        exchange = exchange_by_name.get(adapter.exchange_name)
+        exchange = exchange_by_code.get(adapter.exchange_code)
         if not exchange:
-            logger.warning("No exchange record for adapter '%s' — skipping", adapter.exchange_name)
+            logger.warning("No exchange record for adapter '%s' — skipping", adapter.exchange_code)
             continue
         try:
             contracts: list[AdapterContract] = []
@@ -145,10 +145,10 @@ def fetch_all(
                 if max_per_adapter is not None and len(contracts) >= max_per_adapter:
                     contracts = contracts[:max_per_adapter]
                     break
-            logger.info("Fetched %d contracts from %s", len(contracts), adapter.exchange_name)
+            logger.info("Fetched %d contracts from %s", len(contracts), adapter.exchange_code)
             all_contracts.extend(contracts)
         except Exception as e:
-            logger.error("Failed to fetch from %s: %s", adapter.exchange_name, e)
-            failed.append(adapter.exchange_name)
+            logger.error("Failed to fetch from %s: %s", adapter.exchange_code, e)
+            failed.append(adapter.exchange_code)
 
     return all_contracts, failed

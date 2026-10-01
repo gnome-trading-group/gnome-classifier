@@ -152,7 +152,7 @@ class FetchRunner:
 
         queue_url = os.environ["CONTRACTS_QUEUE_URL"]
         known_contracts = _redis_load_known_contracts(r)
-        exchange_by_name = fetch_exchanges(registry)
+        exchange_by_code = fetch_exchanges(registry)
         min_event_volume = rc.config.thresholds.min_event_volume
         max_messages = rc.config.processing.fetch_max_sqs_messages
         debug = rc.config.feature_flags.debug
@@ -164,9 +164,9 @@ class FetchRunner:
         total_sent = 0
 
         for adapter in ADAPTERS:
-            exchange = exchange_by_name.get(adapter.exchange_name)
+            exchange = exchange_by_code.get(adapter.exchange_code)
             if not exchange:
-                logger.warning("No exchange record for adapter '%s' — skipping", adapter.exchange_name)
+                logger.warning("No exchange record for adapter '%s' — skipping", adapter.exchange_code)
                 continue
             try:
                 adapter_contracts_count = 0
@@ -176,7 +176,7 @@ class FetchRunner:
                     adapter_contracts_count += len(page)
                     remaining = max(0, max_messages - total_sent)
                     new_msgs, updated, page_active, _ = diff_contracts(
-                        page, known_contracts, [], exchange_by_name,
+                        page, known_contracts, [], exchange_by_code,
                         min_event_volume=min_event_volume,
                         max_messages=remaining,
                         debug=debug,
@@ -186,11 +186,11 @@ class FetchRunner:
                         total_sent += len(new_msgs)
                     merged_hashes.update(updated)
                     active_by_exchange.update(page_active)
-                logger.info("Fetched %d contracts from %s, sent %d groups", adapter_contracts_count, adapter.exchange_name, total_sent)
+                logger.info("Fetched %d contracts from %s, sent %d groups", adapter_contracts_count, adapter.exchange_code, total_sent)
                 successful_ids.add(exchange.exchange_id)
             except Exception as e:
-                logger.error("Failed to fetch from %s: %s", adapter.exchange_name, e)
-                failed.append(adapter.exchange_name)
+                logger.error("Failed to fetch from %s: %s", adapter.exchange_code, e)
+                failed.append(adapter.exchange_code)
 
         if failed:
             logger.warning("Failed to fetch contracts from: %s", failed)
@@ -208,8 +208,8 @@ class FetchRunner:
         queue_url = os.environ["CONTRACTS_QUEUE_URL"]
         lookback_days = rc.config.processing.resolution_lookback_days
         sent_resolved = _redis_load_sent_resolved(r)
-        exchange_by_name = fetch_exchanges(registry)
-        resolved_by_exchange, failed = fetch_resolved_outcomes(exchange_by_name, lookback_days)
+        exchange_by_code = fetch_exchanges(registry)
+        resolved_by_exchange, failed = fetch_resolved_outcomes(exchange_by_code, lookback_days)
 
         if failed:
             logger.warning("Failed to fetch resolved from: %s", failed)
@@ -250,11 +250,11 @@ class FetchRunner:
             logger.info("stale_cleanup using in-memory active events (%d exchanges)", len(active_by_exchange))
         else:
             logger.warning("stale_cleanup: no active events in memory, falling back to fetch_all")
-            exchange_by_name = fetch_exchanges(registry)
+            exchange_by_code = fetch_exchanges(registry)
             failed_exchange_ids = set()
             active_by_exchange = {}
             for adapter in ADAPTERS:
-                exchange = exchange_by_name.get(adapter.exchange_name)
+                exchange = exchange_by_code.get(adapter.exchange_code)
                 if not exchange:
                     continue
                 try:
@@ -262,7 +262,7 @@ class FetchRunner:
                         for contract in page:
                             active_by_exchange.setdefault(contract.exchange_id, set()).add(contract.exchange_event_native_id)
                 except Exception as e:
-                    logger.error("Failed to fetch from %s: %s", adapter.exchange_name, e)
+                    logger.error("Failed to fetch from %s: %s", adapter.exchange_code, e)
                     failed_exchange_ids.add(exchange.exchange_id)
 
         tracker = _redis_load_stale_tracker(r)

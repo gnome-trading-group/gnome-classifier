@@ -63,7 +63,7 @@ def _build_sports_event_title(event_title: str, market: dict) -> str | None:
 
 
 class PolymarketAdapter:
-    exchange_name = "polymarket"
+    exchange_code = "POLYMARKET_INTL"
 
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.1)

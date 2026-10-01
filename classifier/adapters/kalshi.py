@@ -43,7 +43,7 @@ def _slugify(text: str) -> str:
 
 
 class KalshiAdapter:
-    exchange_name = "kalshi"
+    exchange_code = "KALSHI"
 
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.15)
