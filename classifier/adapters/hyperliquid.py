@@ -1,5 +1,5 @@
 import logging
-import re
+from datetime import datetime
 
 import requests.exceptions
 
@@ -18,31 +18,94 @@ CONTRACT_MULTIPLIER = 1_000_000_000
 TICK_SIZE = 1_000_000
 LOT_SIZE = 1_000_000
 
-_CATEGORY_RE = re.compile(r'category:([^\|]+)')
-_EXPIRY_RE = re.compile(r'expiry:(\d{8})-(\d{4})')
-_STRUCTURED_DESC_RE = re.compile(r'^(?:metadata=|class:)')
-_KV_RE = re.compile(r'(\w+):([^\|]+)')
-_INDEX_RE = re.compile(r'^index:(\d+)$')
+_TEMPLATE_PREFIX = "template:"
+_TIMESTAMP_FORMAT = "%Y%m%d-%H%M"
 
 
-def _parse_meta(description: str) -> dict[str, str]:
-    return dict(_KV_RE.findall(description))
+def _parse_values(description: str) -> dict[str, str]:
+    """Parse Hyperliquid's `key:value|key:value` descriptions; free text yields no values."""
+    values: dict[str, str] = {}
+    for part in description.split("|"):
+        key, sep, value = part.partition(":")
+        if sep and key.isidentifier():
+            values[key] = value
+    return values
 
 
-def _fmt_expiry(expiry_iso: str | None) -> str:
-    if not expiry_iso:
-        return "?"
-    return f"{expiry_iso[:10]} {expiry_iso[11:16]} UTC"
-
-
-def _fmt_price(value: str) -> str:
+def _parse_timestamp(value: str | None) -> datetime | None:
     try:
-        n = float(value)
-        if n == int(n):
-            return f"${int(n):,}"
-        return f"${n:,}"
+        return datetime.strptime(value or "", _TIMESTAMP_FORMAT)
     except ValueError:
-        return f"${value}"
+        return None
+
+
+def _iso(ts: datetime | None) -> str | None:
+    return ts.strftime("%Y-%m-%dT%H:%M:00Z") if ts else None
+
+
+def _display(ts: datetime) -> str:
+    # Hyperliquid's own templates append " UTC" where they want it, so times render bare.
+    return ts.strftime("%Y-%m-%d %H:%M")
+
+
+class _KeepMissing(dict):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
+def _fill(pattern: str, values: dict[str, str]) -> str:
+    return pattern.format_map(_KeepMissing(values))
+
+
+def _coin(outcome_id: int, side: int) -> str:
+    """Hyperliquid's tradeable coin name for one side of an outcome, e.g. `#62070`."""
+    return f"#{outcome_id}{side}"
+
+
+class OutcomeTemplate:
+    """A Hyperliquid outcome template from the `outcomeTemplates` info request.
+
+    Outcomes and questions reference a template by name (`template:<id>`) and carry its keyword
+    values in their description (`key:value|key:value`); rendering fills the template's own name
+    and description patterns with those values.
+    """
+
+    def __init__(self, raw: dict):
+        self.id: str = raw["id"]
+        self.name: str = raw.get("name", self.id)
+        self.description: str | None = raw.get("description")
+        self.keyword_types: dict[str, str] = dict(raw.get("keywords", []))
+
+    def _formatted(self, values: dict[str, str]) -> dict[str, str]:
+        formatted = dict(values)
+        for key, kind in self.keyword_types.items():
+            ts = _parse_timestamp(values.get(key)) if kind == "dateTime" else None
+            if ts:
+                formatted[key] = _display(ts)
+        return formatted
+
+    def render(self, pattern: str, values: dict[str, str]) -> str:
+        return _fill(pattern, self._formatted(values))
+
+    def expiry(self, values: dict[str, str]) -> datetime | None:
+        # A template can carry several dateTime keywords (scheduled start, resolution deadline);
+        # the latest is the furthest the market can run.
+        stamps = [
+            _parse_timestamp(values.get(key))
+            for key, kind in self.keyword_types.items()
+            if kind == "dateTime"
+        ]
+        return max((s for s in stamps if s), default=None)
+
+
+class _Rendered:
+    """Title, description, expiry and category for one Hyperliquid event."""
+
+    def __init__(self, title: str, description: str | None, expiry: datetime | None, category: str | None = None):
+        self.title = title
+        self.description = description
+        self.expiry = expiry
+        self.category = category
 
 
 class HyperliquidAdapter:
@@ -53,26 +116,27 @@ class HyperliquidAdapter:
         self._session = session or RateLimitedSession(min_request_interval=0.1)
 
     def fetch(self, exchange_id: ExchangeId):
-        data = self._fetch_outcome_meta()
-        outcomes = {o["outcome"]: o for o in data.get("outcomes", [])}
-        questions = data.get("questions", [])
-        page = self._map_all(exchange_id, outcomes, questions)
+        meta = self._post_info("outcomeMeta")
+        templates = {t.id: t for t in map(OutcomeTemplate, self._post_info("outcomeTemplates"))}
+        _, asset_ctxs = self._post_info("spotMetaAndAssetCtxs")
+        volume_by_coin = {ctx["coin"]: float(ctx.get("dayNtlVlm") or 0) for ctx in asset_ctxs}
+        outcomes = {o["outcome"]: o for o in meta.get("outcomes", [])}
+        page = self._map_all(exchange_id, outcomes, meta.get("questions", []), templates, volume_by_coin)
         if page:
             yield page
 
     def fetch_resolved(self, exchange_id: ExchangeId, lookback_days: int) -> set[str]:
-        data = self._fetch_outcome_meta()
-        resolved: set[str] = set()
-        for question in data.get("questions", []):
-            for oid in question.get("settledNamedOutcomes", []):
-                resolved.add(f"@{oid}")
-                resolved.add(f"@{oid}:0")
-                resolved.add(f"@{oid}:1")
-        return resolved
+        meta = self._post_info("outcomeMeta")
+        return {
+            _coin(oid, side)
+            for question in meta.get("questions", [])
+            for oid in question.get("settledNamedOutcomes", [])
+            for side in (0, 1)
+        }
 
-    def _fetch_outcome_meta(self) -> dict:
+    def _post_info(self, request_type: str):
         try:
-            res = self._session.post(BASE_URL, json={"type": "outcomeMeta"}, timeout=30)
+            res = self._session.post(BASE_URL, json={"type": request_type}, timeout=30)
             res.raise_for_status()
             return res.json()
         except requests.exceptions.RetryError as e:
@@ -82,128 +146,113 @@ class HyperliquidAdapter:
             logger.error("Hyperliquid API error: %s", e)
             raise
 
-    def _map_all(self, exchange_id: ExchangeId, outcomes: dict, questions: list[dict]) -> list[AdapterContract]:
+    # ── Rendering ─────────────────────────────────────────────────────────────
+
+    def _render(self, name: str, description: str, templates: dict[str, OutcomeTemplate]) -> _Rendered:
+        values = _parse_values(description)
+        if name.startswith(_TEMPLATE_PREFIX):
+            template = templates.get(name.removeprefix(_TEMPLATE_PREFIX))
+            if template is None:
+                logger.warning("Unknown Hyperliquid template %r; using its raw name as the title", name)
+                return _Rendered(name.removeprefix(_TEMPLATE_PREFIX), None, None)
+            rendered_desc = template.render(template.description, values) if template.description else None
+            return _Rendered(template.render(template.name, values), rendered_desc, template.expiry(values))
+        if values.get("class") == "priceBinary":
+            return self._render_recurring_binary(values)
+        if values.get("class") == "priceBucket":
+            return self._render_recurring_buckets(values)
+        return _Rendered(name, description if not values else None, _parse_timestamp(values.get("expiry")))
+
+    # Hyperliquid's recurring daily markets predate templates and have no template definition,
+    # so these two are the only renderings built here.
+    def _render_recurring_binary(self, values: dict[str, str]) -> _Rendered:
+        expiry = _parse_timestamp(values.get("expiry"))
+        title = f"{values.get('underlying', '?')} above {values.get('targetPrice', '?')} at {_display(expiry) if expiry else '?'}?"
+        return _Rendered(title, None, expiry, "CRYPTO")
+
+    def _render_recurring_buckets(self, values: dict[str, str]) -> _Rendered:
+        expiry = _parse_timestamp(values.get("expiry"))
+        title = f"{values.get('underlying', '?')} price range at {_display(expiry) if expiry else '?'}"
+        return _Rendered(title, None, expiry, "CRYPTO")
+
+    def _outcome_label(self, outcome: dict, question_values: dict[str, str], templates: dict[str, OutcomeTemplate]) -> str:
+        name = outcome.get("name", "")
+        values = _parse_values(outcome.get("description", ""))
+        if name.startswith(_TEMPLATE_PREFIX):
+            return self._render(name, outcome.get("description", ""), templates).title
+        thresholds = [t for t in question_values.get("priceThresholds", "").split(",") if t]
+        if "index" in values and thresholds:
+            idx = int(values["index"])
+            if idx == 0:
+                return f"< {thresholds[0]}"
+            if idx >= len(thresholds):
+                return f"> {thresholds[-1]}"
+            return f"{thresholds[idx - 1]} - {thresholds[idx]}"
+        return name or str(outcome["outcome"])
+
+    # ── Mapping ───────────────────────────────────────────────────────────────
+
+    def _map_all(
+        self,
+        exchange_id: ExchangeId,
+        outcomes: dict,
+        questions: list[dict],
+        templates: dict[str, OutcomeTemplate],
+        volume_by_coin: dict[str, float],
+    ) -> list[AdapterContract]:
         contracts: list[AdapterContract] = []
         questioned_outcome_ids: set[int] = set()
 
         for question in questions:
             named = question.get("namedOutcomes", [])
-            questioned_outcome_ids.update(named)
             fallback = question.get("fallbackOutcome")
+            questioned_outcome_ids.update(named)
             if fallback is not None:
                 questioned_outcome_ids.add(fallback)
             settled = set(question.get("settledNamedOutcomes", []))
-            active = [oid for oid in named if oid != fallback and oid not in settled]
+            active = [outcomes[oid] for oid in named if oid != fallback and oid not in settled and oid in outcomes]
+            rendered = self._render(question.get("name", ""), question.get("description", ""), templates)
+            q_values = _parse_values(question.get("description", ""))
+            # The question id is stable while outcomes settle; keying on an outcome would start a
+            # new event whenever that outcome resolved.
+            native_id = f"q:{question['question']}"
 
             if len(active) > 1:
-                active_outcomes = [outcomes[oid] for oid in active if oid in outcomes]
-                native_id = f"q:{active[0]}"
-                contracts.extend(self._map_multi_outcome(exchange_id, question, active_outcomes, native_id))
+                contracts.extend(self._map_question(
+                    exchange_id, rendered, active, q_values, templates, volume_by_coin, native_id,
+                ))
             elif len(active) == 1:
-                outcome = outcomes.get(active[0])
-                if outcome:
-                    q_desc = question.get("description", "")
-                    contracts.extend(self._map_binary(
-                        exchange_id=exchange_id,
-                        event_title=question.get("name", ""),
-                        event_desc=self._human_desc(q_desc),
-                        event_category=self._parse_category(q_desc),
-                        event_expiry=self._parse_expiry(q_desc),
-                        outcome=outcome,
-                        exchange_event_native_id=f"o:{outcome['outcome']}",
-                    ))
+                outcome = active[0]
+                label = self._outcome_label(outcome, q_values, templates)
+                single = _Rendered(f"{rendered.title}: {label}", rendered.description, rendered.expiry, rendered.category)
+                contracts.extend(self._map_binary(exchange_id, single, outcome, volume_by_coin, native_id))
 
         for outcome in outcomes.values():
-            if outcome["outcome"] not in questioned_outcome_ids:
-                o_desc = outcome.get("description", "")
-                meta = _parse_meta(o_desc)
-                cls = meta.get("class", "")
-
-                if cls == "priceBinary":
-                    underlying = meta.get("underlying", "?")
-                    target = meta.get("targetPrice", "?")
-                    event_expiry = self._parse_expiry(o_desc)
-                    event_title = f"Will {underlying} be above {_fmt_price(target)}? ({_fmt_expiry(event_expiry)})"
-                    event_category = "CRYPTO"
-                    event_desc = None
-                else:
-                    event_title = outcome.get("name", "")
-                    event_desc = self._human_desc(o_desc)
-                    event_category = self._parse_category(o_desc)
-                    event_expiry = self._parse_expiry(o_desc)
-
-                contracts.extend(self._map_binary(
-                    exchange_id=exchange_id,
-                    event_title=event_title,
-                    event_desc=event_desc,
-                    event_category=event_category,
-                    event_expiry=event_expiry,
-                    outcome=outcome,
-                    exchange_event_native_id=f"o:{outcome['outcome']}",
-                ))
+            if outcome["outcome"] in questioned_outcome_ids:
+                continue
+            rendered = self._render(outcome.get("name", ""), outcome.get("description", ""), templates)
+            contracts.extend(self._map_binary(exchange_id, rendered, outcome, volume_by_coin, f"o:{outcome['outcome']}"))
 
         return contracts
 
-    def _map_multi_outcome(self, exchange_id: ExchangeId, question: dict, active_outcomes: list[dict], exchange_event_native_id: str) -> list[AdapterContract]:
-        q_desc = question.get("description", "")
-        meta = _parse_meta(q_desc)
-        cls = meta.get("class", "")
-
-        if cls == "priceBucket":
-            underlying = meta.get("underlying", "?")
-            expiry_iso = self._parse_expiry(q_desc)
-            event_title = f"{underlying} price range on {_fmt_expiry(expiry_iso)}"
-            event_category = "CRYPTO"
-            event_desc = None
-            thresholds = [t.strip() for t in meta.get("priceThresholds", "").split(",") if t.strip()]
-
-            def _bucket_label(outcome: dict) -> str:
-                m = _INDEX_RE.match(outcome.get("description", ""))
-                if not m or not thresholds:
-                    return outcome.get("name", str(outcome["outcome"]))
-                idx = int(m.group(1))
-                if idx == 0:
-                    return f"< {_fmt_price(thresholds[0])}"
-                if idx >= len(thresholds):
-                    return f"> {_fmt_price(thresholds[-1])}"
-                return f"{_fmt_price(thresholds[idx - 1])} - {_fmt_price(thresholds[idx])}"
-        else:
-            event_title = question.get("name", "")
-            event_desc = self._human_desc(q_desc)
-            event_category = self._parse_category(q_desc)
-            expiry_iso = self._parse_expiry(q_desc)
-            thresholds = []
-
-            def _bucket_label(outcome: dict) -> str:
-                return outcome.get("name", str(outcome["outcome"]))
-
-        symbol_base = f"{event_title[:60]} -- "
+    def _map_question(
+        self,
+        exchange_id: ExchangeId,
+        rendered: _Rendered,
+        active_outcomes: list[dict],
+        question_values: dict[str, str],
+        templates: dict[str, OutcomeTemplate],
+        volume_by_coin: dict[str, float],
+        native_id: str,
+    ) -> list[AdapterContract]:
+        volume = sum(volume_by_coin.get(_coin(o["outcome"], side), 0.0) for o in active_outcomes for side in (0, 1))
         contracts: list[AdapterContract] = []
         for outcome in active_outcomes:
             outcome_id = outcome["outcome"]
-            outcome_label = _bucket_label(outcome)
-            contracts.append(AdapterContract(
-                exchange_id=exchange_id,
-                exchange_security_id=f"@{outcome_id}",
-                exchange_security_symbol=f"{symbol_base}{outcome_label}"[:100],
-                base_currency="USDC",
-                quote_currency="USDC",
-                settle_currency="USDC",
-                security_type=SecurityType.EVENT_CONTRACT,
-                contract_type=ContractType.MULTI_OUTCOME,
-                asset_class=AssetClass.PREDICTION,
-                inverse=False,
-                is_quanto=False,
-                tick_size=TICK_SIZE,
-                lot_size=LOT_SIZE,
-                min_notional=0.0,
-                contract_multiplier=CONTRACT_MULTIPLIER,
-                event_title=event_title,
-                outcome_label=outcome_label,
-                event_description=event_desc,
-                event_category=event_category,
-                event_expiry=expiry_iso,
-                exchange_event_native_id=exchange_event_native_id,
+            label = self._outcome_label(outcome, question_values, templates)
+            contracts.append(self._contract(
+                exchange_id, rendered, outcome, label, ContractType.MULTI_OUTCOME, native_id, volume,
+                exchange_security_id=_coin(outcome_id, 0),
                 security_symbol=format_security_symbol(self.symbol_prefix, str(outcome_id)),
             ))
         return contracts
@@ -211,58 +260,61 @@ class HyperliquidAdapter:
     def _map_binary(
         self,
         exchange_id: ExchangeId,
-        event_title: str,
-        event_desc: str | None,
-        event_category: str | None,
-        event_expiry: str | None,
+        rendered: _Rendered,
         outcome: dict,
-        exchange_event_native_id: str,
+        volume_by_coin: dict[str, float],
+        native_id: str,
     ) -> list[AdapterContract]:
         outcome_id = outcome["outcome"]
-        side_specs = outcome.get("sideSpecs", [])
-        symbol_base = f"{event_title[:60]} -- "
-
+        values = _parse_values(outcome.get("description", ""))
+        side_specs = outcome.get("sideSpecs", [])[:2]
+        volume = sum(volume_by_coin.get(_coin(outcome_id, side), 0.0) for side in range(len(side_specs)))
         contracts: list[AdapterContract] = []
-        for i, side in enumerate(side_specs[:2]):
-            side_name = side.get("name", "Yes" if i == 0 else "No")
-            contracts.append(AdapterContract(
-                exchange_id=exchange_id,
-                exchange_security_id=f"@{outcome_id}:{i}",
-                exchange_security_symbol=f"{symbol_base}{side_name}"[:100],
-                base_currency="USDC",
-                quote_currency="USDC",
-                settle_currency="USDC",
-                security_type=SecurityType.EVENT_CONTRACT,
-                contract_type=ContractType.BINARY,
-                asset_class=AssetClass.PREDICTION,
-                inverse=False,
-                is_quanto=False,
-                tick_size=TICK_SIZE,
-                lot_size=LOT_SIZE,
-                min_notional=0.0,
-                contract_multiplier=CONTRACT_MULTIPLIER,
-                event_title=event_title,
-                outcome_label=side_name,
-                event_description=event_desc,
-                event_category=event_category,
-                event_expiry=event_expiry,
-                exchange_event_native_id=exchange_event_native_id,
-                security_symbol=format_security_symbol(self.symbol_prefix, str(outcome_id), side_name),
+        for side, spec in enumerate(side_specs):
+            label = _fill((spec.get("name") or ("Yes" if side == 0 else "No")).removeprefix(_TEMPLATE_PREFIX), values)
+            contracts.append(self._contract(
+                exchange_id, rendered, outcome, label, ContractType.BINARY, native_id, volume,
+                exchange_security_id=_coin(outcome_id, side),
+                security_symbol=format_security_symbol(self.symbol_prefix, str(outcome_id), label),
             ))
         return contracts
 
-    def _parse_category(self, description: str) -> str | None:
-        m = _CATEGORY_RE.search(description)
-        return m.group(1).strip() if m else None
-
-    def _parse_expiry(self, description: str) -> str | None:
-        m = _EXPIRY_RE.search(description)
-        if not m:
-            return None
-        date_str, time_str = m.group(1), m.group(2)
-        return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}T{time_str[:2]}:{time_str[2:]}:00Z"
-
-    def _human_desc(self, description: str) -> str | None:
-        if not description or _STRUCTURED_DESC_RE.match(description):
-            return None
-        return description
+    def _contract(
+        self,
+        exchange_id: ExchangeId,
+        rendered: _Rendered,
+        outcome: dict,
+        label: str,
+        contract_type: ContractType,
+        native_id: str,
+        volume: float,
+        *,
+        exchange_security_id: str,
+        security_symbol: str,
+    ) -> AdapterContract:
+        quote = outcome.get("quoteToken", "USDC")
+        return AdapterContract(
+            exchange_id=exchange_id,
+            exchange_security_id=exchange_security_id,
+            exchange_security_symbol=f"{rendered.title[:60]} -- {label}"[:100],
+            base_currency=quote,
+            quote_currency=quote,
+            settle_currency=quote,
+            security_type=SecurityType.EVENT_CONTRACT,
+            contract_type=contract_type,
+            asset_class=AssetClass.PREDICTION,
+            inverse=False,
+            is_quanto=False,
+            tick_size=TICK_SIZE,
+            lot_size=LOT_SIZE,
+            min_notional=0.0,
+            contract_multiplier=CONTRACT_MULTIPLIER,
+            event_title=rendered.title,
+            outcome_label=label,
+            event_description=rendered.description,
+            event_category=rendered.category,
+            event_expiry=_iso(rendered.expiry),
+            exchange_event_native_id=native_id,
+            security_symbol=security_symbol,
+            event_volume=volume,
+        )

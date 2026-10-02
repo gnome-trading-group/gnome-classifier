@@ -4,7 +4,12 @@
       "title": "Harvey Weinstein prison time?",
       "slug": "harvey-weinstein-prison-time",
       "description": "This market resolves based on Harvey Weinstein's prison sentence.",
-      "tags": [{"label": "Legal", "slug": "legal"}],
+      "tags": [
+        {
+          "label": "Legal",
+          "slug": "legal"
+        }
+      ],
       "markets": [
         {
           "conditionId": "0xf398b0e5016eeaee9b00000000000000000000000000000000000000000000001",
@@ -18,7 +23,8 @@
           "endDate": "2025-12-31T12:00:00Z",
           "volumeNum": 2000.0,
           "orderPriceMinTickSize": 0.01,
-          "orderMinSize": 5
+          "orderMinSize": 5,
+          "volume24hr": 200.0
         },
         {
           "conditionId": "0xe2b48e3b44de9658ee00000000000000000000000000000000000000000000002",
@@ -32,7 +38,8 @@
           "endDate": "2025-12-31T12:00:00Z",
           "volumeNum": 2000.0,
           "orderPriceMinTickSize": 0.01,
-          "orderMinSize": 5
+          "orderMinSize": 5,
+          "volume24hr": 200.0
         },
         {
           "conditionId": "0x3209617364a0d59843000000000000000000000000000000000000000000000003",
@@ -46,7 +53,8 @@
           "endDate": "2025-12-31T12:00:00Z",
           "volumeNum": 1000.0,
           "orderPriceMinTickSize": 0.01,
-          "orderMinSize": 5
+          "orderMinSize": 5,
+          "volume24hr": 100.0
         }
       ]
     },
@@ -54,7 +62,12 @@
       "title": "Kraken IPO by ___?",
       "slug": "kraken-ipo-by",
       "description": "This is a market on predicting when Kraken will complete an IPO.",
-      "tags": [{"label": "Crypto", "slug": "crypto"}],
+      "tags": [
+        {
+          "label": "Crypto",
+          "slug": "crypto"
+        }
+      ],
       "markets": [
         {
           "conditionId": "0x5b70123b2c37355840b00000000000000000000000000000000000000000000001",
@@ -68,7 +81,8 @@
           "endDate": "2025-12-31T12:00:00Z",
           "volumeNum": 500.0,
           "orderPriceMinTickSize": 0.01,
-          "orderMinSize": 5
+          "orderMinSize": 5,
+          "volume24hr": 50.0
         },
         {
           "conditionId": "0x9b3c3177fe473124c700000000000000000000000000000000000000000000002",
@@ -82,7 +96,8 @@
           "endDate": "2026-04-01T04:00:00Z",
           "volumeNum": 800.0,
           "orderPriceMinTickSize": 0.001,
-          "orderMinSize": 10
+          "orderMinSize": 10,
+          "volume24hr": 80.0
         },
         {
           "conditionId": "0xaabbcc1234567890ab00000000000000000000000000000000000000000000003",
@@ -96,7 +111,8 @@
           "endDate": "2027-01-01T04:00:00Z",
           "volumeNum": 300.0,
           "orderPriceMinTickSize": 0.01,
-          "orderMinSize": 5
+          "orderMinSize": 5,
+          "volume24hr": 30.0
         }
       ]
     },
@@ -104,7 +120,12 @@
       "title": "Seattle Storm vs. New York Liberty",
       "slug": "wnba-sea-nyl-2026-08-05",
       "description": "WNBA game between Seattle Storm and New York Liberty on August 5, 2026.",
-      "tags": [{"label": "Sports", "slug": "sports"}],
+      "tags": [
+        {
+          "label": "Sports",
+          "slug": "sports"
+        }
+      ],
       "markets": [
         {
           "conditionId": "0xsprt010000000000000000000000000000000000000000000000000000000001",
@@ -120,7 +141,8 @@
           "endDate": "2026-08-06T03:00:00Z",
           "volumeNum": 10000.0,
           "orderPriceMinTickSize": 0.001,
-          "orderMinSize": 5
+          "orderMinSize": 5,
+          "volume24hr": 1000.0
         },
         {
           "conditionId": "0xsprt020000000000000000000000000000000000000000000000000000000002",
@@ -136,7 +158,8 @@
           "endDate": "2026-08-06T03:00:00Z",
           "volumeNum": 5000.0,
           "orderPriceMinTickSize": 0.001,
-          "orderMinSize": 5
+          "orderMinSize": 5,
+          "volume24hr": 500.0
         },
         {
           "conditionId": "0xsprt030000000000000000000000000000000000000000000000000000000003",
@@ -152,7 +175,8 @@
           "endDate": "2026-08-06T03:00:00Z",
           "volumeNum": 8000.0,
           "orderPriceMinTickSize": 0.001,
-          "orderMinSize": 5
+          "orderMinSize": 5,
+          "volume24hr": 800.0
         },
         {
           "conditionId": "0xsprt040000000000000000000000000000000000000000000000000000000004",
@@ -168,7 +192,8 @@
           "endDate": "2026-08-06T03:00:00Z",
           "volumeNum": 3000.0,
           "orderPriceMinTickSize": 0.001,
-          "orderMinSize": 5
+          "orderMinSize": 5,
+          "volume24hr": 300.0
         }
       ]
     },
@@ -176,7 +201,12 @@
       "title": "Will Elon Musk visit Mars?",
       "slug": "elon-mars",
       "description": "This market resolves to Yes if Elon Musk personally travels to Mars before 2030.",
-      "tags": [{"label": "Science", "slug": "science"}],
+      "tags": [
+        {
+          "label": "Science",
+          "slug": "science"
+        }
+      ],
       "markets": [
         {
           "conditionId": "0xdeadbeef000000000000000000000000000000000000000000000000000000001",
@@ -190,7 +220,8 @@
           "endDate": "2030-01-01T00:00:00Z",
           "volumeNum": 1500.0,
           "orderPriceMinTickSize": 0.01,
-          "orderMinSize": 5
+          "orderMinSize": 5,
+          "volume24hr": 150.0
         }
       ]
     },
@@ -199,7 +230,12 @@
       "slug": "iowa-governor-2026",
       "endDate": "2026-11-03T00:00:00Z",
       "description": "This market resolves based on the winner of the 2026 Iowa gubernatorial election.",
-      "tags": [{"label": "Politics", "slug": "politics"}],
+      "tags": [
+        {
+          "label": "Politics",
+          "slug": "politics"
+        }
+      ],
       "markets": [
         {
           "conditionId": "0xiowa010000000000000000000000000000000000000000000000000000000001",
@@ -211,7 +247,8 @@
           "clobTokenIds": "[\"10001\", \"10002\"]",
           "volumeNum": 4000.0,
           "orderPriceMinTickSize": 0.01,
-          "orderMinSize": 5
+          "orderMinSize": 5,
+          "volume24hr": 400.0
         },
         {
           "conditionId": "0xiowa020000000000000000000000000000000000000000000000000000000002",
@@ -223,7 +260,8 @@
           "clobTokenIds": "[\"10003\", \"10004\"]",
           "volumeNum": 6000.0,
           "orderPriceMinTickSize": 0.01,
-          "orderMinSize": 5
+          "orderMinSize": 5,
+          "volume24hr": 600.0
         }
       ]
     },
@@ -232,7 +270,12 @@
       "slug": "bitcoin-200k",
       "endDate": "2027-01-01T00:00:00Z",
       "description": "This market resolves to Yes if Bitcoin reaches $200,000 before 2027.",
-      "tags": [{"label": "Crypto", "slug": "crypto"}],
+      "tags": [
+        {
+          "label": "Crypto",
+          "slug": "crypto"
+        }
+      ],
       "markets": [
         {
           "conditionId": "0xbtc200k0000000000000000000000000000000000000000000000000000000001",
@@ -243,7 +286,8 @@
           "closed": false,
           "outcomes": "[\"Yes\", \"No\"]",
           "clobTokenIds": "[\"11001\", \"11002\"]",
-          "volumeNum": 25000.0
+          "volumeNum": 25000.0,
+          "volume24hr": 2500.0
         }
       ]
     }

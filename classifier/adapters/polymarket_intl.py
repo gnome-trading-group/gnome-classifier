@@ -198,7 +198,7 @@ class PolymarketIntlAdapter:
         is_neg_risk_group = all(m.get("negRisk") for m in markets) and len(markets) >= 1
 
         if is_neg_risk_group:
-            event_volume: float = sum(m.get("volumeNum") or 0.0 for m in markets)
+            event_volume: float = sum(m.get("volume24hr") or 0.0 for m in markets)
             return self._map_neg_risk_group(
                 exchange_id, markets, event_title, event_slug, event_description, event_volume,
                 event_category=event_category,
@@ -207,7 +207,7 @@ class PolymarketIntlAdapter:
 
         contracts: list[AdapterContract] = []
         for market in markets:
-            market_volume: float = market.get("volumeNum") or 0.0
+            market_volume: float = market.get("volume24hr") or 0.0
             contracts.extend(self._map_binary_market(
                 exchange_id, market, event_description, event_slug, market_volume,
                 event_title_override=_build_sports_event_title(event_title, market),

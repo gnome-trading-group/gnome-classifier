@@ -36,6 +36,15 @@ def _market_tick_size(market: dict) -> int:
         return TICK_SIZE
 
 
+def _dollar_volume_24h(market: dict) -> float:
+    # Kalshi reports volume in contracts; contracts x last price approximates the one-sided dollar
+    # notional that Polymarket and Hyperliquid report, so one volume threshold fits all three.
+    try:
+        return float(market.get("volume_24h_fp") or 0) * float(market.get("last_price_dollars") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _slugify(text: str) -> str:
     slug = text.lower()
     slug = re.sub(r'[^a-z0-9\s-]', '', slug)
@@ -174,20 +183,7 @@ class KalshiAdapter:
         else:
             native_url = None
 
-        def _parse_volume(market: dict) -> float | None:
-            raw = market.get("volume_fp")
-            if raw is None:
-                return None
-            try:
-                return float(raw)
-            except (ValueError, TypeError):
-                return None
-
-        event_volume: float | None = None
-        if not has_sub_markets:
-            vols = [v for m in markets if (v := _parse_volume(m)) is not None]
-            if vols:
-                event_volume = sum(vols)
+        event_volume = sum(_dollar_volume_24h(m) for m in markets)
 
         contracts: list[AdapterContract] = []
         for market in markets:
@@ -234,7 +230,7 @@ class KalshiAdapter:
                     sub_title_market = market.get("yes_sub_title") or ticker
                     market_event_title = f"{event_title}: {sub_title_market}"
                     native_id = ticker
-                    market_volume = _parse_volume(market)
+                    market_volume = _dollar_volume_24h(market)
                     market_description = market.get("rules_primary") or event_description
                 else:
                     sub_title_single = market.get("yes_sub_title", "")

@@ -21,9 +21,16 @@ Targets:
          clears the deleted events' exchange-event cache entries and the deleted listings' fetch
          hashes so fetch resends any still-live market. Rolls back unless --commit is passed.
 
+  purge-exchange
+         Same delete path for every event of one exchange, so fetch recreates them with the
+         current adapter. Used for Hyperliquid after its adapter switched to rendering outcome
+         templates and to Hyperliquid's own coin names (`#<outcome><side>`) as listing ids.
+         Run only after the new adapter is deployed.
+
 Usage:
   AWS_PROFILE=dev STAGE=dev poetry run python -m scripts.merged_cleanup plan --stage dev
   worker cleanup apply --exclude ... --expect-events N --expect-securities M [--commit]
+  worker cleanup purge-exchange --exchange-code HYPERLIQUID --exclude ... --expect-events N --expect-securities M [--commit]
 """
 import dataclasses
 import json
@@ -216,69 +223,67 @@ def _load_graph_sql(cur) -> tuple[dict, dict, dict]:
     return natives_by_event, events_by_security, exchanges_by_security
 
 
-@main.command()
-@click.option("--exclude", required=True, help="Comma-separated security ids from the plan, or 'none'")
-@click.option("--expect-events", required=True, type=int)
-@click.option("--expect-securities", required=True, type=int)
-@click.option("--commit", is_flag=True, help="Commit the deletes and clear Redis; otherwise roll back")
-def apply(exclude: str, expect_events: int, expect_securities: int, commit: bool):
-    """Recompute targets in SQL, delete them in one transaction, then clear their Redis entries."""
-    excluded = set() if exclude == "none" else {int(x) for x in exclude.split(",")}
-    dsn = os.environ.get("DATABASE_URL") or build_dsn()
-    conn = psycopg2.connect(dsn)
-    try:
-        with conn.cursor() as cur:
-            event_ids, security_ids = _select_targets(*_load_graph_sql(cur), excluded)
-            if (len(event_ids), len(security_ids)) != (expect_events, expect_securities):
-                raise click.ClickException(
-                    f"Target counts changed since the plan: {len(event_ids)} events / {len(security_ids)} securities, "
-                    f"expected {expect_events} / {expect_securities}. Re-run plan."
-                )
-            events, securities = sorted(event_ids), sorted(security_ids)
+def _parse_exclude(exclude: str) -> set[int]:
+    return set() if exclude == "none" else {int(x) for x in exclude.split(",")}
 
-            cur.execute(
-                "SELECT listing_id, exchange_id, exchange_security_id FROM sm.listing WHERE security_id = ANY(%s)",
-                (securities,),
+
+def _check_counts(event_ids: set[int], security_ids: set[int], expect_events: int, expect_securities: int) -> None:
+    if (len(event_ids), len(security_ids)) != (expect_events, expect_securities):
+        raise click.ClickException(
+            f"Target counts changed since the plan: {len(event_ids)} events / {len(security_ids)} securities, "
+            f"expected {expect_events} / {expect_securities}. Re-run plan."
+        )
+
+
+def _delete_targets(conn, event_ids: set[int], security_ids: set[int], commit: bool) -> None:
+    """Delete the given events and securities (with their listings) in one transaction, then
+    clear their Redis exchange-event cache entries and fetch hashes so fetch resends them."""
+    events, securities = sorted(event_ids), sorted(security_ids)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT listing_id, exchange_id, exchange_security_id FROM sm.listing WHERE security_id = ANY(%s)",
+            (securities,),
+        )
+        listing_rows = cur.fetchall()
+        listings = [row[0] for row in listing_rows]
+        listing_keys = {f"{row[1]}:{row[2]}" for row in listing_rows}
+        cur.execute(
+            "SELECT exchange_id, native_event_id FROM sm.exchange_event WHERE event_id = ANY(%(e)s)"
+            " UNION SELECT exchange_id, native_event_id FROM sm.event"
+            " WHERE event_id = ANY(%(e)s) AND native_event_id IS NOT NULL",
+            {"e": events},
+        )
+        native_keys = [f"{row[0]}:{row[1]}" for row in cur.fetchall()]
+
+        cur.execute("SELECT count(*) FROM pnl.snapshot WHERE listing_id = ANY(%s)", (listings,))
+        pnl_refs = cur.fetchone()[0]
+        cur.execute("SELECT count(*) FROM risk.policy WHERE listing_id = ANY(%s)", (listings,))
+        risk_refs = cur.fetchone()[0]
+        if pnl_refs or risk_refs:
+            raise click.ClickException(
+                f"Refusing: {pnl_refs} pnl snapshots and {risk_refs} risk policies reference target listings"
             )
-            listing_rows = cur.fetchall()
-            listings = [row[0] for row in listing_rows]
-            listing_keys = {f"{row[1]}:{row[2]}" for row in listing_rows}
-            cur.execute(
-                "SELECT exchange_id, native_event_id FROM sm.exchange_event WHERE event_id = ANY(%s)", (events,),
-            )
-            native_keys = [f"{row[0]}:{row[1]}" for row in cur.fetchall()]
 
-            cur.execute("SELECT count(*) FROM pnl.snapshot WHERE listing_id = ANY(%s)", (listings,))
-            pnl_refs = cur.fetchone()[0]
-            cur.execute("SELECT count(*) FROM risk.policy WHERE listing_id = ANY(%s)", (listings,))
-            risk_refs = cur.fetchone()[0]
-            if pnl_refs or risk_refs:
-                raise click.ClickException(
-                    f"Refusing: {pnl_refs} pnl snapshots and {risk_refs} risk policies reference target listings"
-                )
+        params = {"s": securities, "e": events, "l": listings}
+        for table, sql in (
+            ("contract_relationship",
+             "DELETE FROM sm.contract_relationship WHERE security_id_a = ANY(%(s)s) OR security_id_b = ANY(%(s)s)"),
+            ("event_contract", "DELETE FROM sm.event_contract WHERE security_id = ANY(%(s)s) OR event_id = ANY(%(e)s)"),
+            ("listing_spec", "DELETE FROM sm.listing_spec WHERE listing_id = ANY(%(l)s)"),
+            ("listing", "DELETE FROM sm.listing WHERE listing_id = ANY(%(l)s)"),
+            ("security", "DELETE FROM sm.security WHERE security_id = ANY(%(s)s)"),
+            ("exchange_event", "DELETE FROM sm.exchange_event WHERE event_id = ANY(%(e)s)"),
+            ("event", "DELETE FROM sm.event WHERE event_id = ANY(%(e)s)"),
+        ):
+            cur.execute(sql, params)
+            click.echo(f"  {table:<22} {cur.rowcount} rows deleted")
 
-            params = {"s": securities, "e": events, "l": listings}
-            for table, sql in (
-                ("contract_relationship",
-                 "DELETE FROM sm.contract_relationship WHERE security_id_a = ANY(%(s)s) OR security_id_b = ANY(%(s)s)"),
-                ("event_contract", "DELETE FROM sm.event_contract WHERE security_id = ANY(%(s)s) OR event_id = ANY(%(e)s)"),
-                ("listing_spec", "DELETE FROM sm.listing_spec WHERE listing_id = ANY(%(l)s)"),
-                ("listing", "DELETE FROM sm.listing WHERE listing_id = ANY(%(l)s)"),
-                ("security", "DELETE FROM sm.security WHERE security_id = ANY(%(s)s)"),
-                ("exchange_event", "DELETE FROM sm.exchange_event WHERE event_id = ANY(%(e)s)"),
-                ("event", "DELETE FROM sm.event WHERE event_id = ANY(%(e)s)"),
-            ):
-                cur.execute(sql, params)
-                click.echo(f"  {table:<22} {cur.rowcount} rows deleted")
-
-        if not commit:
-            conn.rollback()
-            click.echo("Rolled back (dry run). Re-run with --commit to apply.")
-            return
-        conn.commit()
-        click.echo("Committed.")
-    finally:
-        conn.close()
+    if not commit:
+        conn.rollback()
+        click.echo("Rolled back (dry run). Re-run with --commit to apply.")
+        return
+    conn.commit()
+    click.echo("Committed.")
 
     r = redis_lib.Redis.from_url(os.environ.get("REDIS_URL") or os.environ["REDIS_ENDPOINT"], decode_responses=False)
     if native_keys:
@@ -289,6 +294,63 @@ def apply(exclude: str, expect_events: int, expect_securities: int, commit: bool
         pruned = {k: v for k, v in known.items() if k not in listing_keys}
         r.set(_REDIS_KNOWN_CONTRACTS_KEY, json.dumps(pruned), ex=_REDIS_KNOWN_CONTRACTS_TTL)
         click.echo(f"Pruned {len(known) - len(pruned)} fetch hashes; fetch will resend those contracts")
+
+
+@main.command()
+@click.option("--exclude", required=True, help="Comma-separated security ids from the plan, or 'none'")
+@click.option("--expect-events", required=True, type=int)
+@click.option("--expect-securities", required=True, type=int)
+@click.option("--commit", is_flag=True, help="Commit the deletes and clear Redis; otherwise roll back")
+def apply(exclude: str, expect_events: int, expect_securities: int, commit: bool):
+    """Recompute merged/shared targets in SQL and delete them."""
+    conn = psycopg2.connect(os.environ.get("DATABASE_URL") or build_dsn())
+    try:
+        with conn.cursor() as cur:
+            event_ids, security_ids = _select_targets(*_load_graph_sql(cur), _parse_exclude(exclude))
+        _check_counts(event_ids, security_ids, expect_events, expect_securities)
+        _delete_targets(conn, event_ids, security_ids, commit)
+    finally:
+        conn.close()
+
+
+@main.command("purge-exchange")
+@click.option("--exchange-code", required=True, help="e.g. HYPERLIQUID")
+@click.option("--exclude", required=True, help="Comma-separated security ids with market data, or 'none'")
+@click.option("--expect-events", required=True, type=int)
+@click.option("--expect-securities", required=True, type=int)
+@click.option("--commit", is_flag=True, help="Commit the deletes and clear Redis; otherwise roll back")
+def purge_exchange(exchange_code: str, exclude: str, expect_events: int, expect_securities: int, commit: bool):
+    """Delete every event of one exchange so fetch recreates them with the current adapter."""
+    excluded = _parse_exclude(exclude)
+    conn = psycopg2.connect(os.environ.get("DATABASE_URL") or build_dsn())
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT e.event_id, ec.security_id FROM sm.event e"
+                " JOIN sm.exchange x ON x.exchange_id = e.exchange_id"
+                " LEFT JOIN sm.event_contract ec ON ec.event_id = e.event_id"
+                " WHERE x.exchange_code = %s",
+                (exchange_code,),
+            )
+            securities_by_event: dict[int, set[int]] = defaultdict(set)
+            for eid, sid in cur.fetchall():
+                event_securities = securities_by_event[eid]
+                if sid is not None:
+                    event_securities.add(sid)
+            event_ids = {eid for eid, sids in securities_by_event.items() if not sids & excluded}
+            security_ids = {sid for eid in event_ids for sid in securities_by_event[eid]}
+            cur.execute(
+                "SELECT DISTINCT security_id FROM sm.event_contract"
+                " WHERE security_id = ANY(%s) AND NOT event_id = ANY(%s)",
+                (sorted(security_ids), sorted(event_ids)),
+            )
+            shared = [row[0] for row in cur.fetchall()]
+            if shared:
+                raise click.ClickException(f"Refusing: {len(shared)} target securities also belong to other events")
+        _check_counts(event_ids, security_ids, expect_events, expect_securities)
+        _delete_targets(conn, event_ids, security_ids, commit)
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

@@ -795,7 +795,9 @@
           "ticker": "KXIPHONERELEASE-IPHONE18-26JUL01",
           "title": "Will Apple Inc. release iPhone 18 before Jul 1, 2026?",
           "volume_fp": "5000.00",
-          "yes_sub_title": "Before July"
+          "yes_sub_title": "Before July",
+          "volume_24h_fp": "500.00",
+          "last_price_dollars": "0.1000"
         },
         {
           "can_close_early": true,
@@ -811,7 +813,9 @@
           "ticker": "KXIPHONERELEASE-IPHONE18-26OCT01",
           "title": "Will Apple Inc. release iPhone 18 before Oct 1, 2026?",
           "volume_fp": "3000.00",
-          "yes_sub_title": "Before October"
+          "yes_sub_title": "Before October",
+          "volume_24h_fp": "300.00",
+          "last_price_dollars": "0.1500"
         },
         {
           "can_close_early": true,
@@ -827,7 +831,9 @@
           "ticker": "KXIPHONERELEASE-IPHONE18-27JAN01",
           "title": "Will Apple Inc. release iPhone 18 before Jan 1, 2027?",
           "volume_fp": "2000.00",
-          "yes_sub_title": "Before 2027"
+          "yes_sub_title": "Before 2027",
+          "volume_24h_fp": "200.00",
+          "last_price_dollars": "0.2000"
         }
       ],
       "mutually_exclusive": false,
@@ -856,7 +862,9 @@
           "ticker": "KXNFLGAME-26AUG06CARARI-ARI",
           "title": "Hall of Fame Game: Carolina vs Arizona Winner?",
           "volume_fp": "8000.00",
-          "yes_sub_title": "Arizona"
+          "yes_sub_title": "Arizona",
+          "volume_24h_fp": "800.00",
+          "last_price_dollars": "0.1000"
         },
         {
           "close_time": "2026-08-07T03:59:00Z",
@@ -869,7 +877,9 @@
           "ticker": "KXNFLGAME-26AUG06CARARI-CAR",
           "title": "Hall of Fame Game: Carolina vs Arizona Winner?",
           "volume_fp": "6000.00",
-          "yes_sub_title": "Carolina"
+          "yes_sub_title": "Carolina",
+          "volume_24h_fp": "600.00",
+          "last_price_dollars": "0.1500"
         }
       ]
     },
@@ -895,7 +905,9 @@
           "ticker": "KXCS2TOTALMAPS-26AUG04EXG-3",
           "title": "Will there be over 2.5 maps played?",
           "volume_fp": "15000.00",
-          "yes_sub_title": "Over 2.5 maps"
+          "yes_sub_title": "Over 2.5 maps",
+          "volume_24h_fp": "1500.00",
+          "last_price_dollars": "0.1000"
         }
       ]
     }

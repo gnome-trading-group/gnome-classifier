@@ -38,4 +38,5 @@ DEFAULT_FETCH_INTERVAL_SECONDS = 60
 DEFAULT_RESOLVE_INTERVAL_SECONDS = 1800
 DEFAULT_STALE_INTERVAL_SECONDS = 3600
 
-DEFAULT_MIN_EVENT_VOLUME: float | None = 5000
+# 24h dollar volume an event needs before it is ingested; every adapter reports 24h volume.
+DEFAULT_MIN_EVENT_VOLUME: float | None = 1000

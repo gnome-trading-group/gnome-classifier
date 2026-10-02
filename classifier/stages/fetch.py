@@ -53,8 +53,11 @@ def diff_contracts(
     if min_event_volume is not None:
         filtered_count = 0
         for nk, group in list(contracts_by_native.items()):
+            # Volume only gates ingesting new events; an event fetch has already sent keeps
+            # flowing so quiet markets still pick up added and removed contracts.
+            already_sent = any(f"{c.exchange_id}:{c.exchange_security_id}" in known_hashes for c in group)
             vol = group[0].event_volume
-            if vol is not None and vol < min_event_volume:
+            if not already_sent and vol is not None and vol < min_event_volume:
                 filtered_count += 1
                 del contracts_by_native[nk]
                 for c in group:

@@ -218,3 +218,35 @@ class TestPaginatedFetch:
         active_by_exchange, successful_ids, _ = _run_fetch_pages(moto_env, pages, raise_after_pages=True)
         assert 1 not in active_by_exchange
         assert successful_ids == set()
+
+
+
+def _run_fetch_with_known(moto_env, contracts, known_contracts, min_event_volume):
+    rc = _make_fetch_rc(min_event_volume)
+    r = MagicMock()
+    r.get.return_value = json.dumps(known_contracts).encode()
+    mock_adapter = MagicMock()
+    mock_adapter.exchange_code = "POLYMARKET_INTL"
+    mock_adapter.fetch.return_value = iter([contracts])
+    with (
+        patch("classifier.workers.fetch.fetch_exchanges", return_value={"POLYMARKET_INTL": MagicMock(exchange_id=1)}),
+        patch("classifier.workers.fetch.ADAPTERS", [mock_adapter]),
+    ):
+        FetchRunner()._run_fetch(rc, r, moto_env["sqs"], MagicMock())
+    resp = moto_env["sqs"].receive_message(QueueUrl=moto_env["contracts_queue"], MaxNumberOfMessages=10, WaitTimeSeconds=0)
+    return [json.loads(m["Body"]) for m in resp.get("Messages", [])], json.loads(r.set.call_args[0][1])
+
+
+class TestVolumeGateOnlyForNewEvents:
+    def test_quiet_known_event_still_sends_changes(self, moto_env):
+        existing = _make_contract("evt-1", "sec-1", event_volume=10.0)
+        added = _make_contract("evt-1", "sec-2", event_volume=10.0)
+        msgs, saved = _run_fetch_with_known(moto_env, [existing, added], {"1:sec-1": "old-hash"}, min_event_volume=1000.0)
+        assert len(msgs) == 1
+        assert {c["exchange_security_id"] for c in msgs[0]["contracts"]} == {"sec-1", "sec-2"}
+        assert {"1:sec-1", "1:sec-2"} <= set(saved)
+
+    def test_quiet_new_event_is_still_filtered(self, moto_env):
+        msgs, saved = _run_fetch_with_known(moto_env, [_make_contract("evt-2", "sec-9", event_volume=10.0)], {}, min_event_volume=1000.0)
+        assert msgs == []
+        assert "1:sec-9" not in saved

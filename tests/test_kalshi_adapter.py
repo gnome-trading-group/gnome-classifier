@@ -170,24 +170,35 @@ def test_min_notional_is_zero():
 
 # ── Volume ───────────────────────────────────────────────────────────────────
 
-def test_binary_event_volume():
+def _dollar_volume_24h(market: dict) -> float:
+    return float(market["volume_24h_fp"]) * float(market["last_price_dollars"])
+
+
+def test_binary_event_volume_is_24h_dollars():
     contracts = _map("KXELONMARS-99")
-    expected = float(EVENTS_BY_TICKER["KXELONMARS-99"]["markets"][0]["volume_fp"])
-    assert all(c.event_volume == expected for c in contracts)
+    expected = _dollar_volume_24h(EVENTS_BY_TICKER["KXELONMARS-99"]["markets"][0])
+    assert expected > 0
+    assert all(c.event_volume == pytest.approx(expected) for c in contracts)
 
 
 def test_multi_outcome_event_volume_is_sum():
     contracts = _map("KXNEWPOPE-70")
-    markets = EVENTS_BY_TICKER["KXNEWPOPE-70"]["markets"]
-    expected = sum(float(m["volume_fp"]) for m in markets)
-    assert all(c.event_volume == expected for c in contracts)
+    expected = sum(_dollar_volume_24h(m) for m in EVENTS_BY_TICKER["KXNEWPOPE-70"]["markets"])
+    assert all(c.event_volume == pytest.approx(expected) for c in contracts)
 
 
 def test_sub_market_event_volume_per_market():
     contracts = _map("KXRAMPBREX-40")
-    markets = {m["ticker"]: float(m["volume_fp"]) for m in EVENTS_BY_TICKER["KXRAMPBREX-40"]["markets"]}
+    markets = {m["ticker"]: _dollar_volume_24h(m) for m in EVENTS_BY_TICKER["KXRAMPBREX-40"]["markets"]}
     for c in contracts:
-        assert c.event_volume == markets[c.exchange_event_native_id]
+        assert c.event_volume == pytest.approx(markets[c.exchange_event_native_id])
+
+
+def test_missing_24h_volume_counts_as_zero():
+    event = json.loads(json.dumps(EVENTS_BY_TICKER["KXELONMARS-99"]))
+    for m in event["markets"]:
+        m.pop("volume_24h_fp", None)
+    assert all(c.event_volume == 0.0 for c in adapter._map_event(EXCHANGE_ID, event))
 
 
 # ── Entity creation with fixture data ─────────────────────────────────────────
@@ -296,13 +307,12 @@ def test_active_markets_preserved_alongside_finalized():
     assert native_ids == {"KXIPHONERELEASE-IPHONE18-26OCT01", "KXIPHONERELEASE-IPHONE18-27JAN01"}
 
 
-def test_finalized_market_volume_included_in_sum():
+def test_sub_markets_use_their_own_volume_alongside_finalized_sibling():
     contracts = _map("KXIPHONERELEASE-IPHONE18")
-    # volume_fp: 5000 (finalized) + 3000 + 2000 = 10000, but sub-markets use per-market volume
-    oct_contracts = [c for c in contracts if c.exchange_event_native_id == "KXIPHONERELEASE-IPHONE18-26OCT01"]
-    jan_contracts = [c for c in contracts if c.exchange_event_native_id == "KXIPHONERELEASE-IPHONE18-27JAN01"]
-    assert all(c.event_volume == 3000.0 for c in oct_contracts)
-    assert all(c.event_volume == 2000.0 for c in jan_contracts)
+    markets = {m["ticker"]: _dollar_volume_24h(m) for m in EVENTS_BY_TICKER["KXIPHONERELEASE-IPHONE18"]["markets"]}
+    for native_id in ("KXIPHONERELEASE-IPHONE18-26OCT01", "KXIPHONERELEASE-IPHONE18-27JAN01"):
+        group = [c for c in contracts if c.exchange_event_native_id == native_id]
+        assert group and all(c.event_volume == pytest.approx(markets[native_id]) for c in group)
 
 
 def test_has_sub_markets_preserved_with_finalized():

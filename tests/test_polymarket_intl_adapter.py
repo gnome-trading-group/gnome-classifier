@@ -122,22 +122,29 @@ def test_neg_risk_security_ids_use_yes_token():
 
 # ── Volume ───────────────────────────────────────────────────────────────────
 
-def test_binary_event_volume():
+def test_binary_event_volume_is_24h():
     contracts = _map("elon-mars")
-    assert all(c.event_volume == 1500.0 for c in contracts)
+    assert all(c.event_volume == 150.0 for c in contracts)
 
 
 def test_neg_risk_event_volume_is_sum_of_markets():
     contracts = _map("harvey-weinstein-prison-time")
-    assert all(c.event_volume == 5000.0 for c in contracts)
+    assert all(c.event_volume == pytest.approx(500.0) for c in contracts)
 
 
 def test_ladder_event_volume_per_market():
     contracts = _map("kraken-ipo-by")
-    # Each binary market becomes its own event, so it gets only its market's volumeNum
-    market_vols = {m["conditionId"]: m["volumeNum"] for m in EVENTS_BY_SLUG["kraken-ipo-by"]["markets"]}
+    # Each binary market becomes its own event, so it gets only its market's 24h volume
+    market_vols = {m["conditionId"]: m["volume24hr"] for m in EVENTS_BY_SLUG["kraken-ipo-by"]["markets"]}
     for c in contracts:
         assert c.event_volume == market_vols[c.exchange_event_native_id]
+
+
+def test_missing_24h_volume_counts_as_zero():
+    event = json.loads(json.dumps(EVENTS_BY_SLUG["elon-mars"]))
+    for m in event["markets"]:
+        m.pop("volume24hr", None)
+    assert all(c.event_volume == 0.0 for c in adapter._map_event(EXCHANGE_ID, event))
 
 
 # ── Sports markets ───────────────────────────────────────────────────────────
