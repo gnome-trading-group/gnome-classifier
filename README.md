@@ -1,6 +1,6 @@
 # gnome-classifier
 
-A prediction market contract classifier that ingests contracts from multiple exchanges (Polymarket, Kalshi, Hyperliquid), writes them into the security master as events, securities and listings, generates semantic embeddings, and discovers relationships between contracts.
+A prediction market contract classifier that ingests contracts from multiple exchanges (Polymarket International, Polymarket US, Kalshi, Hyperliquid), writes them into the security master as events, securities and listings, generates semantic embeddings, and discovers relationships between contracts.
 
 ---
 
@@ -200,6 +200,7 @@ API errors are logged and re-raised; adapters never truncate silently.
 | Adapter | `exchange_code` | `symbol_prefix` | Symbol format |
 |---|---|---|---|
 | `PolymarketIntlAdapter` | `POLYMARKET_INTL` | `PM_I` | `PM_I-{market-slug}-{OUTCOME}` (binary), `PM_I-{market-slug}` (neg-risk group) |
+| `PolymarketUsAdapter` | `POLYMARKET_US` | `PM_US` | `PM_US-{market-slug}-{LONG\|SHORT}` |
 | `KalshiAdapter` | `KALSHI` | `KX` | `KX-{market_ticker}-{YES\|NO}` (binary), `KX-{market_ticker}` (multi-outcome) |
 | `HyperliquidAdapter` | `HYPERLIQUID` | `HL` | `HL-{outcome_id}-{side}` (binary), `HL-{outcome_id}` (multi-outcome) |
 
@@ -213,7 +214,7 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 | `exchange_security_id` | Exchange-specific contract ID (listing identity) |
 | `exchange_security_symbol` | Human-readable exchange symbol (`"{title[:60]} -- {outcome}"`) |
 | `security_symbol` | Registry security symbol (see table above) |
-| `base_currency` / `quote_currency` / `settle_currency` | Always `"USDC"` |
+| `base_currency` / `quote_currency` / `settle_currency` | `"USDC"`, or `"USD"` for Polymarket US |
 | `security_type` / `asset_class` | Always `EVENT_CONTRACT` / `PREDICTION` |
 | `contract_type` | `BINARY` or `MULTI_OUTCOME` |
 | `inverse` / `is_quanto` | Always `False` |
@@ -234,6 +235,16 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 - `exchange_security_id = "{conditionId}:{tokenId}"`. Native URL is `https://polymarket.com/event/{slug}`.
 - Tick size comes from `orderPriceMinTickSize` (default 10,000,000); lot size 10,000; contract multiplier 1e9.
 - `fetch_resolved` returns tokens of recently closed events plus closed markets inside active events.
+
+### Polymarket US (`classifier/adapters/polymarket_us.py`)
+
+- **API:** `https://gateway.polymarket.us/v1` (public, 20 req/s per IP) with offset pagination (500 per page, the gateway's cap). Active: `/events?active=true&closed=false` (markets nested). Resolved: `/markets?closed=true&endDateMin={lookback}`.
+- Markets that aren't `MARKET_STATUS_OPEN` are dropped from active fetches.
+- Every market is one book priced in long (YES) terms with exactly two `marketSides` (one `long: true`). Each market is its own binary event: `exchange_event_native_id = market slug`, `exchange_security_id = "{slug}:long"` / `"{slug}:short"`, `outcome_label` = the side's description ("Yes", "Over", "+17.50", a team name).
+- Title is `"{event title}: {market title}"`, or the event title alone when the market title only repeats it (moneylines).
+- **Volume:** the gateway documents `volume*` fields but never returns them; it does honour `volumeNumMin`/`volumeNumMax` (shares) on `/markets`. The adapter queries disjoint share ranges (`VOLUME_BUCKETS_SHARES`) and sets `event_volume = range floor x 0.5` (assumed mid price) so `min_event_volume` applies in dollars. The underlying figure looks lifetime rather than 24h.
+- Tick size from `orderPriceMinTickSize`, lot size from `minimumTradeQty`; contract multiplier 1e9. Currency `USD`. Native URL `https://polymarket.us/event/{event slug}`.
+- `fetch_resolved` returns IDs of recently closed markets plus non-open markets inside active events (teams get eliminated before `endDate`).
 
 ### Kalshi (`classifier/adapters/kalshi.py`)
 
@@ -276,9 +287,7 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 | `native_event_id` | varchar | Exchange's own event identifier |
 | `native_url` | varchar | Link to the event on the exchange |
 
-`(exchange_id, native_event_id)` has a unique index. These columns were added by registry migration 019, which folds `sm.exchange_event` into `sm.event`.
-
-**`sm.exchange_event`** — deprecated. The classifier no longer reads or writes it; a follow-up registry migration drops it once the native columns on `sm.event` become `NOT NULL`.
+`(exchange_id, native_event_id)` is required and unique. Registry migration 019 folded the old `sm.exchange_event` mapping table into these columns, and 020 dropped it.
 
 **`sm.security`** — one row per listed outcome contract
 

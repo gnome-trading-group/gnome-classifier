@@ -7,7 +7,6 @@ from classifier.workers.fetch import FetchRunner
 from classifier.workers.normalize import NormalizeWorker
 from classifier.workers.notify import NotifyWorker
 from classifier.workers.relationships import RelationshipsWorker
-from scripts import merged_cleanup
 
 
 @click.group()
@@ -38,9 +37,6 @@ def notify():
 @cli.command()
 def fetch():
     FetchRunner().run()
-
-
-cli.add_command(merged_cleanup.main, name="cleanup")
 
 
 if __name__ == "__main__":

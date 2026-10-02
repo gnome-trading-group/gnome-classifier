@@ -1,0 +1,601 @@
+{
+  "events": [
+    {
+      "id": "6435",
+      "ticker": "mlb-nlchamp-2026-09-27",
+      "slug": "mlb-nlchamp-2026-09-27",
+      "title": "National League Champion",
+      "description": "National League Champion",
+      "startDate": "2026-09-07T00:00:00Z",
+      "endDate": "2026-10-20T23:59:00Z",
+      "active": true,
+      "closed": false,
+      "archived": false,
+      "category": "sports",
+      "seriesSlug": "mlb-2026",
+      "markets": [
+        {
+          "id": "7909",
+          "question": "National League Champion",
+          "slug": "tec-mlb-nlchamp-2026-09-27-lad",
+          "endDate": "2026-11-06T21:20:09Z",
+          "category": "sports",
+          "description": "Will Los Angeles Dodgers win the 2026 National League pennant, scheduled for October 23, 2026? If the event is postponed, delayed, or rescheduled, the expiration date will be amended to align with the new event date. If the event is not rescheduled within two weeks of the originally scheduled date, the instrument may settle at last fair market prices. If the event is canceled, the instrument may settle at last fair market prices. If the team is eliminated from contention, the instrument will settle to $0.00.",
+          "active": true,
+          "marketType": "futures",
+          "closed": false,
+          "orderPriceMinTickSize": 0.001,
+          "sportsMarketType": "futures",
+          "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE",
+          "outcomes": "[\"No\",\"Yes\"]",
+          "status": "MARKET_STATUS_OPEN",
+          "title": "Los Angeles Dodgers",
+          "subtitle": "",
+          "line": null,
+          "minimumTradeQty": 1,
+          "feeCoefficient": 0.0695,
+          "marketSides": [
+            {
+              "id": "15817",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tec-mlb-nlchamp-2026-09-27-lad",
+              "description": "Yes",
+              "price": "0.4200",
+              "long": true,
+              "tradable": true
+            },
+            {
+              "id": "15818",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tec-mlb-nlchamp-2026-09-27-lad",
+              "description": "No",
+              "price": "0.4210",
+              "long": false,
+              "tradable": true
+            }
+          ]
+        },
+        {
+          "id": "7913",
+          "question": "National League Champion",
+          "slug": "tec-mlb-nlchamp-2026-09-27-mil",
+          "endDate": "2026-11-06T21:20:09Z",
+          "category": "sports",
+          "description": "Will Milwaukee Brewers win the 2026 National League pennant, scheduled for October 23, 2026? If the event is postponed, delayed, or rescheduled, the expiration date will be amended to align with the new event date. If the event is not rescheduled within two weeks of the originally scheduled date, the instrument may settle at last fair market prices. If the event is canceled, the instrument may settle at last fair market prices. If the team is eliminated from contention, the instrument will settle to $0.00.",
+          "active": true,
+          "marketType": "futures",
+          "closed": false,
+          "orderPriceMinTickSize": 0.001,
+          "sportsMarketType": "futures",
+          "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE",
+          "outcomes": "[\"No\",\"Yes\"]",
+          "status": "MARKET_STATUS_OPEN",
+          "title": "Milwaukee Brewers",
+          "subtitle": "",
+          "line": null,
+          "minimumTradeQty": 1,
+          "feeCoefficient": 0.0695,
+          "marketSides": [
+            {
+              "id": "15825",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tec-mlb-nlchamp-2026-09-27-mil",
+              "description": "Yes",
+              "price": "0.2760",
+              "long": true,
+              "tradable": true
+            },
+            {
+              "id": "15826",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tec-mlb-nlchamp-2026-09-27-mil",
+              "description": "No",
+              "price": "0.2770",
+              "long": false,
+              "tradable": true
+            }
+          ]
+        },
+        {
+          "id": "7902",
+          "question": "National League Champion",
+          "slug": "tec-mlb-nlchamp-2026-09-27-sd",
+          "endDate": "2026-11-06T21:20:09Z",
+          "category": "sports",
+          "description": "Will San Diego Padres win the 2026 National League pennant, scheduled for October 23, 2026? If the event is postponed, delayed, or rescheduled, the expiration date will be amended to align with the new event date. If the event is not rescheduled within two weeks of the originally scheduled date, the instrument may settle at last fair market prices. If the event is canceled, the instrument may settle at last fair market prices. If the team is eliminated from contention, the instrument will settle to $0.00.",
+          "active": true,
+          "marketType": "futures",
+          "closed": false,
+          "orderPriceMinTickSize": 0.001,
+          "sportsMarketType": "futures",
+          "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE",
+          "outcomes": "[\"No\",\"Yes\"]",
+          "status": "MARKET_STATUS_OPEN",
+          "title": "San Diego Padres",
+          "subtitle": "",
+          "line": null,
+          "minimumTradeQty": 1,
+          "feeCoefficient": 0.0695,
+          "marketSides": [
+            {
+              "id": "15803",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tec-mlb-nlchamp-2026-09-27-sd",
+              "description": "Yes",
+              "price": "0.1700",
+              "long": true,
+              "tradable": true
+            },
+            {
+              "id": "15804",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tec-mlb-nlchamp-2026-09-27-sd",
+              "description": "No",
+              "price": "0.1710",
+              "long": false,
+              "tradable": true
+            }
+          ]
+        },
+        {
+          "id": "7900",
+          "question": "National League Champion",
+          "slug": "tec-mlb-nlchamp-2026-09-27-atl",
+          "endDate": "2026-11-06T21:20:09Z",
+          "category": "sports",
+          "description": "Will Atlanta Braves win the 2026 National League pennant, scheduled for October 23, 2026? If the event is postponed, delayed, or rescheduled, the expiration date will be amended to align with the new event date. If the event is not rescheduled within two weeks of the originally scheduled date, the instrument may settle at last fair market prices. If the event is canceled, the instrument may settle at last fair market prices. If the team is eliminated from contention, the instrument will settle to $0.00.",
+          "active": true,
+          "marketType": "futures",
+          "closed": false,
+          "orderPriceMinTickSize": 0.001,
+          "sportsMarketType": "futures",
+          "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE",
+          "outcomes": "[\"Yes\",\"No\"]",
+          "status": "MARKET_STATUS_OPEN",
+          "title": "Atlanta Braves",
+          "subtitle": "",
+          "line": null,
+          "minimumTradeQty": 1,
+          "feeCoefficient": 0.0695,
+          "marketSides": [
+            {
+              "id": "15799",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tec-mlb-nlchamp-2026-09-27-atl",
+              "description": "Yes",
+              "price": "0.1510",
+              "long": true,
+              "tradable": true
+            },
+            {
+              "id": "15800",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tec-mlb-nlchamp-2026-09-27-atl",
+              "description": "No",
+              "price": "0.1520",
+              "long": false,
+              "tradable": true
+            }
+          ]
+        },
+        {
+          "id": "7921",
+          "question": "National League Champion",
+          "slug": "tec-mlb-nlchamp-2026-09-27-chc",
+          "endDate": "2026-10-01T05:05:42Z",
+          "category": "sports",
+          "description": "Will Chicago Cubs win the 2026 National League pennant, scheduled for October 23, 2026? If the event is postponed, delayed, or rescheduled, the expiration date will be amended to align with the new event date. If the event is not rescheduled within two weeks of the originally scheduled date, the instrument may settle at last fair market prices. If the event is canceled, the instrument may settle at last fair market prices. If the team is eliminated from contention, the instrument will settle to $0.00.",
+          "active": true,
+          "marketType": "futures",
+          "closed": true,
+          "orderPriceMinTickSize": 0.001,
+          "sportsMarketType": "futures",
+          "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE",
+          "outcomes": "[\"No\",\"Yes\"]",
+          "status": "MARKET_STATUS_RESOLVED",
+          "title": "Chicago Cubs",
+          "subtitle": "",
+          "line": null,
+          "minimumTradeQty": 1,
+          "feeCoefficient": 0.0695,
+          "marketSides": [
+            {
+              "id": "15841",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tec-mlb-nlchamp-2026-09-27-chc",
+              "description": "Yes",
+              "price": "0",
+              "long": true,
+              "tradable": true
+            },
+            {
+              "id": "15842",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tec-mlb-nlchamp-2026-09-27-chc",
+              "description": "No",
+              "price": "1",
+              "long": false,
+              "tradable": true
+            }
+          ]
+        },
+        {
+          "id": "7911",
+          "question": "National League Champion",
+          "slug": "tec-mlb-nlchamp-2026-09-27-phi",
+          "endDate": "2026-10-02T03:21:31Z",
+          "category": "sports",
+          "description": "Will Philadelphia Phillies win the 2026 National League pennant, scheduled for October 23, 2026? If the event is postponed, delayed, or rescheduled, the expiration date will be amended to align with the new event date. If the event is not rescheduled within two weeks of the originally scheduled date, the instrument may settle at last fair market prices. If the event is canceled, the instrument may settle at last fair market prices. If the team is eliminated from contention, the instrument will settle to $0.00.",
+          "active": true,
+          "marketType": "futures",
+          "closed": true,
+          "orderPriceMinTickSize": 0.001,
+          "sportsMarketType": "futures",
+          "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE",
+          "outcomes": "[\"No\",\"Yes\"]",
+          "status": "MARKET_STATUS_RESOLVED",
+          "title": "Philadelphia Phillies",
+          "subtitle": "",
+          "line": null,
+          "minimumTradeQty": 1,
+          "feeCoefficient": 0.0695,
+          "marketSides": [
+            {
+              "id": "15821",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tec-mlb-nlchamp-2026-09-27-phi",
+              "description": "Yes",
+              "price": "0",
+              "long": true,
+              "tradable": true
+            },
+            {
+              "id": "15822",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tec-mlb-nlchamp-2026-09-27-phi",
+              "description": "No",
+              "price": "1",
+              "long": false,
+              "tradable": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "117780",
+      "ticker": "cfb-librty-del-2026-10-02",
+      "slug": "cfb-librty-del-2026-10-02",
+      "title": "Liberty vs. Delaware",
+      "description": "Liberty vs. Delaware",
+      "startDate": "2026-10-02T23:00:00Z",
+      "endDate": "2026-10-02T23:59:00Z",
+      "active": true,
+      "closed": false,
+      "archived": false,
+      "category": "sports",
+      "seriesSlug": "cfb-2026",
+      "markets": [
+        {
+          "id": "947632",
+          "question": "Who will win in the upcoming football event Liberty vs Delaware scheduled for October 2, 2026 at 11:00 PM UTC?",
+          "slug": "aec-cfb-librty-del-2026-10-02",
+          "endDate": "2026-10-17T03:00:00Z",
+          "category": "sports",
+          "description": "This market will settle to the winner of the Liberty vs Delaware College Football game scheduled for Oct 2, 2026. Overtime is included if played. If a tied final score is reported and no official winner is declared, this market will not resolve automatically and will be reviewed against the official governing-body result. If the game is delayed, postponed, or suspended and not rescheduled to a date within two weeks of the originally scheduled date, the market will settle to the last fair market price. Outcome sourced from the relevant governing body.",
+          "active": true,
+          "marketType": "moneyline",
+          "closed": false,
+          "orderPriceMinTickSize": 0.005,
+          "sportsMarketType": "football_team_full_game_winner",
+          "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_MONEYLINE",
+          "outcomes": "[\"Flames\",\"Fightin' Blue Hens\"]",
+          "status": "MARKET_STATUS_OPEN",
+          "title": "Liberty vs Delaware",
+          "subtitle": null,
+          "line": null,
+          "minimumTradeQty": 0.01,
+          "feeCoefficient": 0.0695,
+          "marketSides": [
+            {
+              "id": "1894748",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "aec-cfb-librty-del-2026-10-02",
+              "description": "Flames",
+              "price": "0.7000",
+              "long": true,
+              "tradable": true
+            },
+            {
+              "id": "1894749",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "aec-cfb-librty-del-2026-10-02",
+              "description": "Fightin' Blue Hens",
+              "price": "0.7050",
+              "long": false,
+              "tradable": true
+            }
+          ]
+        },
+        {
+          "id": "1093994",
+          "question": "Will the Liberty cover 17.5 vs the Delaware in Liberty vs. Delaware?",
+          "slug": "asc-cfb-librty-del-2026-10-02-pos-17pt5",
+          "endDate": "2026-10-17T03:00:00Z",
+          "category": "sports",
+          "description": "This market will settle to Yes if Liberty covers a +17.5 point spread in the Liberty vs Delaware College Football game scheduled for Oct 2, 2026. Overtime is included if played. If the game is delayed, postponed, or suspended and not rescheduled to a date within two weeks of the originally scheduled date, the market will settle to the last fair market price. Outcome sourced from the relevant governing body.",
+          "active": true,
+          "marketType": "spreads",
+          "closed": false,
+          "orderPriceMinTickSize": 0.005,
+          "sportsMarketType": "football_team_full_game_spread",
+          "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_SPREAD",
+          "outcomes": "[\"+17.50\",\"-17.50\"]",
+          "status": "MARKET_STATUS_OPEN",
+          "title": "Delaware wins by over 17.5 points",
+          "subtitle": null,
+          "line": 17.5,
+          "minimumTradeQty": 0.01,
+          "feeCoefficient": 0.0695,
+          "marketSides": [
+            {
+              "id": "2187472",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "asc-cfb-librty-del-2026-10-02-pos-17pt5",
+              "description": "+17.50",
+              "price": "0.9500",
+              "long": true,
+              "tradable": true
+            },
+            {
+              "id": "2187473",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "asc-cfb-librty-del-2026-10-02-pos-17pt5",
+              "description": "-17.50",
+              "price": "0.9550",
+              "long": false,
+              "tradable": true
+            }
+          ]
+        },
+        {
+          "id": "1095203",
+          "question": "Will the total in Liberty vs. Delaware be more than 10.5?",
+          "slug": "tsc-cfb-librty-del-2026-10-02-2q-10pt5",
+          "endDate": "2026-10-17T03:00:00Z",
+          "category": "sports",
+          "description": "2nd Quarter Point Total settles Over if Liberty and Delaware combine for more than 10.5 points in the second quarter of the Liberty vs Delaware College Football game scheduled for Oct 2, 2026. Only points recorded in regulation during that period count; overtime is not included. If the game is delayed, postponed, or suspended before this market is determined and is not resumed or rescheduled within two weeks of the originally scheduled date, it will be flagged for manual last-fair-market-price settlement. Outcome sourced from the relevant governing body.",
+          "active": true,
+          "marketType": "totals",
+          "closed": false,
+          "orderPriceMinTickSize": 0.01,
+          "sportsMarketType": "football_game_second_quarter_total",
+          "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_TOTAL",
+          "outcomes": "[\"Over\",\"Under\"]",
+          "status": "MARKET_STATUS_OPEN",
+          "title": "Over 10.5 total points in 2nd quarter",
+          "subtitle": null,
+          "line": 10.5,
+          "minimumTradeQty": 0.01,
+          "feeCoefficient": 0.0695,
+          "marketSides": [
+            {
+              "id": "2189890",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tsc-cfb-librty-del-2026-10-02-2q-10pt5",
+              "description": "Over",
+              "price": "0.5500",
+              "long": true,
+              "tradable": true
+            },
+            {
+              "id": "2189891",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "tsc-cfb-librty-del-2026-10-02-2q-10pt5",
+              "description": "Under",
+              "price": "0.7700",
+              "long": false,
+              "tradable": true
+            }
+          ]
+        },
+        {
+          "id": "947845",
+          "question": "First Team to Score Points: Liberty",
+          "slug": "astatc-cfb-librty-del-2026-10-02-fs-librty",
+          "endDate": "2026-10-17T03:00:00Z",
+          "category": "sports",
+          "description": "First Team to Score Points settles Yes if Liberty is the first team to score points in the full game of the Liberty vs Delaware College Football game scheduled for Oct 2, 2026. Overtime is included if played. If the game is delayed, postponed, or suspended before this market is determined and is not resumed or rescheduled within two days of the originally scheduled date, it will be flagged for manual last-fair-market-price settlement. Outcome sourced from the relevant governing body.",
+          "active": true,
+          "marketType": "props",
+          "closed": false,
+          "orderPriceMinTickSize": 0.01,
+          "sportsMarketType": "football_game_first_score",
+          "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_PROP",
+          "outcomes": "[\"Yes\",\"No\"]",
+          "status": "MARKET_STATUS_OPEN",
+          "title": "Liberty scores first",
+          "subtitle": null,
+          "line": null,
+          "minimumTradeQty": 0.01,
+          "feeCoefficient": 0.0695,
+          "marketSides": [
+            {
+              "id": "1895174",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "astatc-cfb-librty-del-2026-10-02-fs-librty",
+              "description": "Yes",
+              "price": "0.2800",
+              "long": true,
+              "tradable": true
+            },
+            {
+              "id": "1895175",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "astatc-cfb-librty-del-2026-10-02-fs-librty",
+              "description": "No",
+              "price": "0.7400",
+              "long": false,
+              "tradable": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "8349",
+      "ticker": "usho-midterms-2026-11-03",
+      "slug": "usho-midterms-2026-11-03",
+      "title": "U.S House Midterm Winner",
+      "description": "U.S House Midterm Winner",
+      "startDate": "2026-11-03T00:00:00Z",
+      "endDate": "2026-11-03T23:59:00Z",
+      "active": true,
+      "closed": false,
+      "archived": false,
+      "category": "politics",
+      "seriesSlug": "us-midterms-2026",
+      "markets": [
+        {
+          "id": "11325",
+          "question": "U.S House Midterm Winner",
+          "slug": "paccc-usho-midterms-2026-11-03-dem",
+          "endDate": "2027-02-02T04:59:00Z",
+          "category": "politics",
+          "description": "This market will settle to Yes if the Democratic Party wins control of the United States House of Representatives in the 2026 United States midterm election. Outcome sourced from relevant state electoral authorities, and the United States House of Representatives.\n\nA party wins control of the United States House of Representatives if it wins a majority of the chamber\u2019s voting seats. If no party wins a majority of voting seats, the chamber will be deemed controlled by the party with which the first elected Speaker of the House of the Congress that convenes after the 2026 midterm election is affiliated.\n\nThe following rules govern the counting of seats for determining which party wins control of the chamber.\n\nAll House elections in the 2026 United States midterm election that elect voting members and determine representation in the upcoming 120th Congress are included. Where a seat is decided by a runoff, the runoff result will determine attribution of that seat.\n\nSeats are attributed to the party under which the member was elected. If a member-elect changes party affiliation, or vacates their seat, between election day and the formal organization of Congress, the seat is attributed to the party under which the member was elected.\n\nHouse members elected as independents who formally caucus with, or, for newly elected members, who announce their intent to caucus with, a party are included in that party\u2019s count. If the caucus decisions of members of the House elected as independents cannot be determined on the date of the election, this market may remain open until the earlier of (i) an announcement from the relevant members of their intents to caucus, or (ii) January 4th, 11:59 PM ET of the following calendar year. If no such announcement is made by January 4th, 11:59 PM ET of the following calendar year, the member will not count towards the seat count of any party.\n",
+          "active": true,
+          "marketType": "election",
+          "closed": false,
+          "orderPriceMinTickSize": 0.001,
+          "sportsMarketType": "election",
+          "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_UNSPECIFIED",
+          "outcomes": "[\"Yes\",\"No\"]",
+          "status": "MARKET_STATUS_OPEN",
+          "title": "Democratic Party",
+          "subtitle": null,
+          "line": null,
+          "minimumTradeQty": 1,
+          "feeCoefficient": 0.0695,
+          "marketSides": [
+            {
+              "id": "22649",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "paccc-usho-midterms-2026-11-03-dem",
+              "description": "Yes",
+              "price": "0.9040",
+              "long": true,
+              "tradable": true
+            },
+            {
+              "id": "22650",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "paccc-usho-midterms-2026-11-03-dem",
+              "description": "No",
+              "price": "0.9050",
+              "long": false,
+              "tradable": true
+            }
+          ]
+        },
+        {
+          "id": "11326",
+          "question": "U.S House Midterm Winner",
+          "slug": "paccc-usho-midterms-2026-11-03-rep",
+          "endDate": "2027-02-02T04:59:00Z",
+          "category": "politics",
+          "description": "This market will settle to Yes if the Republican Party wins control of the United States House of Representatives in the 2026 United States midterm election. Outcome sourced from relevant state electoral authorities, and the United States House of Representatives.\n\nA party wins control of the United States House of Representatives if it wins a majority of the chamber\u2019s voting seats. If no party wins a majority of voting seats, the chamber will be deemed controlled by the party with which the first elected Speaker of the House of the Congress that convenes after the 2026 midterm election is affiliated.\n\nThe following rules govern the counting of seats for determining which party wins control of the chamber.\n\nAll House elections in the 2026 United States midterm election that elect voting members and determine representation in the upcoming 120th Congress are included. Where a seat is decided by a runoff, the runoff result will determine attribution of that seat.\n\nSeats are attributed to the party under which the member was elected. If a member-elect changes party affiliation, or vacates their seat, between election day and the formal organization of Congress, the seat is attributed to the party under which the member was elected.\n\nHouse members elected as independents who formally caucus with, or, for newly elected members, who announce their intent to caucus with, a party are included in that party\u2019s count. If the caucus decisions of members of the House elected as independents cannot be determined on the date of the election, this market may remain open until the earlier of (i) an announcement from the relevant members of their intents to caucus, or (ii) January 4th, 11:59 PM ET of the following calendar year. If no such announcement is made by January 4th, 11:59 PM ET of the following calendar year, the member will not count towards the seat count of any party.\n",
+          "active": true,
+          "marketType": "election",
+          "closed": false,
+          "orderPriceMinTickSize": 0.001,
+          "sportsMarketType": "election",
+          "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_UNSPECIFIED",
+          "outcomes": "[\"Yes\",\"No\"]",
+          "status": "MARKET_STATUS_OPEN",
+          "title": "Republican Party",
+          "subtitle": null,
+          "line": null,
+          "minimumTradeQty": 1,
+          "feeCoefficient": 0.0695,
+          "marketSides": [
+            {
+              "id": "22651",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "paccc-usho-midterms-2026-11-03-rep",
+              "description": "Yes",
+              "price": "0.0990",
+              "long": true,
+              "tradable": true
+            },
+            {
+              "id": "22652",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "paccc-usho-midterms-2026-11-03-rep",
+              "description": "No",
+              "price": "0.1000",
+              "long": false,
+              "tradable": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "63020",
+      "ticker": "uecl-ggk-zil-2026-07-30",
+      "slug": "uecl-ggk-zil-2026-07-30",
+      "title": "GKS GieKSa Katowice vs. MSK Zilina",
+      "description": "GKS GieKSa Katowice vs. MSK Zilina",
+      "startDate": "2026-07-30T18:30:00Z",
+      "endDate": "2026-07-30T23:59:00Z",
+      "active": true,
+      "closed": false,
+      "archived": false,
+      "category": "sports",
+      "seriesSlug": "uecl",
+      "markets": [
+        {
+          "id": "301956",
+          "question": "Will GKS GieKSa Katowice win against MSK Zilina in the UECL match scheduled for Jul 30, 2026?",
+          "slug": "atc-uecl-ggk-zil-2026-07-30-ggk",
+          "endDate": "2026-08-13T18:30:00Z",
+          "category": "sports",
+          "description": "This market will settle to the winner at the end of 90 minutes plus stoppage time in the GKS GieKSa Katowice vs MSK Zilina UECL match scheduled for 2026-07-30 2:30PM ET. If the match is tied following 90 minutes plus stoppage time, the market will settle to Tie. If the match is delayed, postponed, or suspended and not rescheduled to a date within two weeks of the originally scheduled date, the market will settle to the last fair market price. Outcome sourced from UEFA.",
+          "active": true,
+          "marketType": "drawable_outcome",
+          "closed": false,
+          "orderPriceMinTickSize": 0.01,
+          "sportsMarketType": "soccer_team_full_time_winner",
+          "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_DRAWABLE_OUTCOME",
+          "outcomes": "[\"Yes\",\"No\"]",
+          "status": "MARKET_STATUS_RESOLVED",
+          "title": "GKS GieKSa Katowice (Reg. Time)",
+          "subtitle": null,
+          "line": null,
+          "minimumTradeQty": 0.01,
+          "feeCoefficient": 0.0695,
+          "marketSides": [
+            {
+              "id": "603474",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "atc-uecl-ggk-zil-2026-07-30-ggk",
+              "description": "Yes",
+              "price": "1",
+              "long": true,
+              "tradable": true
+            },
+            {
+              "id": "603475",
+              "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT",
+              "identifier": "atc-uecl-ggk-zil-2026-07-30-ggk",
+              "description": "No",
+              "price": "0",
+              "long": false,
+              "tradable": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
