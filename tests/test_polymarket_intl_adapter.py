@@ -329,7 +329,7 @@ def test_binary_tick_size():
 
 def test_binary_min_notional():
     contracts = _map("elon-mars")
-    assert all(c.min_notional == 1_000_000_000_000_000 for c in contracts)  # $1 * 1e9 * 1e6
+    assert all(c.min_notional == 1_000_000_000 for c in contracts)  # $1 * 1e9
 
 
 def test_neg_risk_tick_size():
@@ -339,7 +339,7 @@ def test_neg_risk_tick_size():
 
 def test_neg_risk_min_notional():
     contracts = _map("harvey-weinstein-prison-time")
-    assert all(c.min_notional == 1_000_000_000_000_000 for c in contracts)  # $1 * 1e9 * 1e6
+    assert all(c.min_notional == 1_000_000_000 for c in contracts)  # $1 * 1e9
 
 
 def test_ladder_per_market_tick_size():
@@ -356,7 +356,7 @@ def test_ladder_per_market_tick_size():
 
 def test_ladder_min_notional():
     contracts = _map("kraken-ipo-by")
-    assert all(c.min_notional == 1_000_000_000_000_000 for c in contracts)  # $1 * 1e9 * 1e6
+    assert all(c.min_notional == 1_000_000_000 for c in contracts)  # $1 * 1e9
 
 
 def test_sports_tick_size():
@@ -371,7 +371,7 @@ def test_missing_tick_size_falls_back_to_default():
 
 def test_min_notional_is_constant():
     contracts = _map("bitcoin-200k")
-    assert all(c.min_notional == 1_000_000_000_000_000 for c in contracts)  # $1 regardless of orderMinSize
+    assert all(c.min_notional == 1_000_000_000 for c in contracts)  # $1 regardless of orderMinSize
 
 
 def test_lot_size_unchanged():
