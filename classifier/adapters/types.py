@@ -31,3 +31,4 @@ class AdapterContract:
     event_expiry: str | None = None
     exchange_event_native_url: str | None = None
     event_volume: float | None = None
+    min_size: float = 0.0

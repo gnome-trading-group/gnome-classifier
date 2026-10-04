@@ -112,6 +112,7 @@ class StubRegistry(RegistryClient):
         self._securities: list[Security] = []
         self._listings: list[Listing] = []
         self._listing_specs: list[ListingSpec] = []
+        self._min_size_by_spec_id: dict[int, int] = {}
         self._event_contracts: list[EventContract] = []
         self._contract_relationships: list[ContractRelationship] = []
         self._currencies: list[Currency] = []
@@ -256,6 +257,7 @@ class StubRegistry(RegistryClient):
                 "recorded_at": "",
             }
             self._listing_specs.append(ListingSpec(**d))
+            self._min_size_by_spec_id[spec_id] = item.get("min_size", 0)
             results.append(d)
         return results
 
@@ -424,12 +426,13 @@ class StubDB:
             if (ec.event_id, ec.security_id) in key_set
         }
 
-    def get_existing_listing_specs(self, listing_ids: list[int]) -> dict[int, tuple[int, int, int, int]]:
+    def get_existing_listing_specs(self, listing_ids: list[int]) -> dict[int, tuple[int, int, int, int, int]]:
         id_set = set(listing_ids)
-        seen: dict[int, tuple[int, int, int, int]] = {}
+        seen: dict[int, tuple[int, int, int, int, int]] = {}
         for s in self._r._listing_specs:
             if s.listing_id in id_set:
-                seen[s.listing_id] = (s.tick_size, s.lot_size, s.min_notional, s.contract_multiplier)
+                min_size = self._r._min_size_by_spec_id.get(s.id, 0)
+                seen[s.listing_id] = (s.tick_size, s.lot_size, s.min_notional, s.contract_multiplier, min_size)
         return seen
 
     def get_unresolved_events(self) -> list[Event]:

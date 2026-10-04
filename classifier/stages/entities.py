@@ -340,7 +340,7 @@ def _sync_listing_specs(
     registry: RegistryClient,
     contracts: list[AdapterContract],
     listing_id_by_key: dict[ListingKey, int],
-    spec_by_listing_id: dict[int, tuple[int, int, int, int]],
+    spec_by_listing_id: dict[int, tuple[int, int, int, int, int]],
 ) -> tuple[int, int]:
     pending_specs: list[dict] = []
     updates = 0
@@ -348,7 +348,7 @@ def _sync_listing_specs(
         listing_id = listing_id_by_key.get(_listing_key(c))
         if listing_id is None:
             continue
-        new_vals = (int(c.tick_size), int(c.lot_size), int(c.min_notional), int(c.contract_multiplier))
+        new_vals = (int(c.tick_size), int(c.lot_size), int(c.min_notional), int(c.contract_multiplier), int(c.min_size))
         existing = spec_by_listing_id.get(listing_id)
         if existing == new_vals:
             continue
@@ -360,6 +360,7 @@ def _sync_listing_specs(
             lot_size=c.lot_size,
             min_notional=c.min_notional,
             contract_multiplier=c.contract_multiplier,
+            min_size=c.min_size,
         ))
 
     posted = 0

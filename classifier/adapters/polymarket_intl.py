@@ -17,10 +17,10 @@ GAMMA_API_URL = "https://gamma-api.polymarket.com"
 PAGE_SIZE = 500
 
 CONTRACT_MULTIPLIER = 1e9
-PRICE_SCALE = 1_000_000_000
+SIZE_SCALE = 1_000_000
 TICK_SIZE = 10_000_000
 LOT_SIZE = 10_000
-MIN_NOTIONAL = 1 * PRICE_SCALE
+MIN_SIZE = 5 * SIZE_SCALE
 
 
 def _market_tick_size(market: dict) -> int:
@@ -31,6 +31,18 @@ def _market_tick_size(market: dict) -> int:
         return round(float(raw) * CONTRACT_MULTIPLIER)
     except (ValueError, TypeError):
         return TICK_SIZE
+
+
+# The CLOB also rejects marketable orders under $1, but the OMS cannot tell a marketable order from a resting
+# one, so min_notional stays 0 rather than rejecting valid 5-share resting orders priced under $0.20.
+def _market_min_size(market: dict) -> int:
+    raw = market.get("orderMinSize")
+    if raw is None:
+        return MIN_SIZE
+    try:
+        return round(float(raw) * SIZE_SCALE)
+    except (ValueError, TypeError):
+        return MIN_SIZE
 
 
 def _build_sports_event_title(event_title: str, market: dict) -> str | None:
@@ -255,7 +267,8 @@ class PolymarketIntlAdapter:
                 is_quanto=False,
                 tick_size=_market_tick_size(market),
                 lot_size=LOT_SIZE,
-                min_notional=MIN_NOTIONAL,
+                min_notional=0.0,
+                min_size=_market_min_size(market),
                 contract_multiplier=CONTRACT_MULTIPLIER,
                 event_title=event_title,
                 outcome_label=outcome_label,
@@ -317,7 +330,8 @@ class PolymarketIntlAdapter:
                 is_quanto=False,
                 tick_size=_market_tick_size(market),
                 lot_size=LOT_SIZE,
-                min_notional=MIN_NOTIONAL,
+                min_notional=0.0,
+                min_size=_market_min_size(market),
                 contract_multiplier=CONTRACT_MULTIPLIER,
                 event_title=event_title_override or question,
                 outcome_label=outcome,

@@ -152,9 +152,9 @@ def test_binary_tick_size_linear_cent():
 
 
 def test_multi_outcome_tick_size_tapered_deci_cent():
-    # KXNEWPOPE-70 has price_ranges with steps 0.001 and 0.01 — smallest wins
+    # KXNEWPOPE-70 has price_ranges with steps 0.001 and 0.01 — coarsest wins
     contracts = _map("KXNEWPOPE-70")
-    assert all(c.tick_size == 1_000_000 for c in contracts)  # 0.001 * 1e9
+    assert all(c.tick_size == 10_000_000 for c in contracts)  # 0.01 * 1e9
 
 
 def test_lot_size():

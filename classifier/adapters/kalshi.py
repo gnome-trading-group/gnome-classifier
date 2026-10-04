@@ -31,7 +31,9 @@ def _market_tick_size(market: dict) -> int:
         steps = [float(r["step"]) for r in ranges if "step" in r]
         if not steps:
             return TICK_SIZE
-        return round(min(steps) * CONTRACT_MULTIPLIER)
+        # Tapered markets tick finer at the edges than in the middle; the listing spec holds one tick,
+        # so use the coarsest step, which every band accepts, rather than one the middle band rejects.
+        return round(max(steps) * CONTRACT_MULTIPLIER)
     except (ValueError, TypeError):
         return TICK_SIZE
 

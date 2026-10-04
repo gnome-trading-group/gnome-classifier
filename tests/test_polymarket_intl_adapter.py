@@ -5,6 +5,7 @@ import pytest
 
 from classifier.adapters.polymarket_intl import PolymarketIntlAdapter
 from classifier.stages.entities import create_entities
+from classifier.stages.fetch import contract_hash
 from gnomepy.registry.types import ContractType
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "polymarket_intl_events.json").read_text())
@@ -336,9 +337,9 @@ def test_binary_tick_size():
     assert all(c.tick_size == 10_000_000 for c in contracts)  # 0.01 * 1e9
 
 
-def test_binary_min_notional():
+def test_binary_min_notional_is_zero():
     contracts = _map("elon-mars")
-    assert all(c.min_notional == 1_000_000_000 for c in contracts)  # $1 * 1e9
+    assert all(c.min_notional == 0 for c in contracts)
 
 
 def test_neg_risk_tick_size():
@@ -346,9 +347,9 @@ def test_neg_risk_tick_size():
     assert all(c.tick_size == 10_000_000 for c in contracts)
 
 
-def test_neg_risk_min_notional():
+def test_neg_risk_min_notional_is_zero():
     contracts = _map("harvey-weinstein-prison-time")
-    assert all(c.min_notional == 1_000_000_000 for c in contracts)  # $1 * 1e9
+    assert all(c.min_notional == 0 for c in contracts)
 
 
 def test_ladder_per_market_tick_size():
@@ -363,9 +364,9 @@ def test_ladder_per_market_tick_size():
         assert c.tick_size == expected[c.exchange_event_native_id]
 
 
-def test_ladder_min_notional():
+def test_ladder_min_notional_is_zero():
     contracts = _map("kraken-ipo-by")
-    assert all(c.min_notional == 1_000_000_000 for c in contracts)  # $1 * 1e9
+    assert all(c.min_notional == 0 for c in contracts)
 
 
 def test_sports_tick_size():
@@ -378,9 +379,21 @@ def test_missing_tick_size_falls_back_to_default():
     assert all(c.tick_size == 10_000_000 for c in contracts)
 
 
-def test_min_notional_is_constant():
+def test_min_size_from_order_min_size():
+    contracts = _map("elon-mars")
+    assert all(c.min_size == 5_000_000 for c in contracts)  # 5 shares * 1e6
+
+
+def test_ladder_per_market_min_size():
+    contracts = _map("kraken-ipo-by")
+    markets = EVENTS_BY_SLUG["kraken-ipo-by"]["markets"]
+    assert {c.min_size for c in contracts} == {round(float(m["orderMinSize"]) * 1_000_000) for m in markets}
+    assert {c.min_size for c in contracts} == {5_000_000, 10_000_000}
+
+
+def test_missing_min_size_falls_back_to_default():
     contracts = _map("bitcoin-200k")
-    assert all(c.min_notional == 1_000_000_000 for c in contracts)  # $1 regardless of orderMinSize
+    assert all(c.min_size == 5_000_000 for c in contracts)
 
 
 def test_lot_size_unchanged():
@@ -445,3 +458,21 @@ def test_closed_event_resolves_all_its_markets(monkeypatch):
     monkeypatch.setattr(adapter, "_fetch_closed_events", lambda lookback_days: iter([closed_event]))
     monkeypatch.setattr(adapter, "_fetch_all_events", lambda: iter([]))
     assert adapter.fetch_resolved(EXCHANGE_ID, 3) == {"0xclosed:1", "0xclosed:2", "0xarchived:3", "0xarchived:4"}
+
+
+def test_listing_spec_updated_on_min_size_change(stub_registry, stub_db, mock_anthropic):
+    contracts = _map("elon-mars")
+    create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+
+    for c in contracts:
+        c.min_size = 10_000_000
+    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    assert result.listing_specs_updated == 2
+    assert result.listing_specs_created == 0
+
+
+def test_contract_hash_changes_with_min_size():
+    contract = _map("elon-mars")[0]
+    before = contract_hash(contract)
+    contract.min_size = 10_000_000
+    assert contract_hash(contract) != before

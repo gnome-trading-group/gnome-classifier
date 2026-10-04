@@ -21,6 +21,7 @@ def contract_hash(contract: AdapterContract) -> str:
         str(int(contract.lot_size)),
         str(int(contract.min_notional)),
         str(int(contract.contract_multiplier)),
+        str(int(contract.min_size)),
     ])
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 
