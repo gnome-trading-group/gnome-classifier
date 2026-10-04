@@ -147,6 +147,15 @@ def test_missing_24h_volume_counts_as_zero():
     assert all(c.event_volume == 0.0 for c in adapter._map_event(EXCHANGE_ID, event))
 
 
+def test_long_slugs_sharing_a_prefix_get_distinct_symbols():
+    event = json.loads(json.dumps(EVENTS_BY_SLUG["kraken-ipo-by"]))
+    prefix = "next-confirmed-pneumonic-plague-case-in-russia-20261003t000000000z-will-a-new-pneumonic-plague-case-be-confirmed-in-russia-by-"
+    for m, suffix in zip(event["markets"], ["october-15", "october-31", "december-31"]):
+        m["slug"] = prefix + suffix
+    symbols = [c.security_symbol for c in adapter._map_event(EXCHANGE_ID, event)]
+    assert len(set(symbols)) == len(symbols)
+
+
 # ── Sports markets ───────────────────────────────────────────────────────────
 
 def test_sports_contract_count():

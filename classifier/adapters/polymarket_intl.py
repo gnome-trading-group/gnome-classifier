@@ -64,7 +64,7 @@ def _build_sports_event_title(event_title: str, market: dict) -> str | None:
 
 def _market_symbol_base(market: dict, condition_id: str) -> str:
     # Market slugs are unique per market, unlike event slugs, which several binary markets share.
-    return (market.get("slug") or condition_id)[:120]
+    return market.get("slug") or condition_id
 
 
 class PolymarketIntlAdapter:
