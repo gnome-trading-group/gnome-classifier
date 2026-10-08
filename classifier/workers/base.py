@@ -83,6 +83,8 @@ class BaseWorker(ABC):
         signal.signal(signal.SIGINT, self._handle_shutdown)
         self._running = True
         self._setup()
+        # The <Name>WorkerStarts metric filters in cdk/lib/stacks/classifier-stack.ts count this message to catch crash
+        # loops; keep its wording in step with them.
         logger.info("%s started", type(self).__name__)
         while self._running:
             batch = self._collect_batch()

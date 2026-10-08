@@ -110,7 +110,10 @@ class FetchRunner:
         last_stale = -float("inf")
         last_settle = -float("inf")
 
-        logger.info("FetchRunner started")
+        # The FetchWorkerStarts metric filter in cdk/lib/stacks/classifier-stack.ts counts this message to catch crash
+        # loops; keep its wording in step with the filter.
+        logger.info("FetchWorker started")
+        # The FetchCycleFailures metric filter counts the "... cycle failed" messages below; keep their wording.
         while self._running:
             rc.refresh()
             wp = rc.config.worker_params

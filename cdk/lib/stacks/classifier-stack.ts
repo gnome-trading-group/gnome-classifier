@@ -1,16 +1,21 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as autoscaling from 'aws-cdk-lib/aws-autoscaling';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elasticache from 'aws-cdk-lib/aws-elasticache';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as secrets from 'aws-cdk-lib/aws-secretsmanager';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { join } from 'path';
 import { Stage } from '@gnome-trading-group/gnome-shared-cdk';
+
+/** Namespace for metrics counted from the workers' logs. */
+export const WORKER_METRICS_NAMESPACE = 'GnomeClassifier/Workers';
 
 interface Props extends cdk.StackProps {
   stage: Stage;
@@ -32,6 +37,14 @@ export class ClassifierStack extends cdk.Stack {
   public readonly embedService: ecs.Ec2Service;
   public readonly relationshipsService: ecs.Ec2Service;
   public readonly notifyService: ecs.Ec2Service;
+  /** Hourly count of each worker's process starting, by worker name; more than a deploy's worth means it is crashing. */
+  public readonly workerStarts: Record<string, cloudwatch.Metric> = {};
+  /** Hourly count of failed fetch-loop cycles (fetch, resolve, stale, settle) and venues failing a settle lookup. */
+  public readonly fetchCycleFailures: cloudwatch.Metric;
+  /** Hourly count of stale checks skipped because a venue's feed came back empty or partial. */
+  public readonly venueFeedGaps: cloudwatch.Metric;
+  /** Hourly count of securities an adapter tried to move to a second event. */
+  public readonly identityRegressions: cloudwatch.Metric;
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
@@ -168,6 +181,26 @@ export class ClassifierStack extends cdk.Stack {
       ...controllerEnv,
     };
 
+    // ── Helper: count matching log lines as a metric ──────────────────
+
+    const logMetric = (logGroup: logs.ILogGroup, metricName: string, filterPattern: logs.IFilterPattern) => {
+      new logs.MetricFilter(this, `${metricName}Filter`, {
+        logGroup,
+        metricNamespace: WORKER_METRICS_NAMESPACE,
+        metricName,
+        filterPattern,
+        metricValue: '1',
+        defaultValue: 0,
+      });
+      return new cloudwatch.Metric({
+        namespace: WORKER_METRICS_NAMESPACE,
+        metricName,
+        statistic: 'Sum',
+        period: cdk.Duration.hours(1),
+      });
+    };
+    const workerLogGroups: Record<string, logs.ILogGroup> = {};
+
     // ── Helper: create a single-worker ECS service ────────────────────
 
     const createWorkerService = (
@@ -186,13 +219,19 @@ export class ClassifierStack extends cdk.Stack {
         taskRole,
       });
 
-      taskDef.addContainer(`${id}Container`, {
+      const container = taskDef.addContainer(`${id}Container`, {
         image: ecs.ContainerImage.fromAsset(imageAsset),
         command: [workerCommand],
         memoryLimitMiB,
         environment,
         logging: ecs.LogDrivers.awsLogs({ streamPrefix: workerCommand }),
       });
+      const logGroup = logs.LogGroup.fromLogGroupName(
+        this, `${id}LogGroupRef`, container.logDriverConfig!.options!['awslogs-group'],
+      );
+      workerLogGroups[id] = logGroup;
+      // Every worker logs "<Id>Worker started" when its process starts.
+      this.workerStarts[id] = logMetric(logGroup, `${id}WorkerStarts`, logs.FilterPattern.literal(`"${id}Worker started"`));
 
       return new ecs.Ec2Service(this, `${id}Service`, {
         cluster,
@@ -225,6 +264,11 @@ export class ClassifierStack extends cdk.Stack {
       }));
     });
 
+    this.fetchCycleFailures = logMetric(workerLogGroups.Fetch, 'FetchCycleFailures',
+      logs.FilterPattern.anyTerm('cycle failed', 'Failed to fetch settlements from'));
+    this.venueFeedGaps = logMetric(workerLogGroups.Fetch, 'VenueFeedGaps',
+      logs.FilterPattern.literal('"not counting misses this cycle"'));
+
     // ── NormalizeWorker ───────────────────────────────────────────────
 
     this.normalizeService = createWorkerService('Normalize', 'normalize', {
@@ -241,6 +285,10 @@ export class ClassifierStack extends cdk.Stack {
         resources: [cdk.Fn.importValue('RegistryApiKeyArn'), controllerApiKeyArn],
       }));
     });
+
+    // Entities are created by the normalize worker, which logs when it refuses to link a security a second time.
+    this.identityRegressions = logMetric(workerLogGroups.Normalize, 'IdentityRegressions',
+      logs.FilterPattern.literal('"already in event"'));
 
     // ── EmbedWorker ───────────────────────────────────────────────────
 

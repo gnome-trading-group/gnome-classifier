@@ -45,6 +45,7 @@ def record_settlements(
         try:
             prices = adapter.fetch_settlements({security_id for _, security_id in candidates})
         except Exception as e:
+            # Counted by the FetchCycleFailures metric filter (cdk/lib/stacks/classifier-stack.ts); keep the wording.
             logger.error("Failed to fetch settlements from %s: %s", adapter.exchange_code, e)
             failed.append(adapter.exchange_code)
             continue

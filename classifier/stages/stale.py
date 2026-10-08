@@ -26,6 +26,7 @@ def update_stale_tracker(
     for exchange_id, count in tracked.items():
         seen = len(active_by_exchange.get(exchange_id, ()))
         if exchange_id not in failed_exchange_ids and seen < count * min_feed_ratio:
+            # Counted by the VenueFeedGaps metric filter (cdk/lib/stacks/classifier-stack.ts); keep the wording.
             logger.warning("Exchange %d returned %d events against %d tracked; not counting misses this cycle",
                            exchange_id, seen, count)
             failed_exchange_ids.add(exchange_id)

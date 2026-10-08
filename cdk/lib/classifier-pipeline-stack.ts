@@ -32,6 +32,10 @@ class AppStage extends cdk.Stage {
       embedService: classifierStack.embedService,
       relationshipsService: classifierStack.relationshipsService,
       notifyService: classifierStack.notifyService,
+      workerStarts: classifierStack.workerStarts,
+      fetchCycleFailures: classifierStack.fetchCycleFailures,
+      venueFeedGaps: classifierStack.venueFeedGaps,
+      identityRegressions: classifierStack.identityRegressions,
     });
   }
 }

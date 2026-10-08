@@ -332,6 +332,7 @@ def _create_event_contracts(
         if sid not in linked:
             pending.append(dict(event_id=eid, security_id=sid, outcome_label=label))
         elif linked[sid] != eid:
+            # Counted by the IdentityRegressions metric filter (cdk/lib/stacks/classifier-stack.ts); keep the wording.
             logger.error("Security %d is already in event %d; not linking it to event %d", sid, linked[sid], eid)
     created_count = 0
     for _, chunk in bulk_create_chunked(pending, "event contracts"):
