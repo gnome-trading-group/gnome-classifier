@@ -72,7 +72,6 @@ def _make_adapter_contract(
 def _make_no_op_cache():
     cache = MagicMock()
     cache.get_canonicalization_bulk.return_value = {}
-    cache.get_exchange_event_bulk.return_value = {}
     return cache
 
 

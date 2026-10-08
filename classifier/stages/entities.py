@@ -42,7 +42,6 @@ class EntityContext:
 
 def prepare_canonicalization_inputs(
     contracts: list[AdapterContract],
-    cache: ClassifierCache | None,
     db: ClassifierDB,
 ) -> tuple[list[CanonicalizeInput], EntityContext]:
     """Determine which native events are new and need categorization.
@@ -53,17 +52,14 @@ def prepare_canonicalization_inputs(
     for c in contracts:
         contracts_by_native.setdefault(_native_key(c), []).append(c)
 
-    all_native_keys = list(contracts_by_native.keys())
-    cached: dict[NativeKey, int] = cache.get_exchange_event_bulk(all_native_keys) if cache is not None else {}
-    cache_miss_keys = [nk for nk in all_native_keys if nk not in cached]
-    db_results = db.get_exchange_events(cache_miss_keys) if cache_miss_keys else {}
-    if cache is not None and db_results:
-        cache.put_exchange_event_bulk(db_results)
+    # Read from the database every time rather than a cache: events are re-keyed and deleted (migrations, repairs),
+    # and a cached id for an event that no longer exists sends its markets to a phantom event.
+    existing_event_ids = db.get_exchange_events(list(contracts_by_native.keys()))
 
     event_id_by_native: dict[NativeKey, EventId] = {}
     events_to_canonicalize: list[CanonicalizeInput] = []
     for nk, group in contracts_by_native.items():
-        event_id = cached.get(nk) or db_results.get(nk)
+        event_id = existing_event_ids.get(nk)
         if event_id is not None:
             event_id_by_native[nk] = event_id
         else:
@@ -84,7 +80,6 @@ def create_entities_from_canonical(
     entity_ctx: EntityContext,
     contracts: list[AdapterContract],
     *,
-    cache: ClassifierCache | None = None,
     db: ClassifierDB,
     debug: bool = False,
 ) -> EntityResult:
@@ -102,9 +97,6 @@ def create_entities_from_canonical(
     created_event_ids, created_event_names = _create_events(
         registry, contracts_by_native, canonical_by_native, event_id_by_native,
     )
-    if cache is not None and created_event_ids:
-        created = set(created_event_ids)
-        cache.put_exchange_event_bulk({nk: eid for nk, eid in event_id_by_native.items() if eid in created})
 
     unique_contracts = list({_listing_key(c): c for c in contracts}.values())
     existing_listings = db.get_existing_listings([_listing_key(c) for c in unique_contracts])
@@ -168,7 +160,7 @@ def create_entities(
 ) -> EntityResult:
     if not contracts:
         return _empty_result()
-    events_to_canon, entity_ctx = prepare_canonicalization_inputs(contracts, cache, db)
+    events_to_canon, entity_ctx = prepare_canonicalization_inputs(contracts, db)
     if canonicalize_enabled:
         canonical = canonicalize_events(
             batch_client, events_to_canon, cache=cache,
@@ -180,7 +172,7 @@ def create_entities(
             (ev.exchange_id, ev.native_id): {"category": ev.category or "OTHER", "tags": []}
             for ev in events_to_canon
         }
-    return create_entities_from_canonical(registry, canonical, entity_ctx, contracts, cache=cache, db=db, debug=debug)
+    return create_entities_from_canonical(registry, canonical, entity_ctx, contracts, db=db, debug=debug)
 
 
 def _create_events(

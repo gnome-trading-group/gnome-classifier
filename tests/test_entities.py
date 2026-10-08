@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 
 from classifier.adapters.types import AdapterContract
@@ -149,3 +151,15 @@ def test_market_mapped_to_a_new_event_is_not_linked_twice(stub_registry, stub_db
     assert sorted(len([ec for ec in stub_registry._event_contracts if ec.security_id == s.security_id])
                   for s in stub_registry._securities) == [1, 1]
     assert "already in event" in caplog.text
+
+
+def test_event_ids_come_from_the_database_each_time(stub_registry, stub_db, mock_anthropic):
+    # An event re-keyed to a market's native id (as a migration does) is found by that id, and the market stays put.
+    create_entities(stub_registry, mock_anthropic, _binary("Will BTC hit 100k?", native_id="BTC-OLD"), db=stub_db)
+    event = stub_registry._events[0]
+    stub_registry._events[0] = dataclasses.replace(event, native_event_id="BTC-NEW")
+    moved = [AdapterContract(**{**c.__dict__, "exchange_event_native_id": "BTC-NEW"})
+             for c in _binary("Will BTC hit 100k?", native_id="BTC-OLD")]
+    result = create_entities(stub_registry, mock_anthropic, moved, db=stub_db)
+    assert [result.events_created, result.event_contracts_created] == [0, 0]
+    assert {ec.event_id for ec in stub_registry._event_contracts} == {event.event_id}
