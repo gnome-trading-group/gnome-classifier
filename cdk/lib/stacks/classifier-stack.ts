@@ -214,7 +214,9 @@ export class ClassifierStack extends cdk.Stack {
       // The settle cycle reads which deactivated outcomes still lack a settlement value.
       DB_SECRET_NAME: 'registry-database-root-user',
       ...controllerEnv,
-    }, 1024, (role) => {
+    // A full fetch holds every venue's markets at once (Polymarket International alone is ~460k); at 1024 MiB its
+    // peaks were OOM-killing the worker every few minutes, cutting off the resolve and stale cycles behind it.
+    }, 2048, (role) => {
       this.contractsQueue.grantSendMessages(role);
       dbSecret.grantRead(role);
       role.addToPolicy(new iam.PolicyStatement({
