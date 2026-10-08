@@ -7,6 +7,7 @@ import requests.exceptions
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
+from classifier.adapters.settlement import PRICE_SCALE, chunked, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
@@ -16,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://external-api.kalshi.com/trade-api/v2"
 PAGE_SIZE = 200
+# Tickers per /markets lookup when collecting settlements.
+SETTLEMENT_BATCH_SIZE = 100
+# Kalshi marks a market determined, then may amend or dispute it; only finalized values are paid out.
+FINAL_STATUS = "finalized"
 
 CONTRACT_MULTIPLIER = 1_000_000_000
 SIZE_SCALE = 1_000_000
@@ -45,6 +50,13 @@ def _dollar_volume_24h(market: dict) -> float:
         return float(market.get("volume_24h_fp") or 0) * float(market.get("last_price_dollars") or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _is_multi_outcome(event: dict) -> bool:
+    # Only the flag decides: deciding on the market count too made a market change type and identity whenever
+    # Kalshi added or removed a sibling. A mutually exclusive event with one market is a multi-outcome event with a
+    # single outcome listed so far.
+    return bool(event.get("mutually_exclusive", False))
 
 
 def _slugify(text: str) -> str:
@@ -92,7 +104,7 @@ class KalshiAdapter:
         # only each market's own status decides whether it resolved.
         for event in itertools.chain(self._fetch_settled_events(lookback_days), self._fetch_active_events()):
             markets = event.get("markets", [])
-            is_multi = event.get("mutually_exclusive", False) and len(markets) > 1
+            is_multi = _is_multi_outcome(event)
             for market in markets:
                 if market.get("status", "active") == "active":
                     continue
@@ -106,6 +118,39 @@ class KalshiAdapter:
                     resolved.add(f"{ticker}:no")
 
         return resolved
+
+    def fetch_settlements(self, exchange_security_ids: set[str]) -> dict[str, int]:
+        ids_by_ticker: dict[str, list[str]] = {}
+        for security_id in exchange_security_ids:
+            ids_by_ticker.setdefault(security_id.partition(":")[0], []).append(security_id)
+
+        settlements: dict[str, int] = {}
+        for tickers in chunked(sorted(ids_by_ticker), SETTLEMENT_BATCH_SIZE):
+            for market in self._fetch_markets(tickers):
+                if market.get("status") != FINAL_STATUS:
+                    continue
+                yes_price = to_price(market.get("settlement_value_dollars"))
+                if yes_price is None:
+                    logger.warning("Kalshi %s finalized without a usable settlement value: %r",
+                                   market.get("ticker"), market.get("settlement_value_dollars"))
+                    continue
+                for security_id in ids_by_ticker.get(market.get("ticker", ""), []):
+                    # The NO listing trades in NO terms (the gateway inverts its orders), so it pays 1 - YES.
+                    settlements[security_id] = PRICE_SCALE - yes_price if security_id.endswith(":no") else yes_price
+        return settlements
+
+    def _fetch_markets(self, tickers: list[str]) -> list[dict]:
+        params = {"tickers": ",".join(tickers), "limit": len(tickers)}
+        try:
+            res = self._session.get(f"{BASE_URL}/markets", params=params, timeout=30)
+            res.raise_for_status()
+            return res.json().get("markets", [])
+        except requests.exceptions.RetryError as e:
+            logger.error("Kalshi markets retries exhausted: %s", e)
+            raise
+        except requests.exceptions.RequestException as e:
+            logger.error("Kalshi markets API error: %s", e)
+            raise
 
     def _fetch_settled_events(self, lookback_days: int):
         min_ts = int((datetime.now(timezone.utc) - timedelta(days=lookback_days)).timestamp())
@@ -170,12 +215,10 @@ class KalshiAdapter:
         event_ticker = event.get("event_ticker", "")
         if not event_ticker:
             return []
-        is_multi = event.get("mutually_exclusive", False) and len(markets) > 1
+        is_multi = _is_multi_outcome(event)
 
         if is_multi:
             event_description = markets[0].get("rules_secondary") or markets[0].get("rules_primary") or event_description
-
-        has_sub_markets = not is_multi and len(markets) > 1
 
         series_ticker = event.get("series_ticker", "")
         sub_title = event.get("sub_title", "")
@@ -228,21 +271,20 @@ class KalshiAdapter:
                     event_volume=event_volume,
                 ))
             else:
-                if has_sub_markets:
-                    sub_title_market = market.get("yes_sub_title") or ticker
-                    market_event_title = f"{event_title}: {sub_title_market}"
-                    native_id = ticker
-                    market_volume = _dollar_volume_24h(market)
-                    market_description = market.get("rules_primary") or event_description
+                # Each market of an event that isn't mutually exclusive is its own yes/no question, so it is its
+                # own event, keyed by its market ticker however many siblings Kalshi lists alongside it.
+                # Titles are only written when an event is created and never decide identity, so they may still
+                # look at siblings: a lone market skips a sub-title its event title already names.
+                market_sub_title = market.get("yes_sub_title", "")
+                if len(markets) > 1:
+                    market_event_title = f"{event_title}: {market_sub_title or ticker}"
+                elif market_sub_title and market_sub_title.lower() not in event_title.lower():
+                    market_event_title = f"{event_title}: {market_sub_title}"
                 else:
-                    sub_title_single = market.get("yes_sub_title", "")
-                    if sub_title_single and sub_title_single.lower() not in event_title.lower():
-                        market_event_title = f"{event_title}: {sub_title_single}"
-                    else:
-                        market_event_title = event_title
-                    native_id = event_ticker
-                    market_volume = event_volume
-                    market_description = market.get("rules_primary") or event_description
+                    market_event_title = event_title
+                native_id = ticker
+                market_volume = _dollar_volume_24h(market)
+                market_description = market.get("rules_primary") or event_description
                 exchange_security_symbol_base = f"{market_event_title[:60]} -- "
                 for side in ("Yes", "No"):
                     contracts.append(AdapterContract(

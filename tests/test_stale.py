@@ -2,7 +2,7 @@ import dataclasses
 
 import pytest
 
-from classifier.stages.stale import deactivate_stale_events
+from classifier.stages.stale import deactivate_stale_events, update_stale_tracker
 from gnomepy.registry.types import Event, EventContract, Listing, Security
 from scripts.testing import StubDB, StubRegistry
 
@@ -156,3 +156,33 @@ def test_event_not_resolved_while_active_security_remains(registry, db):
     assert result["securities_deactivated"] == 1  # security 10 lost its only listing
     assert result["events_resolved"] == 0  # security 11 is still active
     assert registry._events[0].resolved is False
+
+
+def _tracker(exchange_id: int, natives: list[str], misses: int = 0) -> dict[str, dict]:
+    return {f"{exchange_id}:{n}": {"exchange_id": exchange_id, "native_event_id": n, "miss_count": misses} for n in natives}
+
+
+def test_missing_events_count_misses_until_stale():
+    tracker = _tracker(1, [f"e{i}" for i in range(10)], misses=5)
+    live = {1: {f"e{i}" for i in range(1, 10)}}
+    messages, new = update_stale_tracker(tracker, live, set(), miss_threshold=6, max_messages=100, min_feed_ratio=0.5)
+    assert messages == [{"type": "stale", "exchange_id": 1, "native_event_id": "e0"}]
+    assert "1:e0" not in new and new["1:e1"]["miss_count"] == 0
+
+
+def test_an_empty_feed_counts_no_misses():
+    tracker = {**_tracker(1, [f"e{i}" for i in range(10)], misses=5), **_tracker(2, ["x0", "x1"], misses=5)}
+    # Exchange 1 answered with nothing (maintenance); exchange 2 is healthy and still loses its missing event.
+    messages, new = update_stale_tracker(tracker, {2: {"x1"}}, set(), miss_threshold=6, max_messages=100,
+                                         min_feed_ratio=0.5)
+    assert messages == [{"type": "stale", "exchange_id": 2, "native_event_id": "x0"}]
+    assert all(new[f"1:e{i}"]["miss_count"] == 5 for i in range(10))
+
+
+def test_a_partial_feed_counts_no_misses():
+    tracker = _tracker(1, [f"e{i}" for i in range(10)], misses=5)
+    messages, new = update_stale_tracker(tracker, {1: {"e0", "e1", "e2", "e3"}}, set(), miss_threshold=6,
+                                         max_messages=100, min_feed_ratio=0.5)
+    # The exchange's entries stay as they were, as for a fetch that failed outright.
+    assert messages == []
+    assert {entry["miss_count"] for entry in new.values()} == {5}

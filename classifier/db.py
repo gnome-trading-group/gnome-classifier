@@ -110,23 +110,36 @@ class ClassifierDB:
                 )
                 return {(row[0], row[1]): (row[2], row[3]) for row in cur.fetchall()}
 
-    def get_existing_event_contracts(
-        self, keys: list[tuple[int, int]]
-    ) -> set[tuple[int, int]]:
-        """Returns set of (event_id, security_id) that already exist."""
-        if not keys:
-            return set()
-        event_ids = [k[0] for k in keys]
-        security_ids = [k[1] for k in keys]
+    def get_unsettled_contracts(
+        self, exchange_id: int, lookback_days: int, after_id: int, limit: int, include_active: bool = False,
+    ) -> list[tuple[int, str]]:
+        """Returns up to `limit` [(event_contract_id, exchange_security_id)], in id order after `after_id`, for outcomes
+        with no settlement value yet whose listing was deactivated within the lookback (or is active, if asked)."""
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT event_id, security_id FROM sm.event_contract"
-                    " WHERE (event_id, security_id)"
-                    " IN (SELECT * FROM unnest(%s::int[], %s::int[]))",
-                    (event_ids, security_ids),
+                    "SELECT ec.event_contract_id, l.exchange_security_id"
+                    " FROM sm.listing l"
+                    " JOIN sm.event_contract ec ON ec.security_id = l.security_id"
+                    " WHERE l.exchange_id = %s AND ec.settlement_price IS NULL"
+                    " AND ((NOT l.active AND l.date_modified > NOW() - make_interval(days => %s)) OR (l.active AND %s))"
+                    " AND ec.event_contract_id > %s"
+                    " ORDER BY ec.event_contract_id LIMIT %s",
+                    (exchange_id, lookback_days, include_active, after_id, limit),
                 )
-                return {(row[0], row[1]) for row in cur.fetchall()}
+                return [(row[0], row[1]) for row in cur.fetchall()]
+
+    def get_event_ids_by_security(self, security_ids: list[int]) -> dict[int, int]:
+        """Returns {security_id: event_id} for the securities already linked to an event."""
+        if not security_ids:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT security_id, event_id FROM sm.event_contract WHERE security_id = ANY(%s)",
+                    (security_ids,),
+                )
+                return {row[0]: row[1] for row in cur.fetchall()}
 
     def get_existing_listing_specs(self, listing_ids: list[int]) -> dict[int, tuple[int, int, int, int, int]]:
         """Returns mapping of listing_id -> (tick_size, lot_size, min_notional, contract_multiplier, min_size)."""

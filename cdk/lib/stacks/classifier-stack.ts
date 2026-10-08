@@ -211,9 +211,12 @@ export class ClassifierStack extends cdk.Stack {
       REGISTRY_API_KEY_ID: cdk.Fn.importValue('RegistryApiKeyId'),
       REDIS_ENDPOINT: redisEndpoint,
       CONTRACTS_QUEUE_URL: this.contractsQueue.queueUrl,
+      // The settle cycle reads which deactivated outcomes still lack a settlement value.
+      DB_SECRET_NAME: 'registry-database-root-user',
       ...controllerEnv,
     }, 1024, (role) => {
       this.contractsQueue.grantSendMessages(role);
+      dbSecret.grantRead(role);
       role.addToPolicy(new iam.PolicyStatement({
         actions: ['apigateway:GET'],
         resources: [cdk.Fn.importValue('RegistryApiKeyArn'), controllerApiKeyArn],

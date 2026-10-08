@@ -46,8 +46,14 @@ import anthropic
 import click
 import voyageai
 
+from classifier.adapters import ADAPTERS
 from classifier.cache import RedisClassifierCache
-from classifier.constants import DEFAULT_MIN_EVENT_VOLUME, DEFAULT_RESOLUTION_LOOKBACK_DAYS as RESOLUTION_LOOKBACK_DAYS
+from classifier.constants import (
+    DEFAULT_MIN_EVENT_VOLUME,
+    DEFAULT_RESOLUTION_LOOKBACK_DAYS as RESOLUTION_LOOKBACK_DAYS,
+    DEFAULT_SETTLE_MAX_CANDIDATES,
+    DEFAULT_SETTLEMENT_LOOKBACK_DAYS,
+)
 from classifier.db import ClassifierDB
 from classifier.pipeline import PipelineResult, create_entities_and_embed, fetch_exchanges, run_full_pipeline_sync
 from classifier.client import BatchAnthropicClient, BatchVoyageClient
@@ -55,6 +61,7 @@ from classifier.stages.canonicalize import canonicalize_events
 from classifier.stages.classify import classify_semantic_sync, prepare_semantic_batch, run_classification_sync
 from classifier.stages.fetch import diff_contracts, fetch_all, fetch_resolved_outcomes
 from classifier.stages.resolve import detect_resolved_events
+from classifier.stages.settle import record_settlements
 from classifier.stages.stale import deactivate_stale_events
 from classifier.types import CanonicalizeInput
 from gnomepy.registry import RegistryClient
@@ -430,6 +437,40 @@ def resolve(ctx, adapter: str | None, lookback: int):
 
     with open(ctx.obj["output_path"], "w") as f:
         json.dump(result, f, indent=2)
+    print(f"\nFull output written to {ctx.obj['output_path']}")
+
+
+@main.command()
+@click.argument("adapter", required=False, default=None)
+@click.option("--lookback", type=int, default=DEFAULT_SETTLEMENT_LOOKBACK_DAYS, show_default=True,
+              help="Days since deactivation to look for settlement values")
+@click.pass_context
+def settle(ctx, adapter: str | None, lookback: int):
+    """Look up final settlement values for deactivated outcomes and show what would be recorded (dry-run writes)."""
+    database_url = os.environ.get("DATABASE_URL")
+    registry_url = os.environ.get("REGISTRY_API_URL")
+    registry_key = os.environ.get("REGISTRY_API_KEY")
+    if not database_url or not registry_url or not registry_key:
+        raise click.ClickException("DATABASE_URL, REGISTRY_API_URL and REGISTRY_API_KEY are required for settle")
+    # Candidates come from the real database, so exchange ids must too; writes go to the stub.
+    registry = StubRegistry()
+    try:
+        exchange_by_code = fetch_exchanges(RegistryClient(base_url=registry_url, api_key=registry_key), adapter)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+    result = record_settlements(
+        ADAPTERS, exchange_by_code, registry, ClassifierDB(dsn=database_url), lookback,
+        DEFAULT_SETTLE_MAX_CANDIDATES, {},
+    )
+
+    print(f"\n{'='*70}")
+    print("SETTLEMENT SUMMARY")
+    print(f"{'='*70}")
+    for k, v in result.items():
+        print(f"  {k:<30}: {v}")
+    output = {**result, "settlements": registry._settlement_by_event_contract}
+    with open(ctx.obj["output_path"], "w") as f:
+        json.dump(output, f, indent=2)
     print(f"\nFull output written to {ctx.obj['output_path']}")
 
 

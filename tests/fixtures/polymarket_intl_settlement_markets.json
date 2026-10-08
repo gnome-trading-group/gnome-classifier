@@ -1,0 +1,103 @@
+{
+  "_note": "Captured from gamma-api /events/keyset (closed) on 2026-10-07; 0xproposed/0xdisputed/0xhalf are copies with status/prices edited to cover states not seen live.",
+  "markets": [
+    {
+      "conditionId": "0x8e7a03cb1970e2ad6533b01892403516b6b3f5b5fa90ed7d104c28b27e40ba00",
+      "question": "MicroStrategy sells any Bitcoin by June 30, 2026?",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "outcomePrices": "[\"1\", \"0\"]",
+      "clobTokenIds": "[\"110251828161543119357013227499774714771527179764174739487025581227481937033858\", \"65176388692130651396848427090788038285140833850265294793449655516920659740141\"]",
+      "closed": true,
+      "active": true,
+      "archived": false,
+      "umaResolutionStatus": "resolved",
+      "umaResolutionStatuses": "[\"proposed\"]",
+      "closedTime": "2026-06-01 14:07:11+00",
+      "negRisk": false
+    },
+    {
+      "conditionId": "0x19ee98e348c0ccb341d1b9566fa14521566e9b2ea7aed34dc407a0ec56be36a2",
+      "question": "MicroStrategy sells any Bitcoin in 2025?",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "outcomePrices": "[\"0\", \"1\"]",
+      "clobTokenIds": "[\"93592949212798121127213117304912625505836768562433217537850469496310204567695\", \"3074539347152748632858978545166555332546941892131779352477699494423276162345\"]",
+      "closed": true,
+      "active": true,
+      "archived": false,
+      "umaResolutionStatus": "resolved",
+      "umaResolutionStatuses": "[\"proposed\", \"disputed\", \"proposed\", \"disputed\"]",
+      "closedTime": "2026-01-05 04:22:25+00",
+      "negRisk": false
+    },
+    {
+      "conditionId": "0x5642824719fa2e4d164de9a9ddaa1b5ca4f6fc57483eb222bec54082ad0bb57c",
+      "question": "US civil war before 2027?",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "outcomePrices": "[\"0\", \"1\"]",
+      "clobTokenIds": "[\"40044088185790588997028771101379262556044553888968533009832170905562077442293\", \"86775404499203879461875454619417597911932940348206134485716643439756769956806\"]",
+      "closed": true,
+      "active": true,
+      "archived": false,
+      "umaResolutionStatus": null,
+      "umaResolutionStatuses": "[]",
+      "closedTime": "2026-03-28 11:19:57+00",
+      "negRisk": false
+    },
+    {
+      "conditionId": "0xb6f7aa721704d2e262ead40914b1e88b1218a517a3d9338ffc255687699b16ce",
+      "question": "Will Team A win the LCK 2026 season playoffs?",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "outcomePrices": null,
+      "clobTokenIds": "[\"34329078421082949640193808383457506710234650853267448566722740045716356934754\", \"111437379084150651597288286220715535482108525556068999218602412700167223772044\"]",
+      "closed": false,
+      "active": false,
+      "archived": false,
+      "umaResolutionStatus": "resolved",
+      "umaResolutionStatuses": "[\"proposed\", \"resolved\"]",
+      "closedTime": null,
+      "negRisk": true
+    },
+    {
+      "conditionId": "0xproposed",
+      "question": "MicroStrategy sells any Bitcoin in 2025?",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "outcomePrices": "[\"0\", \"1\"]",
+      "clobTokenIds": "[\"111\", \"112\"]",
+      "closed": true,
+      "active": true,
+      "archived": false,
+      "umaResolutionStatus": "proposed",
+      "umaResolutionStatuses": "[\"proposed\", \"disputed\", \"proposed\", \"disputed\"]",
+      "closedTime": "2026-01-05 04:22:25+00",
+      "negRisk": false
+    },
+    {
+      "conditionId": "0xdisputed",
+      "question": "MicroStrategy sells any Bitcoin in 2025?",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "outcomePrices": "[\"0\", \"1\"]",
+      "clobTokenIds": "[\"121\", \"122\"]",
+      "closed": true,
+      "active": true,
+      "archived": false,
+      "umaResolutionStatus": "disputed",
+      "umaResolutionStatuses": "[\"proposed\", \"disputed\", \"proposed\", \"disputed\"]",
+      "closedTime": "2026-01-05 04:22:25+00",
+      "negRisk": false
+    },
+    {
+      "conditionId": "0xhalf",
+      "question": "MicroStrategy sells any Bitcoin by June 30, 2026?",
+      "outcomes": "[\"Yes\", \"No\"]",
+      "outcomePrices": "[\"0.5\", \"0.5\"]",
+      "clobTokenIds": "[\"131\", \"132\"]",
+      "closed": true,
+      "active": true,
+      "archived": false,
+      "umaResolutionStatus": "resolved",
+      "umaResolutionStatuses": "[\"proposed\"]",
+      "closedTime": "2026-06-01 14:07:11+00",
+      "negRisk": false
+    }
+  ]
+}

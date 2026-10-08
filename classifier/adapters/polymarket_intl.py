@@ -6,6 +6,7 @@ import requests.exceptions
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
+from classifier.adapters.settlement import chunked, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
@@ -15,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 GAMMA_API_URL = "https://gamma-api.polymarket.com"
 PAGE_SIZE = 500
+# Condition ids per /markets lookup when collecting settlements; each is 66 characters of query string.
+SETTLEMENT_BATCH_SIZE = 50
+# A market closes before its result is final: UMA proposes one, which can be disputed, before it resolves.
+FINAL_UMA_STATUS = "resolved"
 
 CONTRACT_MULTIPLIER = 1e9
 SIZE_SCALE = 1_000_000
@@ -77,6 +82,21 @@ def _build_sports_event_title(event_title: str, market: dict) -> str | None:
 def _market_symbol_base(market: dict, condition_id: str) -> str:
     # Market slugs are unique per market, unlike event slugs, which several binary markets share.
     return market.get("slug") or condition_id
+
+
+def _is_neg_risk(event: dict) -> bool:
+    # The event's own flag, not whichever of its markets are still open: deciding on those would regroup an event
+    # (new identity, new contract type) as its markets closed.
+    flag = event.get("negRisk")
+    if flag is not None:
+        return bool(flag)
+    markets = event.get("markets") or []
+    return bool(markets) and all(m.get("negRisk") for m in markets)
+
+
+def _json_list(value) -> list:
+    # Gamma encodes its array fields as JSON strings.
+    return value if isinstance(value, list) else json.loads(value)
 
 
 class PolymarketIntlAdapter:
@@ -142,6 +162,43 @@ class PolymarketIntlAdapter:
 
         return resolved
 
+    def fetch_settlements(self, exchange_security_ids: set[str]) -> dict[str, int]:
+        condition_ids = sorted({security_id.partition(":")[0] for security_id in exchange_security_ids})
+        settlements: dict[str, int] = {}
+        for batch in chunked(condition_ids, SETTLEMENT_BATCH_SIZE):
+            for market in self._fetch_markets(batch):
+                if not market.get("closed") or market.get("umaResolutionStatus") != FINAL_UMA_STATUS:
+                    continue
+                try:
+                    token_ids = _json_list(market.get("clobTokenIds"))
+                    prices = _json_list(market.get("outcomePrices"))
+                except (TypeError, ValueError):
+                    logger.warning("Polymarket %s resolved with unreadable tokens or prices", market.get("conditionId"))
+                    continue
+                for token_id, raw_price in zip(token_ids, prices):
+                    security_id = f"{market.get('conditionId')}:{token_id}"
+                    if security_id not in exchange_security_ids:
+                        continue
+                    price = to_price(raw_price)
+                    if price is None:
+                        logger.warning("Polymarket %s resolved with an unusable price: %r", security_id, raw_price)
+                        continue
+                    settlements[security_id] = price
+        return settlements
+
+    def _fetch_markets(self, condition_ids: list[str]) -> list[dict]:
+        params = {"condition_ids": condition_ids, "closed": "true", "limit": len(condition_ids)}
+        try:
+            res = self._session.get(f"{GAMMA_API_URL}/markets", params=params, timeout=30)
+            res.raise_for_status()
+            return res.json()
+        except requests.exceptions.RetryError as e:
+            logger.error("Polymarket markets retries exhausted: %s", e)
+            raise
+        except requests.exceptions.RequestException as e:
+            logger.error("Polymarket markets API error: %s", e)
+            raise
+
     def _fetch_closed_events(self, lookback_days: int):
         since = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
         after_cursor: str | None = None
@@ -206,7 +263,7 @@ class PolymarketIntlAdapter:
         event_category = tags[0]["label"] if tags else None
 
         event_end_date = event.get("endDate")
-        is_neg_risk_group = all(m.get("negRisk") for m in markets) and len(markets) >= 1
+        is_neg_risk_group = _is_neg_risk(event)
 
         if is_neg_risk_group:
             event_volume: float = sum(m.get("volume24hr") or 0.0 for m in markets)

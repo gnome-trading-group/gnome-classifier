@@ -1,0 +1,145 @@
+{
+  "_note": "Captured from gateway.polymarket.us /v1/markets?closed=true on 2026-10-07.",
+  "markets": [
+    {
+      "id": "7906",
+      "slug": "tec-mlb-champ-2026-09-27-chc",
+      "question": "World Series Champion",
+      "status": "MARKET_STATUS_RESOLVED",
+      "active": false,
+      "closed": true,
+      "outcomes": "[\"Yes\",\"No\"]",
+      "outcomePrices": "[\"0\",\"1\"]",
+      "marketSides": [
+        {
+          "id": "15811",
+          "identifier": "tec-mlb-champ-2026-09-27-chc",
+          "description": "Yes",
+          "price": "0",
+          "long": true,
+          "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+        },
+        {
+          "id": "15812",
+          "identifier": "tec-mlb-champ-2026-09-27-chc",
+          "description": "No",
+          "price": "1",
+          "long": false,
+          "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+        }
+      ]
+    },
+    {
+      "id": "201757",
+      "slug": "rtc-bbus-s28-2-2026-10-01-taybro",
+      "question": "Big Brother Season 28: 2nd Place",
+      "status": "MARKET_STATUS_RESOLVED",
+      "active": false,
+      "closed": true,
+      "outcomes": "[\"Yes\",\"No\"]",
+      "outcomePrices": "[\"1\",\"0\"]",
+      "marketSides": [
+        {
+          "id": "403148",
+          "identifier": "rtc-bbus-s28-2-2026-10-01-taybro",
+          "description": "Yes",
+          "price": "1",
+          "long": true,
+          "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+        },
+        {
+          "id": "403149",
+          "identifier": "rtc-bbus-s28-2-2026-10-01-taybro",
+          "description": "No",
+          "price": "0",
+          "long": false,
+          "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+        }
+      ]
+    },
+    {
+      "id": "851315",
+      "slug": "aec-cs2-hon-bbp-2026-09-17",
+      "question": "Who will win in the upcoming esports event Honved vs Bebop scheduled for September 17, 2026 at 10:30 AM UTC?",
+      "status": "MARKET_STATUS_RESOLVED",
+      "active": false,
+      "closed": true,
+      "outcomes": "[\"Honv\u00e9d\",\"Bebop\"]",
+      "outcomePrices": "[\"0.58\",\"0.42\"]",
+      "marketSides": [
+        {
+          "id": "1702118",
+          "identifier": "aec-cs2-hon-bbp-2026-09-17",
+          "description": "Honv\u00e9d",
+          "price": "0.58",
+          "long": true,
+          "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+        },
+        {
+          "id": "1702119",
+          "identifier": "aec-cs2-hon-bbp-2026-09-17",
+          "description": "Bebop",
+          "price": "0.42",
+          "long": false,
+          "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+        }
+      ]
+    },
+    {
+      "id": "904844",
+      "slug": "atc-lng-ant-mun-2026-09-19-ant",
+      "question": "Will Antigua GFC win against CSD Municipal in the Liga Nacional match scheduled for Sep 19, 2026?",
+      "status": "MARKET_STATUS_RESOLVING",
+      "active": true,
+      "closed": true,
+      "outcomes": "[\"Yes\",\"No\"]",
+      "outcomePrices": "[\"0\",\"0\"]",
+      "marketSides": [
+        {
+          "id": "1809176",
+          "identifier": "atc-lng-ant-mun-2026-09-19-ant",
+          "description": "Yes",
+          "price": null,
+          "long": true,
+          "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+        },
+        {
+          "id": "1809177",
+          "identifier": "atc-lng-ant-mun-2026-09-19-ant",
+          "description": "No",
+          "price": null,
+          "long": false,
+          "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+        }
+      ]
+    },
+    {
+      "id": "929483",
+      "slug": "aec-cs2-mne-sdm-2026-09-18",
+      "question": "Who will win in the upcoming esports event MEIA NOITE vs Semente do Mal scheduled for September 18, 2026 at 9:00 PM UTC?",
+      "status": "MARKET_STATUS_CLOSED",
+      "active": false,
+      "closed": true,
+      "outcomes": "[\"MEIA NOITE\",\"Semente do Mal\"]",
+      "outcomePrices": "[\"0\",\"0\"]",
+      "marketSides": [
+        {
+          "id": "1858450",
+          "identifier": "aec-cs2-mne-sdm-2026-09-18",
+          "description": "MEIA NOITE",
+          "price": null,
+          "long": true,
+          "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+        },
+        {
+          "id": "1858451",
+          "identifier": "aec-cs2-mne-sdm-2026-09-18",
+          "description": "Semente do Mal",
+          "price": null,
+          "long": false,
+          "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+        }
+      ]
+    }
+  ]
+}

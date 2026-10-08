@@ -9,6 +9,11 @@ DEFAULT_BULK_CREATE_BATCH_SIZE = 200
 DEFAULT_MIN_CONFIDENCE = 0.70
 
 DEFAULT_RESOLUTION_LOOKBACK_DAYS = 3
+# How long after a listing is deactivated the settle cycle keeps looking for its final value; disputed results can
+# take days to settle.
+DEFAULT_SETTLEMENT_LOOKBACK_DAYS = 30
+# Outcomes each exchange looks up per settle cycle, so a backlog can't hold up the fetch loop for long.
+DEFAULT_SETTLE_MAX_CANDIDATES = 20_000
 
 
 
@@ -28,6 +33,8 @@ DEFAULT_SYNC_THRESHOLD = 10
 DEFAULT_NEIGHBOR_SEARCH_LIMIT = 60
 DEFAULT_VOYAGE_EMBED_CHUNK_SIZE = 2000
 DEFAULT_STALE_MISS_THRESHOLD = 6
+# A fetch returning fewer than this share of an exchange's tracked events is treated as an outage, not closures.
+DEFAULT_STALE_MIN_FEED_RATIO = 0.5
 
 DEFAULT_FETCH_MAX_SQS_MESSAGES = 100000
 DEFAULT_RESOLVE_MAX_SQS_MESSAGES = 100000
@@ -37,6 +44,7 @@ DEFAULT_NOTIFY_MAX_MESSAGES = 100000
 DEFAULT_FETCH_INTERVAL_SECONDS = 60
 DEFAULT_RESOLVE_INTERVAL_SECONDS = 1800
 DEFAULT_STALE_INTERVAL_SECONDS = 3600
+DEFAULT_SETTLE_INTERVAL_SECONDS = 900
 
 # 24h dollar volume an event needs before it is ingested; every adapter reports 24h volume.
 DEFAULT_MIN_EVENT_VOLUME: float | None = 1000

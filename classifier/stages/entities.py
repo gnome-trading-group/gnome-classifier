@@ -324,12 +324,15 @@ def _create_event_contracts(
             continue
         wanted.setdefault((event_id, security_id), c.outcome_label)
 
-    existing = db.get_existing_event_contracts(list(wanted))
-    pending = [
-        dict(event_id=eid, security_id=sid, outcome_label=label)
-        for (eid, sid), label in wanted.items()
-        if (eid, sid) not in existing
-    ]
+    # A security belongs to exactly one event. One already linked elsewhere means an adapter changed the event it
+    # maps a market to, which would split the market across two events; skip it rather than link it twice.
+    linked = db.get_event_ids_by_security([sid for _, sid in wanted])
+    pending = []
+    for (eid, sid), label in wanted.items():
+        if sid not in linked:
+            pending.append(dict(event_id=eid, security_id=sid, outcome_label=label))
+        elif linked[sid] != eid:
+            logger.error("Security %d is already in event %d; not linking it to event %d", sid, linked[sid], eid)
     created_count = 0
     for _, chunk in bulk_create_chunked(pending, "event contracts"):
         created_count += len(registry.bulk_create_event_contracts(chunk))

@@ -476,3 +476,22 @@ def test_contract_hash_changes_with_min_size():
     before = contract_hash(contract)
     contract.min_size = 10_000_000
     assert contract_hash(contract) != before
+
+
+# ── Grouping follows the event's flag, not which markets are still open ──────
+
+def test_neg_risk_event_stays_grouped_when_markets_close():
+    event = EVENTS_BY_SLUG["iowa-governor-2026"]
+    closing = {**event, "negRisk": True, "markets": [{**event["markets"][0], "closed": True}, *event["markets"][1:]]}
+    grouped = adapter._map_event(EXCHANGE_ID, {**event, "negRisk": True})
+    after = adapter._map_event(EXCHANGE_ID, closing)
+    assert {(c.exchange_event_native_id, c.contract_type) for c in after} == \
+        {(c.exchange_event_native_id, c.contract_type) for c in grouped} == {("iowa-governor-2026", ContractType.MULTI_OUTCOME)}
+
+
+def test_event_flag_decides_grouping_over_its_markets():
+    event = EVENTS_BY_SLUG["kraken-ipo-by"]
+    flagged = adapter._map_event(EXCHANGE_ID, {**event, "negRisk": True})
+    assert {c.contract_type for c in flagged} == {ContractType.MULTI_OUTCOME}
+    unflagged = adapter._map_event(EXCHANGE_ID, {**EVENTS_BY_SLUG["harvey-weinstein-prison-time"], "negRisk": False})
+    assert {c.contract_type for c in unflagged} == {ContractType.BINARY}

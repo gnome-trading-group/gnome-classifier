@@ -135,3 +135,17 @@ def test_removed_contract_of_known_event_is_deactivated(stub_registry, stub_db, 
 
     active = {l.exchange_security_id: l.active for l in stub_registry._listings}
     assert active == {"q:Alice": True, "q:Bob": True, "q:Carol": False}
+
+
+def test_market_mapped_to_a_new_event_is_not_linked_twice(stub_registry, stub_db, mock_anthropic, caplog):
+    original = _binary("Will BTC hit 100k?", native_id="BTC-100K")
+    create_entities(stub_registry, mock_anthropic, original, db=stub_db)
+    moved = [
+        AdapterContract(**{**c.__dict__, "exchange_event_native_id": "BTC-EVENT", "event_title": "BTC moved"})
+        for c in original
+    ]
+    result = create_entities(stub_registry, mock_anthropic, moved, db=stub_db)
+    assert result.event_contracts_created == 0
+    assert sorted(len([ec for ec in stub_registry._event_contracts if ec.security_id == s.security_id])
+                  for s in stub_registry._securities) == [1, 1]
+    assert "already in event" in caplog.text

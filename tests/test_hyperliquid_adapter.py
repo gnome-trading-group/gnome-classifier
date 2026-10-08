@@ -158,12 +158,16 @@ def test_policy_rate_question_labels(contracts):
     assert [c.outcome_label for c in group] == ["No change", "Decrease", "Increase"]
 
 
-def test_question_with_one_active_outcome_names_it_in_the_title():
+def test_question_with_one_active_outcome_stays_multi_outcome():
     question = next(q for q in OUTCOME_META["questions"] if q["question"] == 198)
+    full = adapter._map_all(EXCHANGE_ID, OUTCOMES, [question], TEMPLATES, {})
     narrowed = {**question, "settledNamedOutcomes": question["namedOutcomes"][1:]}
-    group = adapter._map_all(EXCHANGE_ID, OUTCOMES, [narrowed], TEMPLATES, {})
-    title = next(c.event_title for c in group if c.exchange_event_native_id == "q:198")
-    assert title == "2026/2027 English Premier League winner: Arsenal"
+    lone = [c for c in adapter._map_all(EXCHANGE_ID, OUTCOMES, [narrowed], TEMPLATES, {})
+            if c.exchange_event_native_id == "q:198"]
+    survivor = next(c for c in full if c.exchange_security_id == lone[0].exchange_security_id)
+    # The last outcome keeps its YES-only listing, type and event rather than turning into a binary with a NO side.
+    assert [c.exchange_security_id for c in lone] == [f"#{question['namedOutcomes'][0]}0"]
+    assert [lone[0].contract_type, lone[0].event_title] == [ContractType.MULTI_OUTCOME, survivor.event_title]
 
 
 def test_question_event_id_survives_outcomes_settling():

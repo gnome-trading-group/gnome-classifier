@@ -25,8 +25,12 @@ from classifier.constants import (
     DEFAULT_RESOLVE_INTERVAL_SECONDS,
     DEFAULT_RESOLVE_MAX_SQS_MESSAGES,
     DEFAULT_SEMANTIC_JUDGMENT_MODEL,
+    DEFAULT_SETTLE_INTERVAL_SECONDS,
+    DEFAULT_SETTLE_MAX_CANDIDATES,
+    DEFAULT_SETTLEMENT_LOOKBACK_DAYS,
     DEFAULT_STALE_INTERVAL_SECONDS,
     DEFAULT_STALE_MAX_SQS_MESSAGES,
+    DEFAULT_STALE_MIN_FEED_RATIO,
     DEFAULT_STALE_MISS_THRESHOLD,
     DEFAULT_SYNC_THRESHOLD,
     DEFAULT_VOYAGE_EMBED_CHUNK_SIZE,
@@ -47,6 +51,7 @@ class FeatureFlags:
     canonicalization_enabled: bool = False
     semantic_judgements_enabled: bool = False
     stale_cleanup_enabled: bool = False
+    settlement_enabled: bool = False
     debug: bool = False
 
 
@@ -78,10 +83,13 @@ class Processing:
     canonicalize_batch_size: int = DEFAULT_CANONICALIZE_BATCH_SIZE
     bulk_create_batch_size: int = DEFAULT_BULK_CREATE_BATCH_SIZE
     resolution_lookback_days: int = DEFAULT_RESOLUTION_LOOKBACK_DAYS
+    settlement_lookback_days: int = DEFAULT_SETTLEMENT_LOOKBACK_DAYS
+    settle_max_candidates: int = DEFAULT_SETTLE_MAX_CANDIDATES
     neighbor_search_limit: int = DEFAULT_NEIGHBOR_SEARCH_LIMIT
     voyage_embed_chunk_size: int = DEFAULT_VOYAGE_EMBED_CHUNK_SIZE
     anthropic_sync_threshold: int = DEFAULT_SYNC_THRESHOLD
     stale_miss_threshold: int = DEFAULT_STALE_MISS_THRESHOLD
+    stale_min_feed_ratio: float = DEFAULT_STALE_MIN_FEED_RATIO
     fetch_max_sqs_messages: int = DEFAULT_FETCH_MAX_SQS_MESSAGES
     resolve_max_sqs_messages: int = DEFAULT_RESOLVE_MAX_SQS_MESSAGES
     stale_max_sqs_messages: int = DEFAULT_STALE_MAX_SQS_MESSAGES
@@ -100,6 +108,7 @@ class WorkerParams:
     fetch_interval_seconds: int = DEFAULT_FETCH_INTERVAL_SECONDS
     resolve_interval_seconds: int = DEFAULT_RESOLVE_INTERVAL_SECONDS
     stale_interval_seconds: int = DEFAULT_STALE_INTERVAL_SECONDS
+    settle_interval_seconds: int = DEFAULT_SETTLE_INTERVAL_SECONDS
 
 
 @dataclasses.dataclass

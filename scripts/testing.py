@@ -117,6 +117,7 @@ class StubRegistry(RegistryClient):
         self._contract_relationships: list[ContractRelationship] = []
         self._currencies: list[Currency] = []
         self._hedge_keywords: list[tuple[int, str]] = []
+        self._settlement_by_event_contract: dict[int, int] = {}
 
     def _alloc_id(self) -> int:
         i = self._next_id
@@ -326,6 +327,13 @@ class StubRegistry(RegistryClient):
             results.append(self.patch_security(security_id, **kwargs))
         return results
 
+    def bulk_patch_event_contracts(self, items: list[dict]) -> list[dict]:
+        # Kept beside the EventContract rows so the stub doesn't depend on gnomepy carrying settlement fields; the
+        # first value recorded wins, as in the registry.
+        for item in items:
+            self._settlement_by_event_contract.setdefault(item["event_contract_id"], item["settlement_price"])
+        return [dict(item) for item in items]
+
     def bulk_patch_listings(self, items: list[dict]) -> list[dict]:
         results = []
         for item in items:
@@ -419,12 +427,20 @@ class StubDB:
             if (l.exchange_id, l.exchange_security_id) in key_set
         }
 
-    def get_existing_event_contracts(self, keys: list[tuple[int, int]]) -> set[tuple[int, int]]:
-        key_set = set(keys)
-        return {
-            (ec.event_id, ec.security_id) for ec in self._r._event_contracts
-            if (ec.event_id, ec.security_id) in key_set
-        }
+    def get_unsettled_contracts(
+        self, exchange_id: int, lookback_days: int, after_id: int, limit: int, include_active: bool = False,
+    ) -> list[tuple[int, str]]:
+        eligible = {l.security_id: l.exchange_security_id for l in self._r._listings
+                    if l.exchange_id == exchange_id and (include_active or not l.active)}
+        return sorted(
+            (ec.event_contract_id, eligible[ec.security_id]) for ec in self._r._event_contracts
+            if ec.security_id in eligible and ec.event_contract_id not in self._r._settlement_by_event_contract
+            and ec.event_contract_id > after_id
+        )[:limit]
+
+    def get_event_ids_by_security(self, security_ids: list[int]) -> dict[int, int]:
+        id_set = set(security_ids)
+        return {ec.security_id: ec.event_id for ec in self._r._event_contracts if ec.security_id in id_set}
 
     def get_existing_listing_specs(self, listing_ids: list[int]) -> dict[int, tuple[int, int, int, int, int]]:
         id_set = set(listing_ids)

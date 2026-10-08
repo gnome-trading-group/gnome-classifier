@@ -16,6 +16,11 @@ def _make_stale_rc(miss_threshold: int = 3):
     return rc
 
 
+# Events still in the feed, so one disappearing reads as that market closing rather than the venue going quiet.
+_LIVE_IDS = ["evt-live-1", "evt-live-2", "evt-live-3"]
+_LIVE = {f"1:{n}": {"exchange_id": 1, "native_event_id": n, "miss_count": 0} for n in _LIVE_IDS}
+
+
 def _make_redis(tracker: dict | None = None) -> MagicMock:
     r = MagicMock()
     r.get.return_value = json.dumps(tracker).encode() if tracker is not None else None
@@ -39,10 +44,10 @@ class TestStaleCleanupHandler:
             runner._run_stale(_make_stale_rc(), r, moto_env["sqs"], MagicMock())
 
     def test_increments_miss_count_for_disappeared_event(self, moto_env):
-        tracker = {"1:evt-gone": {"exchange_id": 1, "native_event_id": "evt-gone", "miss_count": 0}}
+        tracker = {"1:evt-gone": {"exchange_id": 1, "native_event_id": "evt-gone", "miss_count": 0}, **_LIVE}
         r = _make_redis(tracker)
         runner = FetchRunner()
-        runner._active_events = ({1: set()}, {1})
+        runner._active_events = ({1: set(_LIVE_IDS)}, {1})
 
         runner._run_stale(_make_stale_rc(miss_threshold=3), r, moto_env["sqs"], MagicMock())
 
@@ -50,10 +55,10 @@ class TestStaleCleanupHandler:
         assert saved["1:evt-gone"]["miss_count"] == 1
 
     def test_sends_stale_message_when_threshold_reached(self, moto_env):
-        tracker = {"1:evt-gone": {"exchange_id": 1, "native_event_id": "evt-gone", "miss_count": 2}}
+        tracker = {"1:evt-gone": {"exchange_id": 1, "native_event_id": "evt-gone", "miss_count": 2}, **_LIVE}
         r = _make_redis(tracker)
         runner = FetchRunner()
-        runner._active_events = ({1: set()}, {1})
+        runner._active_events = ({1: set(_LIVE_IDS)}, {1})
 
         runner._run_stale(_make_stale_rc(miss_threshold=3), r, moto_env["sqs"], MagicMock())
 

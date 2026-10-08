@@ -9,9 +9,10 @@ import redis as redis_lib
 
 from classifier.adapters import ADAPTERS
 from classifier.stages.fetch import diff_contracts, fetch_exchanges, fetch_resolved_outcomes
+from classifier.stages.settle import record_settlements
 from classifier.stages.stale import update_stale_tracker
 from classifier.workers.base import sqs_send_batch
-from classifier.workers.config import init_registry, init_runtime_config
+from classifier.workers.config import init_db, init_registry, init_runtime_config
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,8 @@ class FetchRunner:
     def __init__(self):
         self._running = False
         self._active_events: tuple[dict[int, set[str]], set[int]] | None = None
+        self._db = None
+        self._settle_cursors: dict[str, int] = {}
 
     def _handle_shutdown(self, signum, frame):
         logger.info("FetchRunner shutting down (signal %d)", signum)
@@ -105,6 +108,7 @@ class FetchRunner:
         last_fetch = -float("inf")
         last_resolve = -float("inf")
         last_stale = -float("inf")
+        last_settle = -float("inf")
 
         logger.info("FetchRunner started")
         while self._running:
@@ -133,10 +137,18 @@ class FetchRunner:
                 except Exception:
                     logger.exception("stale cleanup cycle failed")
 
+            if now - last_settle >= wp.settle_interval_seconds:
+                last_settle = now
+                try:
+                    self._run_settle(rc, registry)
+                except Exception:
+                    logger.exception("settle cycle failed")
+
             next_times = [
                 last_fetch + wp.fetch_interval_seconds,
                 last_resolve + wp.resolve_interval_seconds,
                 last_stale + wp.stale_interval_seconds,
+                last_settle + wp.settle_interval_seconds,
             ]
             sleep_secs = max(0.0, min(next_times) - time.monotonic())
             if sleep_secs > 0:
@@ -244,6 +256,20 @@ class FetchRunner:
         _redis_save_sent_resolved(r, (sent_resolved & current_resolved) | sent_keys)
         logger.info("Resolve cycle complete: %d newly resolved", len(new_messages))
 
+    def _run_settle(self, rc, registry):
+        if not rc.config.feature_flags.settlement_enabled:
+            logger.info("settlement_enabled=False, skipping settle cycle")
+            return
+        # Connected on first use, so the worker runs without database access while settlement is off.
+        if self._db is None:
+            self._db = init_db()
+        processing = rc.config.processing
+        counts = record_settlements(
+            ADAPTERS, fetch_exchanges(registry), registry, self._db,
+            processing.settlement_lookback_days, processing.settle_max_candidates, self._settle_cursors,
+        )
+        logger.info("Settle cycle complete: %s", counts)
+
     def _run_stale(self, rc, r, sqs, registry):
         logger.info("Starting stale cycle")
         if not rc.config.feature_flags.stale_cleanup_enabled:
@@ -279,6 +305,7 @@ class FetchRunner:
             tracker, active_by_exchange, failed_exchange_ids,
             miss_threshold=rc.config.processing.stale_miss_threshold,
             max_messages=rc.config.processing.stale_max_sqs_messages,
+            min_feed_ratio=rc.config.processing.stale_min_feed_ratio,
         )
 
         if stale_messages:

@@ -5,6 +5,7 @@ import requests.exceptions
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
+from classifier.adapters.settlement import PRICE_SCALE, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
@@ -17,6 +18,10 @@ BASE_URL = "https://api.hyperliquid.xyz/info"
 CONTRACT_MULTIPLIER = 1_000_000_000
 TICK_SIZE = 1_000_000
 LOT_SIZE = 1_000_000
+
+# settledOutcome is one request per outcome and info requests share a per-IP weight budget, so each settle cycle
+# looks up at most this many; the rest wait for the next cycle.
+MAX_SETTLEMENT_LOOKUPS = 40
 
 _TEMPLATE_PREFIX = "template:"
 _TIMESTAMP_FORMAT = "%Y%m%d-%H%M"
@@ -111,6 +116,10 @@ class _Rendered:
 class HyperliquidAdapter:
     exchange_code = "HYPERLIQUID"
     symbol_prefix = "HL"
+    # Nothing retires a settled outcome's listing (it just leaves outcomeMeta, where resolve can't see it), so the
+    # settle cycle looks at active outcomes too, a page at a time sized to the lookups it may make per cycle.
+    settle_active_listings = True
+    settle_page_size = MAX_SETTLEMENT_LOOKUPS
 
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.1)
@@ -134,9 +143,34 @@ class HyperliquidAdapter:
             for side in (0, 1)
         }
 
-    def _post_info(self, request_type: str):
+    def fetch_settlements(self, exchange_security_ids: set[str]) -> dict[str, int]:
+        sides_by_outcome: dict[int, list[tuple[str, int]]] = {}
+        for security_id in exchange_security_ids:
+            encoding = security_id.removeprefix("#")
+            if not encoding.isdigit():
+                continue
+            outcome, side = divmod(int(encoding), 10)
+            sides_by_outcome.setdefault(outcome, []).append((security_id, side))
+
+        settlements: dict[str, int] = {}
+        # The settle stage pages candidates at settle_page_size; this only guards a caller that doesn't.
+        for outcome in sorted(sides_by_outcome)[:MAX_SETTLEMENT_LOOKUPS]:
+            # Null until the outcome settles; settlement is automatic and final, with no dispute window.
+            settled = self._post_info("settledOutcome", outcome=outcome)
+            if not settled:
+                continue
+            yes_price = to_price(settled.get("settleFraction"))
+            if yes_price is None:
+                logger.warning("Hyperliquid outcome %d settled with an unusable fraction: %r",
+                               outcome, settled.get("settleFraction"))
+                continue
+            for security_id, side in sides_by_outcome[outcome]:
+                settlements[security_id] = yes_price if side == 0 else PRICE_SCALE - yes_price
+        return settlements
+
+    def _post_info(self, request_type: str, **params):
         try:
-            res = self._session.post(BASE_URL, json={"type": request_type}, timeout=30)
+            res = self._session.post(BASE_URL, json={"type": request_type, **params}, timeout=30)
             res.raise_for_status()
             return res.json()
         except requests.exceptions.RetryError as e:
@@ -217,15 +251,12 @@ class HyperliquidAdapter:
             # new event whenever that outcome resolved.
             native_id = f"q:{question['question']}"
 
-            if len(active) > 1:
+            # A question's outcomes stay multi-outcome to the last one: mapping a lone remaining outcome as a binary
+            # would give it a new NO listing and change its type as its siblings settle.
+            if active:
                 contracts.extend(self._map_question(
                     exchange_id, rendered, active, q_values, templates, volume_by_coin, native_id,
                 ))
-            elif len(active) == 1:
-                outcome = active[0]
-                label = self._outcome_label(outcome, q_values, templates)
-                single = _Rendered(f"{rendered.title}: {label}", rendered.description, rendered.expiry, rendered.category)
-                contracts.extend(self._map_binary(exchange_id, single, outcome, volume_by_coin, native_id))
 
         for outcome in outcomes.values():
             if outcome["outcome"] in questioned_outcome_ids:

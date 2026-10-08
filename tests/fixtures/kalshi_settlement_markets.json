@@ -1,0 +1,77 @@
+{
+  "_note": "Captured from GET /trade-api/v2/markets on 2026-10-07; KXSCALAR/KXDETERMINED/KXDISPUTED are copies with status/value edited to cover states not seen live.",
+  "markets": [
+    {
+      "ticker": "KXMVECROSSCATEGORY-S202687478E22F97-D878C392D94",
+      "event_ticker": "KXMVECROSSCATEGORY-S202687478E22F97",
+      "market_type": "binary",
+      "status": "finalized",
+      "result": "yes",
+      "settlement_value_dollars": "1.0000",
+      "settlement_ts": "2026-10-08T00:15:17.425116Z",
+      "close_time": "2026-10-08T00:15:00Z",
+      "expiration_value": "",
+      "last_price_dollars": "0.0000"
+    },
+    {
+      "ticker": "KXMVECROSSCATEGORY-S2026EEE1D3136E5-442E3AFADB9",
+      "event_ticker": "KXMVECROSSCATEGORY-S2026EEE1D3136E5",
+      "market_type": "binary",
+      "status": "finalized",
+      "result": "no",
+      "settlement_value_dollars": "0.0000",
+      "settlement_ts": "2026-10-08T00:15:17.415167Z",
+      "close_time": "2026-10-08T00:15:00Z",
+      "expiration_value": "",
+      "last_price_dollars": "0.0000"
+    },
+    {
+      "ticker": "KXSCALAR-TEST-S1",
+      "event_ticker": "KXMVECROSSCATEGORY-S202687478E22F97",
+      "market_type": "binary",
+      "status": "finalized",
+      "result": "scalar",
+      "settlement_value_dollars": "0.4700",
+      "settlement_ts": "2026-10-08T00:15:17.425116Z",
+      "close_time": "2026-10-08T00:15:00Z",
+      "expiration_value": "",
+      "last_price_dollars": "0.0000"
+    },
+    {
+      "ticker": "KXMVECROSSCATEGORY-S2026C15FFFDB1DF-FD20698DA57",
+      "event_ticker": "KXMVECROSSCATEGORY-S2026C15FFFDB1DF",
+      "market_type": "binary",
+      "status": "closed",
+      "result": "",
+      "settlement_value_dollars": null,
+      "settlement_ts": null,
+      "close_time": "2026-10-08T00:23:21Z",
+      "expiration_value": "",
+      "last_price_dollars": "0.0000"
+    },
+    {
+      "ticker": "KXDETERMINED-TEST-D1",
+      "event_ticker": "KXMVECROSSCATEGORY-S202687478E22F97",
+      "market_type": "binary",
+      "status": "determined",
+      "result": "yes",
+      "settlement_value_dollars": null,
+      "settlement_ts": "2026-10-08T00:15:17.425116Z",
+      "close_time": "2026-10-08T00:15:00Z",
+      "expiration_value": "",
+      "last_price_dollars": "0.0000"
+    },
+    {
+      "ticker": "KXDISPUTED-TEST-D1",
+      "event_ticker": "KXMVECROSSCATEGORY-S2026EEE1D3136E5",
+      "market_type": "binary",
+      "status": "disputed",
+      "result": "no",
+      "settlement_value_dollars": null,
+      "settlement_ts": "2026-10-08T00:15:17.415167Z",
+      "close_time": "2026-10-08T00:15:00Z",
+      "expiration_value": "",
+      "last_price_dollars": "0.0000"
+    }
+  ]
+}

@@ -251,9 +251,9 @@ def test_threshold_binary_outcome_labels():
     assert {c.outcome_label for c in contracts} == {"Yes", "No"}
 
 
-def test_threshold_binary_native_id_is_event_ticker():
+def test_single_market_binary_native_id_is_its_market_ticker():
     contracts = _map("KXCS2TOTALMAPS-26AUG04EXG")
-    assert all(c.exchange_event_native_id == "KXCS2TOTALMAPS-26AUG04EXG" for c in contracts)
+    assert all(c.exchange_event_native_id == "KXCS2TOTALMAPS-26AUG04EXG-3" for c in contracts)
 
 
 def test_threshold_binary_security_ids():
@@ -364,3 +364,37 @@ def test_settled_event_with_active_markets_only_resolves_finished_markets(monkey
     monkeypatch.setattr(adapter, "_fetch_settled_events", lambda lookback_days: iter([settled_event]))
     monkeypatch.setattr(adapter, "_fetch_active_events", lambda: iter([]))
     assert adapter.fetch_resolved(EXCHANGE_ID, 3) == {"KXNFLRETIRE-MSTAFFORD9-26:yes", "KXNFLRETIRE-MSTAFFORD9-26:no"}
+
+
+# ── Identity doesn't depend on how many markets Kalshi lists ─────────────────
+
+def _identity(contracts: list) -> set:
+    return {(c.exchange_security_id, c.exchange_event_native_id, c.contract_type) for c in contracts}
+
+
+def test_independent_market_keeps_its_identity_as_siblings_come_and_go():
+    event = EVENTS_BY_TICKER["KXRAMPBREX-40"]
+    ramp = [m for m in event["markets"] if m["ticker"] == "KXRAMPBREX-40-RAMP"]
+    alone = adapter._map_event(EXCHANGE_ID, {**event, "markets": ramp})
+    with_sibling = [c for c in adapter._map_event(EXCHANGE_ID, event) if c.exchange_security_id.startswith("KXRAMPBREX-40-RAMP")]
+    assert _identity(alone) == _identity(with_sibling) == {
+        ("KXRAMPBREX-40-RAMP:yes", "KXRAMPBREX-40-RAMP", ContractType.BINARY),
+        ("KXRAMPBREX-40-RAMP:no", "KXRAMPBREX-40-RAMP", ContractType.BINARY),
+    }
+
+
+def test_mutually_exclusive_event_with_one_market_is_already_multi_outcome():
+    event = EVENTS_BY_TICKER["KXNEWPOPE-70"]
+    first = event["markets"][0]
+    alone = adapter._map_event(EXCHANGE_ID, {**event, "markets": [first]})
+    full = [c for c in adapter._map_event(EXCHANGE_ID, event) if c.exchange_security_id == first["ticker"]]
+    assert _identity(alone) == _identity(full) == {(first["ticker"], "KXNEWPOPE-70", ContractType.MULTI_OUTCOME)}
+
+
+def test_resolved_ids_follow_the_mutually_exclusive_flag_not_the_market_count(monkeypatch):
+    lone_pope = {**EVENTS_BY_TICKER["KXNEWPOPE-70"], "markets": [{"ticker": "KXNEWPOPE-70-A", "status": "finalized"}]}
+    lone_binary = {**EVENTS_BY_TICKER["KXRAMPBREX-40"], "markets": [
+        {"ticker": "KXRAMPBREX-40-RAMP", "status": "finalized"}, {"ticker": "KXRAMPBREX-40-BREX", "status": "active"}]}
+    monkeypatch.setattr(adapter, "_fetch_settled_events", lambda _days: iter([lone_pope, lone_binary]))
+    monkeypatch.setattr(adapter, "_fetch_active_events", lambda: iter([]))
+    assert adapter.fetch_resolved(EXCHANGE_ID, 3) == {"KXNEWPOPE-70-A", "KXRAMPBREX-40-RAMP:yes", "KXRAMPBREX-40-RAMP:no"}

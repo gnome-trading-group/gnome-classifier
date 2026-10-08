@@ -1,4 +1,5 @@
 import logging
+from collections import Counter
 from datetime import datetime, timezone
 
 from classifier.db import ClassifierDB
@@ -12,10 +13,22 @@ def update_stale_tracker(
     failed_exchange_ids: set[int],
     miss_threshold: int,
     max_messages: int,
+    min_feed_ratio: float,
 ) -> tuple[list[dict], dict[str, dict]]:
     """Returns (stale_messages, new_tracker)."""
     new_tracker: dict[str, dict] = {}
     all_stale: list[dict] = []
+
+    # A venue down for maintenance, or serving a partial feed, can answer successfully with few or none of its
+    # markets. Markets never close at that rate between two checks, so such a fetch counts no misses for its exchange.
+    tracked = Counter(entry["exchange_id"] for entry in tracker.values())
+    failed_exchange_ids = set(failed_exchange_ids)
+    for exchange_id, count in tracked.items():
+        seen = len(active_by_exchange.get(exchange_id, ()))
+        if exchange_id not in failed_exchange_ids and seen < count * min_feed_ratio:
+            logger.warning("Exchange %d returned %d events against %d tracked; not counting misses this cycle",
+                           exchange_id, seen, count)
+            failed_exchange_ids.add(exchange_id)
 
     for tk, entry in tracker.items():
         exchange_id = entry["exchange_id"]

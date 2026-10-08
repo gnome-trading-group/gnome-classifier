@@ -1,0 +1,49 @@
+{
+  "_note": "Captured from POST /info {type: settledOutcome} on 2026-10-07, keyed by outcome id; null = not settled.",
+  "outcomes": {
+    "97": {
+      "spec": {
+        "outcome": 97,
+        "name": "Recurring Named Outcome",
+        "description": "index:0",
+        "sideSpecs": [
+          {
+            "name": "Yes"
+          },
+          {
+            "name": "No"
+          }
+        ],
+        "quoteToken": "USDC"
+      },
+      "settleFraction": "0.0",
+      "details": "price:76876.9",
+      "question": {
+        "question": {
+          "settled": 18
+        },
+        "name": "Recurring",
+        "description": "class:priceBucket|underlying:BTC|expiry:20260526-0600|priceThresholds:75815,78910|period:1d"
+      }
+    },
+    "1001": {
+      "spec": {
+        "outcome": 1001,
+        "name": "Recurring",
+        "description": "class:priceBinary|underlying:BTC|expiry:20260805-0600|targetPrice:63782|period:1d",
+        "sideSpecs": [
+          {
+            "name": "Yes"
+          },
+          {
+            "name": "No"
+          }
+        ],
+        "quoteToken": "USDC"
+      },
+      "settleFraction": "1.0",
+      "details": "price:64314.8"
+    },
+    "1473": null
+  }
+}

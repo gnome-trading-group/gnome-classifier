@@ -6,6 +6,7 @@ import requests.exceptions
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
+from classifier.adapters.settlement import chunked, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
@@ -23,6 +24,10 @@ TICK_SIZE = 10_000_000
 LOT_SIZE = 10_000
 
 MARKET_STATUS_OPEN = "MARKET_STATUS_OPEN"
+# Closed and resolving markets have no side prices yet; only a resolved market's are what each side paid.
+MARKET_STATUS_RESOLVED = "MARKET_STATUS_RESOLVED"
+# Slugs per /markets lookup when collecting settlements.
+SETTLEMENT_BATCH_SIZE = 50
 
 # The gateway documents volume fields but never returns them; it does honour volumeNumMin/Max
 # filters (shares). Querying disjoint ranges buckets each market by volume without the values.
@@ -103,6 +108,38 @@ class PolymarketUsAdapter:
                         resolved.update(self._security_ids(market))
 
         return resolved
+
+    def fetch_settlements(self, exchange_security_ids: set[str]) -> dict[str, int]:
+        slugs = sorted({security_id.rpartition(":")[0] for security_id in exchange_security_ids})
+        settlements: dict[str, int] = {}
+        for batch in chunked(slugs, SETTLEMENT_BATCH_SIZE):
+            for market in self._fetch_markets(batch):
+                if market.get("status") != MARKET_STATUS_RESOLVED:
+                    continue
+                for side in market.get("marketSides") or []:
+                    # Each side reports its own payout, so the short side's is already 1 - long.
+                    security_id = f"{market.get('slug')}:{'long' if side.get('long') else 'short'}"
+                    if security_id not in exchange_security_ids:
+                        continue
+                    price = to_price(side.get("price"))
+                    if price is None:
+                        logger.warning("Polymarket US %s resolved with an unusable price: %r", security_id, side.get("price"))
+                        continue
+                    settlements[security_id] = price
+        return settlements
+
+    def _fetch_markets(self, slugs: list[str]) -> list[dict]:
+        params = {"slug": slugs, "limit": len(slugs)}
+        try:
+            res = self._session.get(f"{GATEWAY_URL}/markets", params=params, timeout=30)
+            res.raise_for_status()
+            return res.json().get("markets", [])
+        except requests.exceptions.RetryError as e:
+            logger.error("Polymarket US markets retries exhausted: %s", e)
+            raise
+        except requests.exceptions.RequestException as e:
+            logger.error("Polymarket US markets API error: %s", e)
+            raise
 
     def _fetch_volume_buckets(self) -> dict[str, float]:
         volume_by_slug: dict[str, float] = {}
