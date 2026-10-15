@@ -1,10 +1,9 @@
 import * as cdk from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
-import * as sns from 'aws-cdk-lib/aws-sns';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
-import { CustomMetricWithAlarm, MonitoringFacade, SnsAlarmActionStrategy } from 'cdk-monitoring-constructs';
+import { CustomMetricWithAlarm, MonitoringFacade, noopAction } from 'cdk-monitoring-constructs';
 
 interface Props extends cdk.StackProps {
   contractsQueue: sqs.Queue;
@@ -28,15 +27,17 @@ interface Props extends cdk.StackProps {
 
 const AT_LEAST = cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD;
 
-// Fires when an hourly log count reaches `threshold`; an hour with no matching lines is healthy, not missing.
+// Fires when an hourly log count reaches `threshold`; an hour with no matching lines is healthy, not missing. The tier
+// is the alert's severity (the registry's alerting reads it from the end of the alarm's name).
 function countAlarm(
-  metric: cloudwatch.Metric, alarmFriendlyName: string, threshold: number, description: string, hoursRunning = 1,
+  metric: cloudwatch.Metric, alarmFriendlyName: string, threshold: number, description: string,
+  tier: 'Error' | 'Warning', hoursRunning = 1,
 ): CustomMetricWithAlarm {
   return {
     metric,
     alarmFriendlyName,
     addAlarm: {
-      Critical: {
+      [tier]: {
         threshold,
         comparisonOperator: AT_LEAST,
         treatMissingDataOverride: cloudwatch.TreatMissingData.NOT_BREACHING,
@@ -52,15 +53,13 @@ export class MonitoringStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
 
-    const slackSnsTopic = sns.Topic.fromTopicArn(
-      this, 'SlackSnsTopic', cdk.Fn.importValue('SlackSnsTopicArn')
-    );
-
+    // The alarms carry no action: the registry's alerting stack hears every alarm change through EventBridge. Nothing
+    // here touches trading, so none of it pages.
     const monitoring = new MonitoringFacade(this, 'ClassifierDashboard', {
       alarmFactoryDefaults: {
         actionsEnabled: true,
         alarmNamePrefix: 'Classifier-',
-        action: new SnsAlarmActionStrategy({ onAlarmTopic: slackSnsTopic }),
+        action: noopAction(),
         datapointsToAlarm: 1,
       },
     });
@@ -78,7 +77,7 @@ export class MonitoringStack extends cdk.Stack {
         humanReadableName: `${name} Queue`,
         alarmFriendlyName: name,
         addQueueMaxMessageAgeAlarm: {
-          Critical: { maxAgeInSeconds: 3600 },
+          Warning: { maxAgeInSeconds: 3600 },
         },
       });
       monitoring.monitorSqsQueue({
@@ -86,7 +85,7 @@ export class MonitoringStack extends cdk.Stack {
         humanReadableName: `${name} DLQ`,
         alarmFriendlyName: `${name}Dlq`,
         addQueueMaxSizeAlarm: {
-          Critical: { maxMessageCount: 1 },
+          Error: { maxMessageCount: 1 },
         },
       });
     }
@@ -104,7 +103,7 @@ export class MonitoringStack extends cdk.Stack {
         alarmFriendlyName: `${name}Worker`,
         // ECS kills a container at its memory limit; this warns before the restarts begin.
         addMemoryUsageAlarm: {
-          Critical: { maxUsagePercent: 90 },
+          Warning: { maxUsagePercent: 90 },
         },
       });
     }
@@ -117,25 +116,25 @@ export class MonitoringStack extends cdk.Stack {
           title: 'Worker starts per hour',
           // A deploy starts each worker once; three in an hour means it keeps dying (e.g. out of memory).
           metrics: Object.entries(props.workerStarts).map(([name, metric]) =>
-            countAlarm(metric, `${name}WorkerRestarts`, 3, `${name} worker started 3+ times in an hour`)),
+            countAlarm(metric, `${name}WorkerRestarts`, 3, `${name} worker started 3+ times in an hour`, 'Error')),
         },
         {
           title: 'Fetch loop failures per hour',
           metrics: [countAlarm(props.fetchCycleFailures, 'FetchCycleFailures', 3,
-            'Fetch, resolve, stale or settle cycles (or a venue settlement lookup) failed 3+ times in an hour')],
+            'Fetch, resolve, stale or settle cycles (or a venue settlement lookup) failed 3+ times in an hour', 'Error')],
         },
         {
           title: 'Securities refused a second event per hour',
           // Any occurrence means an adapter changed the event it maps a market to, which splits markets.
           metrics: [countAlarm(props.identityRegressions, 'IdentityRegressions', 1,
-            'An adapter tried to link an already-linked security to another event')],
+            'An adapter tried to link an already-linked security to another event', 'Error')],
         },
         {
           title: 'Venue feed gaps per hour',
           // Stale cleanup runs hourly, so six hours running is a venue whose feed has been empty or partial for most
           // of the window after which its events would otherwise have been retired.
           metrics: [countAlarm(props.venueFeedGaps, 'VenueFeedGaps', 1,
-            'A venue feed has been empty or partial for 6 hours', 6)],
+            'A venue feed has been empty or partial for 6 hours', 'Warning', 6)],
         },
       ],
     });
