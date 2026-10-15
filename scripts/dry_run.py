@@ -7,21 +7,21 @@ Subcommands run progressively deeper pipeline stages:
       Fetch raw contracts from an adapter and display them grouped by event.
 
   dry-run canonicalize [ADAPTER] [-n N] [--no-cache]
-      Fetch + categorize events via Claude (category and tags). Shows the per-event
+      Fetch + categorize events via Bedrock (category and tags). Shows the per-event
       result and the category distribution.
-      Requires ANTHROPIC_API_KEY.
+      Requires AWS credentials with Bedrock access (e.g. AWS_PROFILE=dev).
 
   dry-run entities [ADAPTER] [-n N] [--no-canonicalize] [--no-cache] [--verbose]
       Fetch + create entities (events, securities, listings). Prints summary counts.
       --verbose shows every created entity in detail.
-      --no-canonicalize skips Claude and uses the exchange category with no tags (no API key required).
+      --no-canonicalize skips Bedrock and uses the exchange category with no tags (no AWS credentials required).
 
   dry-run classify [ADAPTER] [-n N] [--no-canonicalize] [--structural-only] [--skip-judgment] [--no-cache]
       Full pipeline: fetch + entities + relationship classification.
       --structural-only skips all semantic work (no embeddings, no Claude calls).
       --skip-judgment runs embedding search but skips Claude judgment calls.
-      Requires ANTHROPIC_API_KEY and VOYAGE_API_KEY (unless --no-canonicalize for
-      Anthropic; VOYAGE_API_KEY is always required for embeddings).
+      Requires AWS credentials with Bedrock access (unless --no-canonicalize), ANTHROPIC_API_KEY for
+      judgment calls, and VOYAGE_API_KEY for embeddings.
 
   dry-run reclassify [--with-semantic] [--no-cache]
       Re-run relationship classification on ALL existing events in the DB.
@@ -56,7 +56,7 @@ from classifier.constants import (
 )
 from classifier.db import ClassifierDB
 from classifier.pipeline import PipelineResult, create_entities_and_embed, fetch_exchanges, run_full_pipeline_sync
-from classifier.client import BatchAnthropicClient, BatchVoyageClient
+from classifier.client import BatchAnthropicClient, BatchVoyageClient, BedrockConverseClient, bedrock_runtime_client
 from classifier.stages.canonicalize import canonicalize_events
 from classifier.stages.classify import classify_semantic_sync, prepare_semantic_batch, run_classification_sync
 from classifier.stages.fetch import diff_contracts, fetch_all, fetch_resolved_outcomes
@@ -65,7 +65,7 @@ from classifier.stages.settle import record_settlements
 from classifier.stages.stale import deactivate_stale_events
 from classifier.types import CanonicalizeInput
 from gnomepy.registry import RegistryClient
-from scripts.testing import StubDB, StubRegistry, no_op_anthropic_client, no_op_voyage_client
+from scripts.testing import FakeConverseClient, StubDB, StubRegistry, no_op_anthropic_client, no_op_voyage_client
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -82,19 +82,15 @@ def _build_cache(no_cache: bool):
 
 
 def _build_clients(*, no_canonicalize: bool, no_cache: bool):
-    if no_canonicalize:
-        batch_client = BatchAnthropicClient(client=no_op_anthropic_client())
-    else:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise click.ClickException("ANTHROPIC_API_KEY not set — pass --no-canonicalize to skip, or set the key")
-        batch_client = BatchAnthropicClient(client=anthropic.Anthropic(api_key=api_key))
+    canon_client = FakeConverseClient() if no_canonicalize else BedrockConverseClient(client=bedrock_runtime_client())
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    batch_client = BatchAnthropicClient(client=anthropic.Anthropic(api_key=api_key) if api_key else no_op_anthropic_client())
 
     voyage_key = os.environ.get("VOYAGE_API_KEY")
     raw_voyage = voyageai.Client(api_key=voyage_key) if voyage_key else no_op_voyage_client()
     voyage_client = BatchVoyageClient(client=raw_voyage)
 
-    return batch_client, voyage_client, _build_cache(no_cache)
+    return canon_client, batch_client, voyage_client, _build_cache(no_cache)
 
 
 def _fetch_contracts(adapter: str | None, max_contracts: int | None):
@@ -193,7 +189,7 @@ def _display_entities_verbose(registry: StubRegistry):
             print(f"  event:{ec['event_id']}  ×  {sym}  →  outcome: {ec['outcome_label']}")
 
 
-def _run_canonicalize(contracts, batch_client, cache, output_path: str):
+def _run_canonicalize(contracts, canon_client, cache, output_path: str):
     print(f"\n=== CANONICALIZE ({len(contracts)} contracts) ===\n")
 
     contracts_by_native: dict[tuple, list] = {}
@@ -208,12 +204,14 @@ def _run_canonicalize(contracts, batch_client, cache, output_path: str):
             group[0].event_category,
             exchange_id,
             native_id,
+            mapped_category=group[0].mapped_category,
+            exchange_tags=tuple(group[0].event_tags),
         )
         for (exchange_id, native_id), group in contracts_by_native.items()
     ]
 
     print(f"Canonicalizing {len(events_to_canonicalize)} unique events...")
-    canonical_by_native = canonicalize_events(batch_client, events_to_canonicalize, cache=cache)
+    canonical_by_native = canonicalize_events(canon_client, events_to_canonicalize, cache=cache)
     print(f"Done. {len(canonical_by_native)} results.\n")
 
     category_counts = Counter(info["category"] for info in canonical_by_native.values())
@@ -276,37 +274,34 @@ def fetch(adapter: str, max_contracts: int | None, min_volume: float):
 @click.option("--no-cache", is_flag=True, help="Ignore the Redis cache even if REDIS_URL is set")
 @click.pass_context
 def canonicalize(ctx, adapter: str | None, max_contracts: int | None, no_cache: bool):
-    """Fetch + categorize events via Claude. Shows category and tags per event."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise click.ClickException("ANTHROPIC_API_KEY not set")
-    batch_client = BatchAnthropicClient(client=anthropic.Anthropic(api_key=api_key))
+    """Fetch + categorize events via Bedrock. Shows category and tags per event."""
+    canon_client = BedrockConverseClient(client=bedrock_runtime_client())
 
     _, _, contracts, _ = _fetch_contracts(adapter, max_contracts)
     if not contracts:
         print("No contracts returned.")
         return
 
-    _run_canonicalize(contracts, batch_client, _build_cache(no_cache), ctx.obj["output_path"])
+    _run_canonicalize(contracts, canon_client, _build_cache(no_cache), ctx.obj["output_path"])
 
 
 @main.command()
 @click.argument("adapter", required=False, default=None)
 @click.option("-n", "max_contracts", type=int, default=None, help="Limit to first N contracts")
-@click.option("--no-canonicalize", is_flag=True, help="Skip Claude — use exchange category, no tags (no API key required)")
+@click.option("--no-canonicalize", is_flag=True, help="Skip Bedrock — use exchange category, no tags (no AWS credentials required)")
 @click.option("--no-cache", is_flag=True, help="Ignore the Redis cache even if REDIS_URL is set")
 @click.option("--verbose", is_flag=True, help="Show every created event, security, and event_contract")
 @click.pass_context
 def entities(ctx, adapter: str | None, max_contracts: int | None, no_canonicalize: bool, no_cache: bool, verbose: bool):
     """Fetch + create entities (events, securities, listings). Prints summary counts."""
-    batch_client, voyage_client, cache = _build_clients(no_canonicalize=no_canonicalize, no_cache=no_cache)
+    canon_client, _, voyage_client, cache = _build_clients(no_canonicalize=no_canonicalize, no_cache=no_cache)
     registry, db, contracts, exchange_by_code = _fetch_contracts(adapter, max_contracts)
     if not contracts:
         print("No contracts returned.")
         return
 
     print(f"\nRunning entity creation ({len(contracts)} contracts)...", flush=True)
-    entity_result = create_entities_and_embed(registry, batch_client, contracts, voyage_client=voyage_client, cache=cache, db=db, debug=ctx.obj.get("debug", False))
+    entity_result = create_entities_and_embed(registry, canon_client, contracts, voyage_client=voyage_client, cache=cache, db=db, debug=ctx.obj.get("debug", False))
 
     print(f"\n{'='*70}")
     print("ENTITY CREATION SUMMARY")
@@ -327,14 +322,14 @@ def entities(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
 @main.command()
 @click.argument("adapter", required=False, default=None)
 @click.option("-n", "max_contracts", type=int, default=None, help="Limit to first N contracts")
-@click.option("--no-canonicalize", is_flag=True, help="Skip Claude categorization — use exchange category, no tags")
+@click.option("--no-canonicalize", is_flag=True, help="Skip Bedrock categorization — use exchange category, no tags")
 @click.option("--structural-only", is_flag=True, help="Skip all semantic work — only structural + rule-based relationships")
 @click.option("--skip-judgment", is_flag=True, help="Run embedding search but skip Claude judgment calls")
 @click.option("--no-cache", is_flag=True, help="Ignore the Redis cache even if REDIS_URL is set")
 @click.pass_context
 def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicalize: bool, structural_only: bool, skip_judgment: bool, no_cache: bool):
     """Full pipeline: fetch + entities + relationship classification."""
-    batch_client, voyage_client, cache = _build_clients(
+    canon_client, batch_client, voyage_client, cache = _build_clients(
         no_canonicalize=no_canonicalize, no_cache=no_cache,
     )
     registry, db, contracts, exchange_by_code = _fetch_contracts(adapter, max_contracts)
@@ -349,7 +344,7 @@ def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
     if skip_judgment and not structural_only:
         # Embedding search only — run entity creation + structural, then show candidate count
         result: PipelineResult = run_full_pipeline_sync(
-            registry, batch_client, contracts,
+            registry, canon_client, batch_client, contracts,
             voyage_client=voyage_client, cache=cache, db=db,
             skip_semantic=True, debug=debug,
         )
@@ -361,7 +356,7 @@ def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
                 logger.info("skip_judgment: would call Claude for %d pairs", len(api_requests))
     else:
         result = run_full_pipeline_sync(
-            registry, batch_client, contracts,
+            registry, canon_client, batch_client, contracts,
             voyage_client=voyage_client, cache=cache, db=db,
             skip_semantic=structural_only, debug=debug,
         )

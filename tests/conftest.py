@@ -10,7 +10,7 @@ from moto import mock_aws
 import anthropic
 
 from classifier.client import BatchAnthropicClient
-from scripts.testing import StubDB, StubRegistry
+from scripts.testing import FakeConverseClient, StubDB, StubRegistry
 from gnomepy.registry.types import Event, EventContract
 
 
@@ -58,6 +58,11 @@ def mock_anthropic():
 
     inner.messages.create.side_effect = _fake_create
     return BatchAnthropicClient(client=inner, max_batch_wait=0)
+
+
+@pytest.fixture
+def mock_converse():
+    return FakeConverseClient(category="POLITICS", tags=["test", "tag", "here"])
 
 
 @pytest.fixture

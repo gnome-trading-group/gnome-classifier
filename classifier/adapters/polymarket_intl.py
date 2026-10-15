@@ -6,6 +6,7 @@ import requests.exceptions
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
+from classifier import taxonomy
 from classifier.adapters.settlement import chunked, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
@@ -259,8 +260,10 @@ class PolymarketIntlAdapter:
         event_description = event.get("description") or None
         event_title = event.get("title", "")
         event_slug = event.get("slug", "")
-        tags = event.get("tags") or []
-        event_category = tags[0]["label"] if tags else None
+        tag_labels = [t.get("label") for t in event.get("tags") or [] if isinstance(t, dict)]
+        event_category = tag_labels[0] if tag_labels else None
+        mapped_category = taxonomy.polymarket_intl_category(tag_labels)
+        event_tags = taxonomy.polymarket_tags(tag_labels, event.get("seriesSlug"), event_slug)
 
         event_end_date = event.get("endDate")
         is_neg_risk_group = _is_neg_risk(event)
@@ -270,6 +273,8 @@ class PolymarketIntlAdapter:
             return self._map_neg_risk_group(
                 exchange_id, markets, event_title, event_slug, event_description, event_volume,
                 event_category=event_category,
+                mapped_category=mapped_category,
+                event_tags=event_tags,
                 event_end_date=event_end_date,
             )
 
@@ -280,6 +285,8 @@ class PolymarketIntlAdapter:
                 exchange_id, market, event_description, event_slug, market_volume,
                 event_title_override=_build_sports_event_title(event_title, market),
                 event_category=event_category,
+                mapped_category=mapped_category,
+                event_tags=event_tags,
                 event_end_date=event_end_date,
             ))
         return contracts
@@ -293,6 +300,8 @@ class PolymarketIntlAdapter:
         event_description: str | None,
         event_volume: float = 0.0,
         event_category: str | None = None,
+        mapped_category: str | None = None,
+        event_tags: list[str] | None = None,
         event_end_date: str | None = None,
     ) -> list[AdapterContract]:
         symbol_base = f"{event_title[:60]} -- "
@@ -331,6 +340,8 @@ class PolymarketIntlAdapter:
                 outcome_label=outcome_label,
                 event_description=event_description,
                 event_category=event_category,
+                mapped_category=mapped_category,
+                event_tags=list(event_tags or []),
                 event_expiry=market.get("endDate") or event_end_date,
                 exchange_event_native_id=event_slug,
                 security_symbol=format_security_symbol(self.symbol_prefix, _market_symbol_base(market, condition_id)),
@@ -348,6 +359,8 @@ class PolymarketIntlAdapter:
         event_volume: float = 0.0,
         event_title_override: str | None = None,
         event_category: str | None = None,
+        mapped_category: str | None = None,
+        event_tags: list[str] | None = None,
         event_end_date: str | None = None,
     ) -> list[AdapterContract]:
         question = market.get("question", "")
@@ -394,6 +407,8 @@ class PolymarketIntlAdapter:
                 outcome_label=outcome,
                 event_description=market.get("description") or event_description,
                 event_category=event_category,
+                mapped_category=mapped_category,
+                event_tags=list(event_tags or []),
                 event_expiry=expiry,
                 exchange_event_native_id=condition_id,
                 security_symbol=format_security_symbol(self.symbol_prefix, _market_symbol_base(market, condition_id), outcome),

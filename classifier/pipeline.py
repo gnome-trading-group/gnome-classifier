@@ -31,7 +31,7 @@ class PipelineResult:
 
 def create_entities_and_embed(
     registry,
-    batch_client,
+    canon_client,
     contracts,
     *,
     voyage_client: BatchVoyageClient,
@@ -39,22 +39,22 @@ def create_entities_and_embed(
     db,
     canonicalize_model: str = DEFAULT_CANONICALIZE_MODEL,
     canonicalize_batch_size: int = DEFAULT_CANONICALIZE_BATCH_SIZE,
-    sync_threshold: int = DEFAULT_SYNC_THRESHOLD,
     voyage_model: str = DEFAULT_VOYAGE_EMBEDDING_MODEL,
     voyage_chunk_size: int = DEFAULT_VOYAGE_EMBED_CHUNK_SIZE,
     debug: bool = False,
 ) -> EntityResult:
     entity_result = create_entities(
-        registry, batch_client, contracts, cache=cache, db=db,
+        registry, canon_client, contracts, cache=cache, db=db,
         canonicalize_model=canonicalize_model,
         canonicalize_batch_size=canonicalize_batch_size,
-        sync_threshold=sync_threshold, debug=debug,
+        debug=debug,
     )
     return embed_and_update(voyage_client, entity_result, db, voyage_model=voyage_model, voyage_chunk_size=voyage_chunk_size, debug=debug)
 
 
 def run_full_pipeline_sync(
     registry,
+    canon_client,
     batch_client,
     contracts,
     *,
@@ -77,11 +77,10 @@ def run_full_pipeline_sync(
     debug: bool = False,
 ) -> PipelineResult:
     entity_result = create_entities_and_embed(
-        registry, batch_client, contracts,
+        registry, canon_client, contracts,
         voyage_client=voyage_client, cache=cache, db=db,
         canonicalize_model=canonicalize_model,
         canonicalize_batch_size=canonicalize_batch_size,
-        sync_threshold=sync_threshold,
         voyage_model=voyage_model,
         voyage_chunk_size=voyage_chunk_size,
         debug=debug,

@@ -184,7 +184,26 @@ def test_question_event_id_survives_outcomes_settling():
 def test_recurring_price_binary(contracts):
     group = _event(contracts, "o:7240")
     assert group[0].event_title == "BTC above 84277 at 2026-10-02 06:00?"
-    assert group[0].event_category == "CRYPTO"
+    assert group[0].mapped_category == "CRYPTO"
+    assert group[0].event_tags == ["bitcoin"]
+
+
+def test_tradfi_perps_are_finance(contracts):
+    group = _event(contracts, "o:7351")
+    assert group[0].event_title.startswith("xyz:GOLD above")
+    assert (group[0].mapped_category, group[0].event_tags) == ("FINANCE", ["gold"])
+
+
+def test_template_sports_contest_tags(contracts):
+    group = _event(contracts, "o:6207")
+    assert group[0].event_category == "sportsContestWinner"
+    assert group[0].mapped_category == "SPORTS"
+    assert group[0].event_tags == ["football", "nfl", "cleveland browns", "pittsburgh steelers"]
+
+
+def test_policy_rate_decision_is_economics(contracts):
+    group = _event(contracts, "q:289")
+    assert (group[0].mapped_category, group[0].event_tags) == ("ECONOMICS", ["fed"])
 
 
 def test_recurring_price_buckets(contracts):

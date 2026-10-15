@@ -211,27 +211,27 @@ def kalshi_exchange():
     return ex
 
 
-def test_entity_creation_binary(stub_registry, stub_db, mock_anthropic, kalshi_exchange):
+def test_entity_creation_binary(stub_registry, stub_db, mock_converse, kalshi_exchange):
     contracts = _map("KXELONMARS-99")
-    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
     assert result.events_created == 1
     assert result.securities_created == 2
     assert result.listings_created == 2
     assert result.event_contracts_created == 2
 
 
-def test_entity_creation_multi_outcome(stub_registry, stub_db, mock_anthropic, kalshi_exchange):
+def test_entity_creation_multi_outcome(stub_registry, stub_db, mock_converse, kalshi_exchange):
     contracts = _map("KXNEWPOPE-70")
-    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
     assert result.events_created == 1
     assert result.securities_created == 7
     assert result.listings_created == 7
     assert result.event_contracts_created == 7
 
 
-def test_entity_creation_sub_markets(stub_registry, stub_db, mock_anthropic, kalshi_exchange):
+def test_entity_creation_sub_markets(stub_registry, stub_db, mock_converse, kalshi_exchange):
     contracts = _map("KXRAMPBREX-40")
-    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
     # 2 sub-events → 2 events, each with Yes+No → 4 securities
     assert result.events_created == 2
     assert result.securities_created == 4
@@ -281,9 +281,9 @@ def test_redundant_sub_title_not_duplicated():
     assert all(c.event_title == "Will Elon Musk visit Mars in his lifetime?" for c in contracts)
 
 
-def test_entity_creation_threshold_binary(stub_registry, stub_db, mock_anthropic):
+def test_entity_creation_threshold_binary(stub_registry, stub_db, mock_converse):
     contracts = _map("KXCS2TOTALMAPS-26AUG04EXG")
-    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
     assert result.events_created == 1
     assert result.securities_created == 2
     assert result.listings_created == 2
@@ -398,3 +398,74 @@ def test_resolved_ids_follow_the_mutually_exclusive_flag_not_the_market_count(mo
     monkeypatch.setattr(adapter, "_fetch_settled_events", lambda _days: iter([lone_pope, lone_binary]))
     monkeypatch.setattr(adapter, "_fetch_active_events", lambda: iter([]))
     assert adapter.fetch_resolved(EXCHANGE_ID, 3) == {"KXNEWPOPE-70-A", "KXRAMPBREX-40-RAMP:yes", "KXRAMPBREX-40-RAMP:no"}
+
+
+# ── Category and tags from series ─────────────────────────────────────────────
+
+def test_category_mapped_and_series_tags_used():
+    event = EVENTS_BY_TICKER["KXRAMPBREX-40"]
+    contracts = adapter._map_event(EXCHANGE_ID, event, {event["series_ticker"]: ["IPOs", "Companies"]})
+    assert all(c.event_category == "Financials" and c.mapped_category == "FINANCE" for c in contracts)
+    assert all(c.event_tags == ["ipo", "companies"] for c in contracts)
+
+
+def test_ambiguous_category_falls_back_to_series_tags():
+    event = json.loads(json.dumps(EVENTS_BY_TICKER["KXELONMARS-99"]))
+    event["category"] = "Science and Technology"
+    contracts = adapter._map_event(EXCHANGE_ID, event, {event["series_ticker"]: ["Space"]})
+    assert all(c.mapped_category == "SCIENCE" for c in contracts)
+
+
+def test_esports_game_from_series_ticker():
+    event = json.loads(json.dumps(EVENTS_BY_TICKER["KXRAMPBREX-40"]))
+    event["category"] = "Sports"
+    event["series_ticker"] = "KXCS2GAME"
+    contracts = adapter._map_event(EXCHANGE_ID, event, {"KXCS2GAME": ["Esports"]})
+    assert all(c.mapped_category == "SPORTS" and c.event_tags == ["cs2", "esports"] for c in contracts)
+
+
+def test_fetch_joins_series_tags():
+    session = MagicMock()
+    series_page = MagicMock()
+    series_page.json.return_value = {"series": [{"ticker": "KXRAMPBREX", "tags": ["IPOs"]}], "cursor": ""}
+    events_page = MagicMock()
+    events_page.json.return_value = {"events": [EVENTS_BY_TICKER["KXRAMPBREX-40"]], "cursor": ""}
+    session.get.side_effect = [series_page, events_page]
+    contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
+    assert contracts and all(c.event_tags == ["ipo"] for c in contracts)
+
+
+@pytest.mark.parametrize("category, series_ticker, series_tags", [
+    (None, None, None),
+    (["Sports"], "KXCS2GAME", {"KXCS2GAME": ["Esports"]}),
+    ("Sports", None, {"KXCS2GAME": ["Esports"]}),
+    ("Science and Technology", "KXRAMPBREX", {}),
+])
+def test_malformed_event_fields_do_not_raise(category, series_ticker, series_tags):
+    event = json.loads(json.dumps(EVENTS_BY_TICKER["KXRAMPBREX-40"]))
+    event["category"] = category
+    event["series_ticker"] = series_ticker
+    contracts = adapter._map_event(EXCHANGE_ID, event, series_tags)
+    assert contracts
+    assert all(all(isinstance(t, str) for t in c.event_tags) for c in contracts)
+
+
+def test_malformed_series_entries_are_skipped():
+    session = MagicMock()
+    page = MagicMock()
+    page.json.return_value = {"series": [
+        {"tags": ["IPOs"]}, {"ticker": "KXA", "tags": "Esports"}, {"ticker": "KXB", "tags": None},
+        {"ticker": "KXRAMPBREX", "tags": ["IPOs", None, 5]},
+    ], "cursor": ""}
+    session.get.return_value = page
+    assert KalshiAdapter(session=session)._fetch_series_tags() == {"KXRAMPBREX": ["IPOs"]}
+
+
+def test_series_outage_still_maps_events():
+    import requests
+    session = MagicMock()
+    events_page = MagicMock()
+    events_page.json.return_value = {"events": [EVENTS_BY_TICKER["KXRAMPBREX-40"]], "cursor": ""}
+    session.get.side_effect = [requests.exceptions.ConnectionError("down"), events_page]
+    contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
+    assert contracts and all(c.mapped_category == "FINANCE" and c.event_tags == [] for c in contracts)

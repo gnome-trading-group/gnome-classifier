@@ -7,6 +7,7 @@ import requests.exceptions
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
+from classifier import taxonomy
 from classifier.adapters.settlement import PRICE_SCALE, chunked, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://external-api.kalshi.com/trade-api/v2"
 PAGE_SIZE = 200
+SERIES_PAGE_SIZE = 1000
 # Tickers per /markets lookup when collecting settlements.
 SETTLEMENT_BATCH_SIZE = 100
 # Kalshi marks a market determined, then may amend or dispute it; only finalized values are paid out.
@@ -75,6 +77,13 @@ class KalshiAdapter:
         self._session = session or RateLimitedSession(min_request_interval=0.15)
 
     def fetch(self, exchange_id: ExchangeId):
+        # Events carry only a category; the tags live on their series. Losing them costs tags (the LLM tops those up),
+        # not the cycle, so a series outage doesn't stop Kalshi events from flowing.
+        try:
+            series_tags = self._fetch_series_tags()
+        except requests.exceptions.RequestException:
+            logger.warning("Kalshi series tags unavailable this cycle; mapping events without them", exc_info=True)
+            series_tags = {}
         cursor = ""
         while True:
             params: dict = {"with_nested_markets": "true", "status": "open", "limit": PAGE_SIZE}
@@ -90,12 +99,35 @@ class KalshiAdapter:
             except requests.exceptions.RequestException as e:
                 logger.error("Kalshi API error: %s", e)
                 raise
-            page = [c for event in data.get("events", []) for c in self._map_event(exchange_id, event)]
+            page = [c for event in data.get("events", []) for c in self._map_event(exchange_id, event, series_tags)]
             if page:
                 yield page
             cursor = data.get("cursor", "")
             if not cursor:
                 return
+
+    def _fetch_series_tags(self) -> dict[str, list[str]]:
+        tags_by_series: dict[str, list[str]] = {}
+        cursor = ""
+        while True:
+            params: dict = {"limit": SERIES_PAGE_SIZE}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                res = self._session.get(f"{BASE_URL}/series", params=params, timeout=30)
+                res.raise_for_status()
+                data = res.json()
+            except requests.exceptions.RequestException as e:
+                logger.error("Kalshi series API error: %s", e)
+                raise
+            series = data.get("series") or []
+            for s in series:
+                ticker, tags = s.get("ticker"), s.get("tags")
+                if ticker and isinstance(tags, list):
+                    tags_by_series[ticker] = [t for t in tags if isinstance(t, str)]
+            cursor = data.get("cursor", "")
+            if not cursor or not series:
+                return tags_by_series
 
     def fetch_resolved(self, exchange_id: ExchangeId, lookback_days: int) -> set[str]:
         resolved: set[str] = set()
@@ -204,7 +236,9 @@ class KalshiAdapter:
             if not cursor:
                 return
 
-    def _map_event(self, exchange_id: ExchangeId, event: dict) -> list[AdapterContract]:
+    def _map_event(
+        self, exchange_id: ExchangeId, event: dict, series_tags: dict[str, list[str]] | None = None,
+    ) -> list[AdapterContract]:
         markets = event.get("markets", [])
         if not markets:
             return []
@@ -221,6 +255,9 @@ class KalshiAdapter:
             event_description = markets[0].get("rules_secondary") or markets[0].get("rules_primary") or event_description
 
         series_ticker = event.get("series_ticker", "")
+        tags = (series_tags or {}).get(series_ticker, [])
+        mapped_category = taxonomy.kalshi_category(event_category, tags)
+        event_tags = taxonomy.kalshi_tags(series_ticker, tags)
         sub_title = event.get("sub_title", "")
         if series_ticker:
             slug = _slugify(f"{event_title} {sub_title}".strip())
@@ -264,6 +301,8 @@ class KalshiAdapter:
                     outcome_label=outcome,
                     event_description=event_description,
                     event_category=event_category,
+                    mapped_category=mapped_category,
+                    event_tags=list(event_tags),
                     event_expiry=expiry,
                     exchange_event_native_id=event_ticker,
                     security_symbol=format_security_symbol(self.symbol_prefix, ticker),
@@ -307,6 +346,8 @@ class KalshiAdapter:
                         outcome_label=side,
                         event_description=market_description,
                         event_category=event_category,
+                        mapped_category=mapped_category,
+                        event_tags=list(event_tags),
                         event_expiry=expiry,
                         exchange_event_native_id=native_id,
                         security_symbol=format_security_symbol(self.symbol_prefix, ticker, side),

@@ -6,6 +6,7 @@ import requests.exceptions
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
+from classifier import taxonomy
 from classifier.adapters.settlement import chunked, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
@@ -189,6 +190,9 @@ class PolymarketUsAdapter:
             return []
         native_url = f"https://polymarket.us/event/{event_slug}"
         event_category = event.get("category") or None
+        tag_labels = [t.get("label") if isinstance(t, dict) else t for t in event.get("tags") or []]
+        mapped_category = taxonomy.polymarket_us_category(event_category)
+        event_tags = taxonomy.polymarket_tags(tag_labels, event.get("seriesSlug"), event_slug)
 
         contracts: list[AdapterContract] = []
         for market in event.get("markets") or []:
@@ -225,6 +229,8 @@ class PolymarketUsAdapter:
                     outcome_label=outcome,
                     event_description=market.get("description") or event.get("description") or None,
                     event_category=event_category,
+                    mapped_category=mapped_category,
+                    event_tags=list(event_tags),
                     event_expiry=market.get("endDate") or event.get("endDate"),
                     exchange_event_native_id=slug,
                     security_symbol=format_security_symbol(self.symbol_prefix, slug, leg),

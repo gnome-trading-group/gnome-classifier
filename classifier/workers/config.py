@@ -9,7 +9,7 @@ import boto3
 import voyageai
 
 from classifier.cache import RedisClassifierCache
-from classifier.client import BatchAnthropicClient, BatchVoyageClient
+from classifier.client import BatchAnthropicClient, BatchVoyageClient, BedrockConverseClient, bedrock_runtime_client
 
 from classifier.db import ClassifierDB
 from classifier.runtime_config import RuntimeConfig
@@ -52,6 +52,10 @@ def init_registry() -> RegistryClient:
 def init_anthropic() -> BatchAnthropicClient:
     api_key = fetch_secret(os.environ["ANTHROPIC_API_KEY_SECRET"])
     return BatchAnthropicClient(client=anthropic.Anthropic(api_key=api_key))
+
+
+def init_bedrock() -> BedrockConverseClient:
+    return BedrockConverseClient(client=bedrock_runtime_client())
 
 
 def init_voyage() -> BatchVoyageClient:

@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from classifier.adapters import polymarket_us
 from classifier.adapters.polymarket_us import PolymarketUsAdapter
 from classifier.stages.entities import create_entities
@@ -176,9 +178,44 @@ def test_fetch_resolved_covers_closed_and_early_resolved_markets(monkeypatch):
 
 # ── Entity creation ───────────────────────────────────────────────────────────
 
-def test_entity_creation_futures(stub_registry, stub_db, mock_anthropic):
-    result = create_entities(stub_registry, mock_anthropic, _map(FUTURES), db=stub_db)
+def test_entity_creation_futures(stub_registry, stub_db, mock_converse):
+    result = create_entities(stub_registry, mock_converse, _map(FUTURES), db=stub_db)
     assert result.events_created == 4
     assert result.securities_created == 8
     assert result.listings_created == 8
     assert result.event_contracts_created == 8
+
+
+# ── Category and tags ─────────────────────────────────────────────────────────
+
+def test_category_and_tags_mapped():
+    event = json.loads(json.dumps(EVENTS_BY_SLUG[POLITICS]))
+    event["tags"] = [{"label": "Politics"}, {"label": "Midterms"}, {"label": "House"}]
+    contracts = adapter._map_event(EXCHANGE_ID, event, {})
+    assert contracts and all(c.mapped_category == "POLITICS" for c in contracts)
+    assert all(c.event_tags == ["midterms", "house"] for c in contracts)
+
+
+def test_esports_game_from_slug_prefix():
+    event = json.loads(json.dumps(EVENTS_BY_SLUG[POLITICS]))
+    event["category"] = "sports"
+    event["slug"] = "cs2-re-nem-2026-09-24"
+    event["tags"] = [{"label": "Sports"}, {"label": "Games"}, {"label": "Esports"}]
+    contracts = adapter._map_event(EXCHANGE_ID, event, {})
+    assert contracts and all(c.event_tags == ["cs2", "esports"] for c in contracts)
+
+
+@pytest.mark.parametrize("category, tags, series_slug", [
+    (None, None, None),
+    (["sports"], [None, {"label": None}, 3], None),
+    (7, [{"label": "Esports"}], 42),
+    ("", [], ""),
+])
+def test_malformed_category_and_tags_do_not_raise(category, tags, series_slug):
+    event = json.loads(json.dumps(EVENTS_BY_SLUG[POLITICS]))
+    event["category"] = category
+    event["tags"] = tags
+    event["seriesSlug"] = series_slug
+    contracts = adapter._map_event(EXCHANGE_ID, event, {})
+    assert contracts and all(c.mapped_category is None for c in contracts)
+    assert all(all(isinstance(t, str) for t in c.event_tags) for c in contracts)

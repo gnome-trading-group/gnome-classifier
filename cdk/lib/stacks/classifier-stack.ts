@@ -278,11 +278,19 @@ export class ClassifierStack extends cdk.Stack {
       this.contractsQueue.grantConsumeMessages(role);
       this.entitiesQueue.grantSendMessages(role);
       this.notificationsTopic.grantPublish(role);
-      anthropicApiKeySecret.grantRead(role);
       dbSecret.grantRead(role);
       role.addToPolicy(new iam.PolicyStatement({
         actions: ['apigateway:GET'],
         resources: [cdk.Fn.importValue('RegistryApiKeyArn'), controllerApiKeyArn],
+      }));
+      // The canonicalize model is runtime config, and cross-region profiles route to foundation models in other
+      // regions (global profiles to a region-less ARN), so neither resource can be pinned at deploy time.
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel'],
+        resources: [
+          `arn:aws:bedrock:${this.region}:${this.account}:inference-profile/*`,
+          'arn:aws:bedrock:*::foundation-model/*',
+        ],
       }));
     });
 

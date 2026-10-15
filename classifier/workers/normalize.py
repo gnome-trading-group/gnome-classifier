@@ -9,7 +9,7 @@ from classifier.stages.entities import create_entities
 from classifier.stages.resolve import detect_resolved_events
 from classifier.stages.stale import deactivate_stale_events
 from classifier.workers.base import BaseWorker
-from classifier.workers.config import WorkerConfig, init_anthropic, init_cache, init_db, init_registry, init_runtime_config
+from classifier.workers.config import WorkerConfig, init_bedrock, init_cache, init_db, init_registry, init_runtime_config
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class NormalizeWorker(BaseWorker):
         self._config = config
         self._sns_topic_arn = config.notifications_topic_arn
         self._registry = None
-        self._batch_client = None
+        self._canon_client = None
         self._cache = None
         self._db = None
         self._sns = None
@@ -35,7 +35,7 @@ class NormalizeWorker(BaseWorker):
         self._registry = init_registry()
         self._runtime_config = init_runtime_config()
         self._runtime_config.refresh()
-        self._batch_client = init_anthropic()
+        self._canon_client = init_bedrock()
         self._cache = init_cache()
         self._db = init_db()
         self._sns = boto3.client("sns")
@@ -77,12 +77,11 @@ class NormalizeWorker(BaseWorker):
         if new_contracts:
             canonicalize_enabled = cfg.feature_flags.canonicalization_enabled
             entity_result = create_entities(
-                self._registry, self._batch_client, new_contracts,
+                self._registry, self._canon_client, new_contracts,
                 cache=self._cache, db=self._db,
                 canonicalize_enabled=canonicalize_enabled,
                 canonicalize_model=cfg.models.canonicalize_model,
                 canonicalize_batch_size=cfg.processing.canonicalize_batch_size,
-                sync_threshold=cfg.processing.anthropic_sync_threshold,
                 debug=cfg.feature_flags.debug,
             )
             if entity_result.has_new_entities:

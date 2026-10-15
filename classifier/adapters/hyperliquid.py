@@ -5,6 +5,7 @@ import requests.exceptions
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
+from classifier import taxonomy
 from classifier.adapters.settlement import PRICE_SCALE, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
@@ -104,13 +105,23 @@ class OutcomeTemplate:
 
 
 class _Rendered:
-    """Title, description, expiry and category for one Hyperliquid event."""
+    """Title, description, expiry, category and tags for one Hyperliquid event."""
 
-    def __init__(self, title: str, description: str | None, expiry: datetime | None, category: str | None = None):
+    def __init__(
+        self,
+        title: str,
+        description: str | None,
+        expiry: datetime | None,
+        category: str | None = None,
+        mapped_category: str | None = None,
+        tags: list[str] | None = None,
+    ):
         self.title = title
         self.description = description
         self.expiry = expiry
         self.category = category
+        self.mapped_category = mapped_category
+        self.tags = tags or []
 
 
 class HyperliquidAdapter:
@@ -190,7 +201,12 @@ class HyperliquidAdapter:
                 logger.warning("Unknown Hyperliquid template %r; using its raw name as the title", name)
                 return _Rendered(name.removeprefix(_TEMPLATE_PREFIX), None, None)
             rendered_desc = template.render(template.description, values) if template.description else None
-            return _Rendered(template.render(template.name, values), rendered_desc, template.expiry(values))
+            return _Rendered(
+                template.render(template.name, values), rendered_desc, template.expiry(values),
+                category=template.id,
+                mapped_category=taxonomy.hyperliquid_category(template.id, values),
+                tags=taxonomy.hyperliquid_tags(values),
+            )
         if values.get("class") == "priceBinary":
             return self._render_recurring_binary(values)
         if values.get("class") == "priceBucket":
@@ -202,12 +218,12 @@ class HyperliquidAdapter:
     def _render_recurring_binary(self, values: dict[str, str]) -> _Rendered:
         expiry = _parse_timestamp(values.get("expiry"))
         title = f"{values.get('underlying', '?')} above {values.get('targetPrice', '?')} at {_display(expiry) if expiry else '?'}?"
-        return _Rendered(title, None, expiry, "CRYPTO")
+        return _Rendered(title, None, expiry, "priceBinary", "CRYPTO", taxonomy.hyperliquid_tags(values))
 
     def _render_recurring_buckets(self, values: dict[str, str]) -> _Rendered:
         expiry = _parse_timestamp(values.get("expiry"))
         title = f"{values.get('underlying', '?')} price range at {_display(expiry) if expiry else '?'}"
-        return _Rendered(title, None, expiry, "CRYPTO")
+        return _Rendered(title, None, expiry, "priceBucket", "CRYPTO", taxonomy.hyperliquid_tags(values))
 
     def _outcome_label(self, outcome: dict, question_values: dict[str, str], templates: dict[str, OutcomeTemplate]) -> str:
         name = outcome.get("name", "")
@@ -344,6 +360,8 @@ class HyperliquidAdapter:
             outcome_label=label,
             event_description=rendered.description,
             event_category=rendered.category,
+            mapped_category=rendered.mapped_category,
+            event_tags=list(rendered.tags),
             event_expiry=_iso(rendered.expiry),
             exchange_event_native_id=native_id,
             security_symbol=security_symbol,

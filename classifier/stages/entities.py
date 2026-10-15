@@ -3,11 +3,11 @@ import logging
 
 from classifier.adapters.types import AdapterContract
 from classifier.cache import ClassifierCache
-from classifier.client import BatchAnthropicClient
+from classifier.client import BedrockConverseClient
 from classifier.db import ClassifierDB
 from classifier.types import CanonicalizeInput, EntityResult, EventId, NativeKey, SecurityId
 from classifier.constants import DEFAULT_CANONICALIZE_BATCH_SIZE, DEFAULT_CANONICALIZE_MODEL
-from classifier.stages.canonicalize import canonicalize_events
+from classifier.stages.canonicalize import canonicalize_events, static_result
 from classifier.utils import bulk_create_chunked
 from gnomepy.registry import RegistryClient
 from gnomepy.registry.types import SecurityType
@@ -64,9 +64,10 @@ def prepare_canonicalization_inputs(
             event_id_by_native[nk] = event_id
         else:
             c = group[0]
-            events_to_canonicalize.append(
-                CanonicalizeInput(c.event_title, c.event_description, c.event_category, nk[0], nk[1])
-            )
+            events_to_canonicalize.append(CanonicalizeInput(
+                c.event_title, c.event_description, c.event_category, nk[0], nk[1],
+                mapped_category=c.mapped_category, exchange_tags=tuple(c.event_tags),
+            ))
 
     return events_to_canonicalize, EntityContext(
         contracts_by_native=contracts_by_native,
@@ -147,7 +148,7 @@ def create_entities_from_canonical(
 
 def create_entities(
     registry: RegistryClient,
-    batch_client: BatchAnthropicClient,
+    canon_client: BedrockConverseClient,
     contracts: list[AdapterContract],
     *,
     cache: ClassifierCache | None = None,
@@ -155,7 +156,6 @@ def create_entities(
     canonicalize_enabled: bool = True,
     canonicalize_model: str = DEFAULT_CANONICALIZE_MODEL,
     canonicalize_batch_size: int = DEFAULT_CANONICALIZE_BATCH_SIZE,
-    sync_threshold: int = 10,
     debug: bool = False,
 ) -> EntityResult:
     if not contracts:
@@ -163,15 +163,11 @@ def create_entities(
     events_to_canon, entity_ctx = prepare_canonicalization_inputs(contracts, db)
     if canonicalize_enabled:
         canonical = canonicalize_events(
-            batch_client, events_to_canon, cache=cache,
-            model=canonicalize_model, batch_size=canonicalize_batch_size,
-            sync_threshold=sync_threshold, debug=debug,
+            canon_client, events_to_canon, cache=cache,
+            model=canonicalize_model, batch_size=canonicalize_batch_size, debug=debug,
         )
     else:
-        canonical = {
-            (ev.exchange_id, ev.native_id): {"category": ev.category or "OTHER", "tags": []}
-            for ev in events_to_canon
-        }
+        canonical = {(ev.exchange_id, ev.native_id): static_result(ev) for ev in events_to_canon}
     return create_entities_from_canonical(registry, canonical, entity_ctx, contracts, db=db, debug=debug)
 
 

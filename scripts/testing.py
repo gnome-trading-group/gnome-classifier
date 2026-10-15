@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import anthropic
 
 from classifier.cache.base import ClassifierCache
+from classifier.client import BedrockConverseClient, ConverseResult
 from gnomepy.registry import RegistryClient
 from gnomepy.registry.types import (
     ContractRelationship,
@@ -92,6 +93,30 @@ def no_op_anthropic_client() -> anthropic.Anthropic:
     client = MagicMock(spec=anthropic.Anthropic)
     client.messages.create.side_effect = _fake_create
     return client
+
+
+class FakeConverseClient(BedrockConverseClient):
+    """Answers canonicalization prompts with a fixed category and tags, echoing each event's id and key."""
+
+    def __init__(self, category: str = "OTHER", tags: list[str] | None = None):
+        super().__init__(client=None)
+        self._category = category
+        self._tags = tags or []
+        self.calls = 0
+
+    def converse(self, model: str, prompt: str, max_tokens: int) -> ConverseResult:
+        self.calls += 1
+        items = []
+        single = None
+        for line in prompt.splitlines():
+            if line.startswith("[") and "(key: " in line:
+                items.append({
+                    "id": int(line[1:line.index("]")]), "key": line.split("(key: ", 1)[1].split(")", 1)[0],
+                    "category": self._category, "tags": self._tags,
+                })
+            elif line.startswith("Exchange-provided title:"):
+                single = {"category": self._category, "tags": self._tags}
+        return ConverseResult(text=json.dumps(single if single is not None else items), input_tokens=0, output_tokens=0)
 
 
 def no_op_voyage_client():

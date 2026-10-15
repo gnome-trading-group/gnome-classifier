@@ -52,7 +52,7 @@ Each prediction market exchange has its own schema, naming conventions and contr
                                      │
                             ┌────────▼────────┐
                             │ NormalizeWorker │ ◄── Redis (canon cache, exchange event cache)
-                            │    (ECS/EC2)    │ ──► Claude API (haiku, category + tags)
+                            │    (ECS/EC2)    │ ──► Bedrock Converse (category + tags)
                             │                 │ ──► Registry API / PostgreSQL (sm.*)
                             └────────┬────────┘
                                      │
@@ -223,7 +223,9 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 | `outcome_label` | Outcome name (e.g. "Yes", "Trump") |
 | `exchange_event_native_id` | Native event ID (event identity and grouping key) |
 | `exchange_event_native_url` | Link to the event on the exchange, when available |
-| `event_description`, `event_category`, `event_expiry` | Optional metadata |
+| `event_description`, `event_category`, `event_expiry` | Optional metadata; `event_category` is the exchange's own label |
+| `mapped_category` | Registry category from the exchange's labels (`classifier/taxonomy.py`), or `None` when they leave it open |
+| `event_tags` | Normalized exchange tags, led by the esports game (`cs2`, `dota 2`, …) when there is one |
 | `event_volume` | Volume used for `min_event_volume` filtering, when available |
 
 ### Polymarket International (`classifier/adapters/polymarket_intl.py`)
@@ -262,7 +264,7 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 - **API:** `POST https://api.hyperliquid.xyz/info` with `{"type": "outcomeMeta"}`; one page per fetch.
 - **Questions with >1 active outcome** (excluding fallback and settled outcomes): one `MULTI_OUTCOME` contract per outcome, `exchange_event_native_id = "q:{first_active_outcome_id}"`, `exchange_security_id = "@{outcome_id}"`. `class:priceBucket` questions get a generated title (`"{underlying} price range on {expiry}"`) and range labels (`"< $X"`, `"$X - $Y"`, `"> $Y"`).
 - **Questions with one active outcome and orphan outcomes**: binary, `exchange_event_native_id = "o:{outcome_id}"`, `exchange_security_id = "@{outcome_id}:0"` / `":1"`, labels from `sideSpecs`. `class:priceBinary` orphans get a generated title (`"Will {underlying} be above ${target}? ({expiry})"`).
-- Category and expiry are parsed from structured description fields. Tick and lot size are fixed at 1,000,000; contract multiplier 1e9. No volume or native URL.
+- Expiry is parsed from structured description fields; category and tags come from the template id and values (`classifier/taxonomy.py`). Tick and lot size are fixed at 1,000,000; contract multiplier 1e9. No volume or native URL.
 - `fetch_resolved` returns `@{oid}`, `@{oid}:0` and `@{oid}:1` for each question's `settledNamedOutcomes` (the lookback is not used).
 
 ---
@@ -341,15 +343,26 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 
 ### Step 2: Categorize new events
 
-If `canonicalization_enabled`, `canonicalize_events()` (`classifier/stages/canonicalize.py`) asks Claude for a `category` (one of the standardized categories) and 3–8 lowercase `tags` per new event. Titles are not rewritten.
+Exchanges already label their events, and `classifier/taxonomy.py` maps those labels statically:
 
-1. Checks the Redis canonicalization cache.
-2. Sends uncached events in chunks of `canonicalize_batch_size` (default 15). Each event carries a 6-character key derived from its title, which Claude must echo back; mismatches are treated as misses.
-3. Uses parallel synchronous calls when the request count is ≤ `anthropic_sync_threshold`, otherwise the Anthropic Batch API.
+| Exchange | Category from | Tags from |
+|---|---|---|
+| Kalshi | event `category` (19 values); ambiguous ones (`Science and Technology`, `Mentions`, …) fall back to the series tags | series `tags` (one `/series` pass per fetch cycle) |
+| Polymarket US | event `category` (10 values) | event `tags` |
+| Polymarket International | the event's tags, when they imply exactly one category (broad tags like Culture or Finance yield to specific ones) | event `tags` |
+| Hyperliquid | the outcome template id; price templates are CRYPTO, or FINANCE for `xyz:` equity/commodity perps | template values (sport, competition, participants, company, asset) |
+
+Esports games come from slugs and tickers, not tag labels: Polymarket's `seriesSlug` or event slug prefix (`cs2-…`), and Kalshi's series ticker prefix (`KXCS2…`, `KXDOTA2…`) on series tagged Esports. Tags are lowercased, mapped through a synonym table (`counter strike 2` → `cs2`, `NFL (All)` → `nfl`) and stripped of exchange UI labels, filler words, category names, numbers and dates.
+
+An event whose labels give a category and at least two tags is done. Otherwise, if `canonicalization_enabled`, `canonicalize_events()` (`classifier/stages/canonicalize.py`) asks a Bedrock model (`canonicalize_model`, any Converse-capable model or inference profile id) for a `category` and 2–6 lowercase `tags`, with the exchange's label and tags as hints. The exchange's category wins when it has one, and its tags come first with the model's appended. Titles are not rewritten. Calls are billed to AWS, so the normalize task role needs `bedrock:InvokeModel` rather than the Anthropic key.
+
+1. Checks the Redis canonicalization cache (keyed by model, so changing the model re-categorizes everything once).
+2. Sends uncached events in chunks of `canonicalize_batch_size` (default 15) as parallel Converse calls. Each event carries a 6-character key derived from its title, which the model must echo back; mismatches are treated as misses.
+3. Logs the input/output token totals per run, for cost tracking.
 4. Retries missed events one at a time, and raises `RuntimeError` if any still fail (the SQS message redelivers).
 5. Caches results in Redis.
 
-If disabled, the category is the exchange's category (or `"OTHER"`) and tags are empty.
+If disabled, events keep whatever their labels gave: the mapped category (or `"OTHER"`) and the exchange tags.
 
 ### Step 3: Create entities
 
@@ -446,7 +459,7 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 | `fetch_enabled` | FetchRunner runs fetch cycles |
 | `resolve_enabled` | FetchRunner runs resolve cycles |
 | `stale_cleanup_enabled` | FetchRunner runs stale cycles |
-| `canonicalization_enabled` | NormalizeWorker calls Claude for category and tags |
+| `canonicalization_enabled` | NormalizeWorker calls Bedrock for category and tags |
 | `semantic_judgements_enabled` | RelationshipsWorker runs the semantic phase |
 | `debug` | Verbose `[DEBUG]` logging across stages |
 
@@ -454,7 +467,7 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 
 | Field | Default |
 |---|---|
-| `canonicalize_model` | `claude-haiku-4-5-20251001` |
+| `canonicalize_model` | `us.amazon.nova-lite-v1:0` |
 | `semantic_judgment_model` | `claude-sonnet-4-6` |
 | `voyage_embedding_model` | `voyage-3` |
 
@@ -471,12 +484,12 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 
 | Field | Default | Description |
 |---|---|---|
-| `canonicalize_batch_size` | `15` | Events per Claude categorization request |
+| `canonicalize_batch_size` | `15` | Events per categorization request |
 | `bulk_create_batch_size` | `200` | Items per registry bulk-create call |
 | `resolution_lookback_days` | `3` | How far back to query resolved markets |
 | `neighbor_search_limit` | `60` | Max pgvector neighbors per event |
 | `voyage_embed_chunk_size` | `2000` | Events per Voyage embedding chunk |
-| `anthropic_sync_threshold` | `10` | Use sync calls at or below this many requests, Batch API above |
+| `anthropic_sync_threshold` | `10` | Judgment requests: sync calls at or below this many, Batch API above |
 | `stale_miss_threshold` | `6` | Consecutive stale-cycle misses before an event is stale |
 | `fetch_max_sqs_messages` | `100000` | Max groups sent per fetch cycle |
 | `resolve_max_sqs_messages` | `100000` | Max messages sent per resolve cycle |
@@ -501,7 +514,7 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 | `enabled` | `false` | Restrict semantic classification to `allowed_categories` |
 | `allowed_categories` | all categories | Categories included when enabled |
 
-Standardized categories: `CRYPTO`, `POLITICS`, `SPORTS`, `ECONOMICS`, `ENTERTAINMENT`, `SCIENCE`, `TECHNOLOGY`, `WEATHER`, `LEGAL`, `OTHER`.
+Standardized categories: `CRYPTO`, `POLITICS`, `SPORTS`, `ECONOMICS`, `FINANCE`, `ENTERTAINMENT`, `SCIENCE`, `TECHNOLOGY`, `HEALTH`, `WEATHER`, `LEGAL`, `OTHER`. Esports is `SPORTS`, tagged `esports` plus the game.
 
 ---
 

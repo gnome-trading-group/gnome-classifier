@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
@@ -27,7 +27,11 @@ class AdapterContract:
     exchange_event_native_id: str
     security_symbol: str
     event_description: str | None = None
+    # The exchange's own label, passed to the LLM as a hint.
     event_category: str | None = None
+    # A registry category from the exchange's labels (classifier.taxonomy), or None when they leave it open.
+    mapped_category: str | None = None
+    event_tags: list[str] = field(default_factory=list)
     event_expiry: str | None = None
     exchange_event_native_url: str | None = None
     event_volume: float | None = None

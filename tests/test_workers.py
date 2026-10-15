@@ -82,11 +82,11 @@ def _make_mock_runtime_config():
     return rc
 
 
-def _patch_normalize_setup(worker, stub_registry, stub_db, mock_anthropic, sns_client):
+def _patch_normalize_setup(worker, stub_registry, stub_db, mock_converse, sns_client):
     def _setup(self):
         self._runtime_config = _make_mock_runtime_config()
         self._registry = stub_registry
-        self._batch_client = mock_anthropic
+        self._canon_client = mock_converse
         self._cache = _make_no_op_cache()
         self._db = stub_db
         self._sns = sns_client
@@ -113,11 +113,11 @@ def _patch_relationships_setup(worker, stub_registry, stub_db, mock_anthropic, m
 
 
 class TestNormalizeWorker:
-    def test_new_contracts_produces_entity_messages(self, moto_env, stub_registry, stub_db, mock_anthropic):
+    def test_new_contracts_produces_entity_messages(self, moto_env, stub_registry, stub_db, mock_converse):
         sns_client = boto3.client("sns", region_name="us-east-1")
         config = WorkerConfig()
         worker = NormalizeWorker(config)
-        _patch_normalize_setup(worker, stub_registry, stub_db, mock_anthropic, sns_client)
+        _patch_normalize_setup(worker, stub_registry, stub_db, mock_converse, sns_client)
         worker._setup()
 
         contract = _make_adapter_contract()
@@ -130,11 +130,11 @@ class TestNormalizeWorker:
             assert "security_id" in msg
             assert "security_symbol" in msg
 
-    def test_new_contracts_enriches_messages_with_event_info(self, moto_env, stub_registry, stub_db, mock_anthropic):
+    def test_new_contracts_enriches_messages_with_event_info(self, moto_env, stub_registry, stub_db, mock_converse):
         sns_client = boto3.client("sns", region_name="us-east-1")
         config = WorkerConfig()
         worker = NormalizeWorker(config)
-        _patch_normalize_setup(worker, stub_registry, stub_db, mock_anthropic, sns_client)
+        _patch_normalize_setup(worker, stub_registry, stub_db, mock_converse, sns_client)
         worker._setup()
 
         contract = _make_adapter_contract(event_title="Will BTC hit $100k?")
@@ -147,11 +147,11 @@ class TestNormalizeWorker:
         assert len(event_msgs) > 0
         assert all("created_event_name" in m for m in event_msgs)
 
-    def test_new_contracts_does_not_publish_to_sns(self, moto_env, stub_registry, stub_db, mock_anthropic):
+    def test_new_contracts_does_not_publish_to_sns(self, moto_env, stub_registry, stub_db, mock_converse):
         sns_client = boto3.client("sns", region_name="us-east-1")
         config = WorkerConfig()
         worker = NormalizeWorker(config)
-        _patch_normalize_setup(worker, stub_registry, stub_db, mock_anthropic, sns_client)
+        _patch_normalize_setup(worker, stub_registry, stub_db, mock_converse, sns_client)
         worker._setup()
 
         contract = _make_adapter_contract()
@@ -164,7 +164,7 @@ class TestNormalizeWorker:
         assert "new_entity" not in types_seen
         assert "new_events" not in types_seen
 
-    def test_resolved_contracts_publishes_resolved(self, moto_env, stub_registry, stub_db, mock_anthropic):
+    def test_resolved_contracts_publishes_resolved(self, moto_env, stub_registry, stub_db, mock_converse):
         stub_registry.bulk_create_events([{"title": "Test event", "exchange_id": 1, "native_event_id": "evt-1"}])
         event_id = stub_registry._events[0].event_id
         stub_registry.bulk_create_securities([{"symbol": "SYM", "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
@@ -175,7 +175,7 @@ class TestNormalizeWorker:
         sns_client = boto3.client("sns", region_name="us-east-1")
         config = WorkerConfig()
         worker = NormalizeWorker(config)
-        _patch_normalize_setup(worker, stub_registry, stub_db, mock_anthropic, sns_client)
+        _patch_normalize_setup(worker, stub_registry, stub_db, mock_converse, sns_client)
         worker._setup()
 
         messages = [_sqs_msg({"type": "resolved", "exchange_id": 1, "native_id": "sec-native-1"})]
@@ -377,13 +377,13 @@ class TestNotifyWorker:
 
 
 class TestPipelineMessageCompat:
-    def test_normalize_output_feeds_embed(self, moto_env, stub_registry, stub_db, mock_anthropic, mock_voyage):
+    def test_normalize_output_feeds_embed(self, moto_env, stub_registry, stub_db, mock_converse, mock_voyage):
         """Verify that messages NormalizeWorker produces are valid input for EmbedWorker."""
         sns_client = boto3.client("sns", region_name="us-east-1")
 
         config = WorkerConfig()
         normalize = NormalizeWorker(config)
-        _patch_normalize_setup(normalize, stub_registry, stub_db, mock_anthropic, sns_client)
+        _patch_normalize_setup(normalize, stub_registry, stub_db, mock_converse, sns_client)
         normalize._setup()
 
         contract = _make_adapter_contract()
@@ -405,13 +405,13 @@ class TestPipelineMessageCompat:
             assert msg["type"] == "security"
             assert "security_id" in msg
 
-    def test_created_event_info_flows_normalize_to_embed(self, moto_env, stub_registry, stub_db, mock_anthropic, mock_voyage):
+    def test_created_event_info_flows_normalize_to_embed(self, moto_env, stub_registry, stub_db, mock_converse, mock_voyage):
         """Verify created_event_id/created_event_name flows from NormalizeWorker through EmbedWorker."""
         sns_client = boto3.client("sns", region_name="us-east-1")
 
         config = WorkerConfig()
         normalize = NormalizeWorker(config)
-        _patch_normalize_setup(normalize, stub_registry, stub_db, mock_anthropic, sns_client)
+        _patch_normalize_setup(normalize, stub_registry, stub_db, mock_converse, sns_client)
         normalize._setup()
 
         contract = _make_adapter_contract(event_title="Will BTC hit $100k?")

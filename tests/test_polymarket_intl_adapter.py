@@ -221,9 +221,9 @@ def test_non_sports_binary_event_title_unchanged():
 
 # ── Entity creation ───────────────────────────────────────────────────────────
 
-def test_entity_creation_neg_risk(stub_registry, stub_db, mock_anthropic):
+def test_entity_creation_neg_risk(stub_registry, stub_db, mock_converse):
     contracts = _map("harvey-weinstein-prison-time")
-    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
     # All 3 contracts share one native_id → 1 event
     assert result.events_created == 1
     assert result.securities_created == 3
@@ -231,9 +231,9 @@ def test_entity_creation_neg_risk(stub_registry, stub_db, mock_anthropic):
     assert result.event_contracts_created == 3
 
 
-def test_entity_creation_ladder(stub_registry, stub_db, mock_anthropic):
+def test_entity_creation_ladder(stub_registry, stub_db, mock_converse):
     contracts = _map("kraken-ipo-by")
-    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
     # 3 markets with different native_ids → 3 events, each with Yes+No
     assert result.events_created == 3
     assert result.securities_created == 6
@@ -241,9 +241,9 @@ def test_entity_creation_ladder(stub_registry, stub_db, mock_anthropic):
     assert result.event_contracts_created == 6
 
 
-def test_entity_creation_sports(stub_registry, stub_db, mock_anthropic):
+def test_entity_creation_sports(stub_registry, stub_db, mock_converse):
     contracts = _map("wnba-sea-nyl-2026-08-05")
-    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
     # 4 distinct event_titles → 4 events, each with 2 outcomes
     assert result.events_created == 4
     assert result.securities_created == 8
@@ -256,21 +256,25 @@ def test_entity_creation_sports(stub_registry, stub_db, mock_anthropic):
 def test_binary_event_category_from_tags():
     contracts = _map("elon-mars")
     assert all(c.event_category == "Science" for c in contracts)
+    assert all(c.mapped_category == "SCIENCE" for c in contracts)
 
 
 def test_neg_risk_event_category_from_tags():
     contracts = _map("harvey-weinstein-prison-time")
     assert all(c.event_category == "Legal" for c in contracts)
+    assert all(c.mapped_category == "LEGAL" for c in contracts)
 
 
 def test_ladder_event_category_from_tags():
     contracts = _map("kraken-ipo-by")
     assert all(c.event_category == "Crypto" for c in contracts)
+    assert all(c.mapped_category == "CRYPTO" for c in contracts)
 
 
 def test_sports_event_category_from_tags():
     contracts = _map("wnba-sea-nyl-2026-08-05")
     assert all(c.event_category == "Sports" for c in contracts)
+    assert all(c.mapped_category == "SPORTS" for c in contracts)
 
 
 def test_no_tags_yields_none_category():
@@ -279,6 +283,16 @@ def test_no_tags_yields_none_category():
     event.pop("tags", None)
     contracts = adapter._map_event(EXCHANGE_ID, event)
     assert all(c.event_category is None for c in contracts)
+    assert all(c.mapped_category is None and c.event_tags == [] for c in contracts)
+
+
+def test_esports_game_tagged_from_series_slug():
+    import copy
+    event = copy.deepcopy(EVENTS_BY_SLUG["wnba-sea-nyl-2026-08-05"])
+    event["seriesSlug"] = "counter-strike"
+    event["tags"] = [{"label": "Esports"}, {"label": "counter strike 2"}, {"label": "Games"}, {"label": "Sports"}]
+    contracts = adapter._map_event(EXCHANGE_ID, event)
+    assert all(c.mapped_category == "SPORTS" and c.event_tags == ["cs2", "esports"] for c in contracts)
 
 
 # ── Per-market description ────────────────────────────────────────────────────
@@ -404,23 +418,23 @@ def test_lot_size_unchanged():
 
 # ── Listing spec update detection ─────────────────────────────────────────────
 
-def test_listing_spec_updated_on_tick_size_change(stub_registry, stub_db, mock_anthropic):
+def test_listing_spec_updated_on_tick_size_change(stub_registry, stub_db, mock_converse):
     contracts = _map("elon-mars")
-    result1 = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    result1 = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
     assert result1.listing_specs_created == 2
     assert result1.listing_specs_updated == 0
 
     for c in contracts:
         c.tick_size = 1_000_000  # changed from 10_000_000
-    result2 = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    result2 = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
     assert result2.listing_specs_updated == 2
     assert result2.listing_specs_created == 0
 
 
-def test_listing_spec_not_updated_when_unchanged(stub_registry, stub_db, mock_anthropic):
+def test_listing_spec_not_updated_when_unchanged(stub_registry, stub_db, mock_converse):
     contracts = _map("elon-mars")
-    create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
-    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
     assert result.listing_specs_created == 0
     assert result.listing_specs_updated == 0
 
@@ -460,13 +474,13 @@ def test_closed_event_resolves_all_its_markets(monkeypatch):
     assert adapter.fetch_resolved(EXCHANGE_ID, 3) == {"0xclosed:1", "0xclosed:2", "0xarchived:3", "0xarchived:4"}
 
 
-def test_listing_spec_updated_on_min_size_change(stub_registry, stub_db, mock_anthropic):
+def test_listing_spec_updated_on_min_size_change(stub_registry, stub_db, mock_converse):
     contracts = _map("elon-mars")
-    create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    create_entities(stub_registry, mock_converse, contracts, db=stub_db)
 
     for c in contracts:
         c.min_size = 10_000_000
-    result = create_entities(stub_registry, mock_anthropic, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
     assert result.listing_specs_updated == 2
     assert result.listing_specs_created == 0
 
@@ -495,3 +509,20 @@ def test_event_flag_decides_grouping_over_its_markets():
     assert {c.contract_type for c in flagged} == {ContractType.MULTI_OUTCOME}
     unflagged = adapter._map_event(EXCHANGE_ID, {**EVENTS_BY_SLUG["harvey-weinstein-prison-time"], "negRisk": False})
     assert {c.contract_type for c in unflagged} == {ContractType.BINARY}
+
+
+@pytest.mark.parametrize("tags, series_slug", [
+    (None, None),
+    ([None, "Sports", 7], None),
+    ([{"label": None}, {"slug": "no-label"}, {"label": "Esports"}], None),
+    ([{"label": "Esports"}], 42),
+    ([{"label": "Sports"}], ""),
+])
+def test_malformed_tags_and_series_do_not_raise(tags, series_slug):
+    import copy
+    event = copy.deepcopy(EVENTS_BY_SLUG["wnba-sea-nyl-2026-08-05"])
+    event["tags"] = tags
+    event["seriesSlug"] = series_slug
+    contracts = adapter._map_event(EXCHANGE_ID, event)
+    assert contracts
+    assert all(isinstance(c.event_tags, list) and all(isinstance(t, str) for t in c.event_tags) for c in contracts)

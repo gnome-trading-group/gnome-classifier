@@ -54,6 +54,8 @@ class CanonicalizeInput(NamedTuple):
     category: str | None
     exchange_id: int
     native_id: str
+    mapped_category: str | None = None
+    exchange_tags: tuple[str, ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)

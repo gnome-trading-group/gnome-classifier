@@ -16,7 +16,7 @@ Usage:
   poetry run bootstrap [ADAPTER] [--no-classify] [--with-judgment] [--batch-size N]
 
 Phase 1 — Entity creation (always runs):
-  Fetches all adapters, categorizes new events via Claude (cached in Redis),
+  Fetches all adapters, categorizes new events via Bedrock (cached in Redis),
   and writes events (one per native exchange event), securities, and listings
   to the real registry + Postgres DB.
 
@@ -48,7 +48,7 @@ import voyageai
 from gnomepy.registry import RegistryClient
 
 from classifier.cache import RedisClassifierCache
-from classifier.client import BatchAnthropicClient, BatchVoyageClient
+from classifier.client import BatchAnthropicClient, BatchVoyageClient, BedrockConverseClient, bedrock_runtime_client
 from classifier.db import ClassifierDB
 from classifier.pipeline import PipelineResult, fetch_exchanges, run_full_pipeline_sync
 from classifier.stages.fetch import fetch_all
@@ -71,6 +71,7 @@ def main(adapter: str | None, no_classify: bool, with_judgment: bool, batch_size
         base_url=os.environ["REGISTRY_API_URL"],
         api_key=os.environ["REGISTRY_API_KEY"],
     )
+    canon_client = BedrockConverseClient(client=bedrock_runtime_client())
     batch_client = BatchAnthropicClient(
         client=anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"]),
     )
@@ -106,7 +107,7 @@ def main(adapter: str | None, no_classify: bool, with_judgment: bool, batch_size
             print(f"\n=== BATCH {i}/{n_batches} ({len(batch)} contracts) ===\n", flush=True)
 
         result: PipelineResult = run_full_pipeline_sync(
-            registry, batch_client, batch,
+            registry, canon_client, batch_client, batch,
             voyage_client=voyage_client, cache=cache, db=db,
             skip_classify=no_classify,
             skip_semantic=not with_judgment,
