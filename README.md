@@ -601,6 +601,7 @@ Tests use in-memory stubs from `scripts/testing.py`; no AWS services, database o
 | `poetry run dry-run <fetch\|canonicalize\|entities\|classify\|reclassify> ...` | Run pipeline stages locally against stubs, or real Postgres/Redis when `DATABASE_URL` / `REDIS_URL` are set (`scripts/dry_run.py`) |
 | `poetry run bootstrap [ADAPTER] [--no-classify] [--with-judgment] [--batch-size N]` | One-time full load of the exchange universe into the real registry (`scripts/bootstrap.py`) |
 | `poetry run tunnel [--stage dev\|prod] [--pg] [--redis]` | SSM port-forwarding tunnels to RDS and Redis through the bastion (`scripts/tunnel.py`) |
+| `poetry run backfill-taxonomy [--apply]` | Re-derive unresolved events' categories (and open events' tags) from the static exchange taxonomy; stops on unmapped labels (`scripts/backfill_taxonomy.py`) |
 
 ### Running the Pipeline In-Process
 

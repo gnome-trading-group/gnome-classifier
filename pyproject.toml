@@ -6,7 +6,7 @@ packages = [{include = "classifier"}, {include = "scripts"}]
 
 [tool.poetry.dependencies]
 python = ">=3.13,<3.14"
-gnomepy = "^2.24.5"
+gnomepy = "^2.26.3"
 boto3 = "*"
 anthropic = "*"
 voyageai = "*"
@@ -24,4 +24,5 @@ moto = {version = "*", extras = ["s3", "sqs", "sns", "secretsmanager"]}
 dry-run = "scripts.dry_run:main"
 bootstrap = "scripts.bootstrap:main"
 tunnel = "scripts.tunnel:main"
+backfill-taxonomy = "scripts.backfill_taxonomy:main"
 worker = "classifier.workers.runner:cli"

@@ -63,6 +63,9 @@ def test_polymarket_us_category(category, expected):
     (["Culture", "Esports", "Sports"], "SPORTS"),
     (["Economy", "Fed Rates", "Finance"], "ECONOMICS"),
     (["Climate & Science", "Weather"], "WEATHER"),
+    (["NBA", "Golden State Warriors"], "SPORTS"),
+    (["lol", "Grok"], "SPORTS"),
+    (["Senate", "pennsylvania"], "POLITICS"),
     (["Culture", "Celebrities"], "ENTERTAINMENT"),
     # Two specific categories conflict, so the LLM decides.
     (["Economy", "Politics"], None),

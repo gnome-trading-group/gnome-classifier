@@ -69,11 +69,12 @@ _POLYMARKET_INTL_TAG_CATEGORY = {
     **dict.fromkeys([
         "sports", "esports", "soccer", "football", "nfl (all)", "cfb (all)", "basketball", "hockey", "tennis",
         "cricket", "table tennis", "baseball", "golf", "mma", "ufc", "boxing", "f1", "formula 1", "combat sports",
-        "olympics", "chess",
+        "olympics", "chess", "nba", "wnba", "mlb", "nhl", "mls", "poker", "wsop", "league of legends", "lol", "cs2",
+        "counter strike 2", "dota 2", "valorant",
     ], "SPORTS"),
     **dict.fromkeys([
         "politics", "elections", "geopolitics", "us election", "global elections", "world elections", "midterms",
-        "house elections", "senate elections",
+        "house elections", "senate elections", "senate", "house", "congress", "governor",
     ], "POLITICS"),
     **dict.fromkeys(["crypto", "crypto prices", "token launch", "fdv", "stablecoins", "airdrops"], "CRYPTO"),
     **dict.fromkeys([
