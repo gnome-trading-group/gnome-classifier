@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 from datetime import datetime, timedelta, timezone
 
 import requests.exceptions
@@ -33,6 +34,10 @@ SETTLEMENT_BATCH_SIZE = 50
 # The gateway documents volume fields but never returns them; it does honour volumeNumMin/Max
 # filters (shares). Querying disjoint ranges buckets each market by volume without the values.
 VOLUME_BUCKETS_SHARES = (500, 1_000, 2_000, 5_000, 10_000, 20_000, 50_000, 100_000, 1_000_000)
+# Since 2026-10-15 event lists carry only each event's primary markets (docs.polymarket.us/changelog); spreads, totals
+# and props come from the event itself. Those full events are reused for this long, so a fetch cycle every minute
+# doesn't refetch hundreds of them; a market added in between waits at most this long to be seen.
+FULL_EVENT_TTL_SECONDS = 300
 # Shares x an assumed mid price of 0.5 approximates the one-sided dollar volume the other
 # adapters report, so the shared min_event_volume threshold applies across exchanges.
 ASSUMED_PRICE = 0.5
@@ -78,6 +83,12 @@ def _is_open(market: dict) -> bool:
     )
 
 
+def _trimmed(event: dict) -> bool:
+    """Whether the event list left some of the event's markets out."""
+    count = (event.get("marketCounts") or {}).get("numMarkets")
+    return isinstance(count, int) and count > len(event.get("markets") or [])
+
+
 def _sport_slug(event: dict) -> str | None:
     """The event's sport (e.g. "table-tennis"), the fee group Polymarket US prices some sports by; the gateway marks
     the tag that names a sport with a `sport` object."""
@@ -95,10 +106,12 @@ class PolymarketUsAdapter:
     def __init__(self, session: RateLimitedSession | None = None):
         # Public gateway limit is 20 req/s per IP.
         self._session = session or RateLimitedSession(min_request_interval=0.1)
+        # Full events by slug, with when they were fetched (FULL_EVENT_TTL_SECONDS).
+        self._full_events: dict[str, tuple[float, dict]] = {}
 
     def fetch(self, exchange_id: ExchangeId):
         volume_by_slug = self._fetch_volume_buckets()
-        for events in self._paginate("events", {"active": "true", "closed": "false"}):
+        for events in self._active_events():
             page = [c for event in events for c in self._map_event(exchange_id, event, volume_by_slug)]
             if page:
                 yield page
@@ -112,7 +125,7 @@ class PolymarketUsAdapter:
                 resolved.update(self._security_ids(market))
 
         # Markets resolve early (eliminated teams) while their endDate is still in the future.
-        for events in self._paginate("events", {"active": "true", "closed": "false"}):
+        for events in self._active_events():
             for event in events:
                 for market in event.get("markets") or []:
                     if not _is_open(market):
@@ -151,6 +164,38 @@ class PolymarketUsAdapter:
         except requests.exceptions.RequestException as e:
             logger.error("Polymarket US markets API error: %s", e)
             raise
+
+    def _active_events(self):
+        """Pages of active events, each with all of its markets: a trimmed event is replaced by the event itself."""
+        now = time.monotonic()
+        seen: set[str] = set()
+        for events in self._paginate("events", {"active": "true", "closed": "false"}):
+            page = []
+            for event in events:
+                slug = event.get("slug")
+                if slug and _trimmed(event):
+                    seen.add(slug)
+                    event = self._full_event(slug, now)
+                page.append(event)
+            yield page
+        self._full_events = {slug: entry for slug, entry in self._full_events.items() if slug in seen}
+
+    def _full_event(self, slug: str, now: float) -> dict:
+        cached = self._full_events.get(slug)
+        if cached is not None and now - cached[0] < FULL_EVENT_TTL_SECONDS:
+            return cached[1]
+        try:
+            res = self._session.get(f"{GATEWAY_URL}/events/slug/{slug}", timeout=30)
+            res.raise_for_status()
+            event = res.json()["event"]
+        except requests.exceptions.RetryError as e:
+            logger.error("Polymarket US event %s retries exhausted: %s", slug, e)
+            raise
+        except requests.exceptions.RequestException as e:
+            logger.error("Polymarket US event %s API error: %s", slug, e)
+            raise
+        self._full_events[slug] = (now, event)
+        return event
 
     def _fetch_volume_buckets(self) -> dict[str, float]:
         volume_by_slug: dict[str, float] = {}

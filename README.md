@@ -253,6 +253,7 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 ### Polymarket US (`classifier/adapters/polymarket_us.py`)
 
 - **API:** `https://gateway.polymarket.us/v1` (public, 20 req/s per IP) with offset pagination (500 per page, the gateway's cap). Active: `/events?active=true&closed=false` (markets nested). Resolved: `/markets?closed=true&endDateMin={lookback}`.
+- **Trimmed events:** since 2026-10-15 the event list nests only each event's primary markets (no spreads, totals or props). An event whose `marketCounts.numMarkets` exceeds the markets it lists is fetched whole from `/events/slug/{slug}` (about 800 events), and reused for `FULL_EVENT_TTL_SECONDS` (5 minutes), so most fetch cycles refetch none of them.
 - Markets that aren't `MARKET_STATUS_OPEN` are dropped from active fetches.
 - Every market is one book priced in long (YES) terms with exactly two `marketSides` (one `long: true`). Each market is its own binary event: `exchange_event_native_id = market slug`, `exchange_security_id = "{slug}:long"` / `"{slug}:short"`, `outcome_label` = the side's description ("Yes", "Over", "+17.50", a team name).
 - Title is `"{event title}: {market title}"`, or the event title alone when the market title only repeats it (moneylines).

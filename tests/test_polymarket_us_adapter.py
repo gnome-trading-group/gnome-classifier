@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+import requests.exceptions
 
 from classifier.adapters import polymarket_us
 from classifier.adapters.polymarket_us import PolymarketUsAdapter
@@ -219,3 +220,87 @@ def test_malformed_category_and_tags_do_not_raise(category, tags, series_slug):
     contracts = adapter._map_event(EXCHANGE_ID, event, {})
     assert contracts and all(c.mapped_category is None for c in contracts)
     assert all(all(isinstance(t, str) for t in c.event_tags) for c in contracts)
+
+
+# ── Events trimmed to their primary markets ──────────────────────────────────
+
+class _Response:
+    def __init__(self, body: dict, status: int = 200):
+        self._body = body
+        self._status = status
+
+    def raise_for_status(self):
+        if self._status >= 400:
+            raise requests.exceptions.HTTPError(f"{self._status}")
+
+    def json(self):
+        return self._body
+
+
+class _EventDetails:
+    """The gateway's GET /events/slug/{slug}, counting calls."""
+
+    def __init__(self, events: dict[str, dict]):
+        self.events = events
+        self.calls: list[str] = []
+
+    def get(self, url: str, timeout: int):
+        slug = url.rsplit("/", 1)[1]
+        self.calls.append(slug)
+        if slug not in self.events:
+            return _Response({"code": 5, "message": "event not found"}, status=404)
+        return _Response({"event": self.events[slug]})
+
+
+def _listed(slug: str) -> dict:
+    # As the event list returns it since 2026-10-15: only the primary market, with the full count.
+    full = EVENTS_BY_SLUG[slug]
+    return {**full, "markets": full["markets"][:1], "marketCounts": {"numMarkets": len(full["markets"])}}
+
+
+def _trimmed_adapter(monkeypatch, listed: list[dict]):
+    details = _EventDetails(EVENTS_BY_SLUG)
+    trimmed = PolymarketUsAdapter(session=details)
+    monkeypatch.setattr(trimmed, "_paginate", lambda resource, params: iter([listed]))
+    monkeypatch.setattr(trimmed, "_fetch_volume_buckets", lambda: {})
+    return trimmed, details
+
+
+def test_a_trimmed_event_gets_all_its_markets_from_the_event_itself(monkeypatch):
+    assert len(EVENTS_BY_SLUG[GAME]["markets"]) > 1
+    trimmed, details = _trimmed_adapter(monkeypatch, [_listed(GAME), EVENTS_BY_SLUG[POLITICS]])
+
+    contracts = [c for page in trimmed.fetch(EXCHANGE_ID) for c in page]
+
+    assert {c.exchange_event_native_id for c in contracts} >= {m["slug"] for m in EVENTS_BY_SLUG[GAME]["markets"]
+                                                              if polymarket_us._is_open(m)}
+    assert details.calls == [GAME]
+
+
+def test_full_events_are_reused_until_they_age_out(monkeypatch):
+    trimmed, details = _trimmed_adapter(monkeypatch, [_listed(GAME)])
+    clock = iter([0.0, 60.0, polymarket_us.FULL_EVENT_TTL_SECONDS + 1.0])
+    monkeypatch.setattr(polymarket_us.time, "monotonic", lambda: next(clock))
+
+    for _ in range(3):
+        list(trimmed.fetch(EXCHANGE_ID))
+
+    assert details.calls == [GAME, GAME]
+
+
+def test_full_events_no_longer_listed_are_dropped(monkeypatch):
+    trimmed, _ = _trimmed_adapter(monkeypatch, [_listed(GAME)])
+    list(trimmed.fetch(EXCHANGE_ID))
+    monkeypatch.setattr(trimmed, "_paginate", lambda resource, params: iter([[EVENTS_BY_SLUG[POLITICS]]]))
+
+    list(trimmed.fetch(EXCHANGE_ID))
+
+    assert trimmed._full_events == {}
+
+
+def test_an_event_that_cant_be_fetched_fails_the_cycle(monkeypatch):
+    trimmed, details = _trimmed_adapter(monkeypatch, [_listed(GAME)])
+    details.events = {}
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        list(trimmed.fetch(EXCHANGE_ID))
