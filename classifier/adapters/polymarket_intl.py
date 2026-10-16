@@ -10,7 +10,7 @@ from classifier import taxonomy
 from classifier.adapters.settlement import chunked, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
-from classifier.stages.fees import polymarket_intl_definition, polymarket_intl_fee_since
+from classifier.stages.fees import polymarket_intl_definition, polymarket_intl_schedules
 from classifier.types import ExchangeId
 from classifier.utils import format_security_symbol
 
@@ -107,6 +107,22 @@ class PolymarketIntlAdapter:
 
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.1)
+        self._fee_definitions: dict[str, dict] = {}
+
+    def fetch_fee_schedules(self, exchange_id: ExchangeId) -> list[dict]:
+        return polymarket_intl_schedules(exchange_id, dict(self._fee_definitions), datetime.now(timezone.utc))
+
+    def _fee_group(self, market: dict) -> str | None:
+        """The market's fee type, remembering the schedule it carries for fetch_fee_schedules. Markets without fees
+        have none, and pay the exchange's default (nothing)."""
+        fee_type, definition = market.get("feeType"), polymarket_intl_definition(market)
+        if not isinstance(fee_type, str) or definition is None:
+            return None
+        if self._fee_definitions.get(fee_type, definition) != definition:
+            logger.warning("Polymarket International fee type %s changed from %s to %s", fee_type,
+                           self._fee_definitions[fee_type]["components"], definition["components"])
+        self._fee_definitions[fee_type] = definition
+        return fee_type
 
     def fetch(self, exchange_id: ExchangeId):
         after_cursor: str | None = None
@@ -348,8 +364,7 @@ class PolymarketIntlAdapter:
                 security_symbol=format_security_symbol(self.symbol_prefix, _market_symbol_base(market, condition_id)),
                 exchange_event_native_url=f"https://polymarket.com/event/{event_slug}",
                 event_volume=event_volume,
-                listing_fee=polymarket_intl_definition(market),
-                listing_fee_since=polymarket_intl_fee_since(market),
+                fee_group=self._fee_group(market),
             ))
         return contracts
 
@@ -417,7 +432,6 @@ class PolymarketIntlAdapter:
                 security_symbol=format_security_symbol(self.symbol_prefix, _market_symbol_base(market, condition_id), outcome),
                 exchange_event_native_url=native_url,
                 event_volume=event_volume,
-                listing_fee=polymarket_intl_definition(market),
-                listing_fee_since=polymarket_intl_fee_since(market),
+                fee_group=self._fee_group(market),
             ))
         return contracts

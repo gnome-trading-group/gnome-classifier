@@ -169,21 +169,6 @@ class ClassifierDB:
                 )
                 return {row[0]: (row[1], row[2]) for row in cur.fetchall()}
 
-    def get_listing_fee_definitions(self, listing_ids: list[int]) -> dict[int, dict | None]:
-        """Returns mapping of listing_id -> the definition of its own fee schedule in force now (None once cleared),
-        for listings that have one."""
-        if not listing_ids:
-            return {}
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT DISTINCT ON (listing_id) listing_id, definition FROM sm.fee_schedule"
-                    " WHERE listing_id = ANY(%s) AND effective_from <= NOW()"
-                    " ORDER BY listing_id, effective_from DESC, recorded_at DESC",
-                    (listing_ids,),
-                )
-                return {row[0]: row[1] for row in cur.fetchall()}
-
     def get_fee_source_refs(self, exchange_id: int) -> set[str]:
         with self._conn() as conn:
             with conn.cursor() as cur:

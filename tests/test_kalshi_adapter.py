@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from classifier.adapters.kalshi import KalshiAdapter
 from classifier.stages.entities import create_entities
@@ -424,15 +425,41 @@ def test_esports_game_from_series_ticker():
     assert all(c.mapped_category == "SPORTS" and c.event_tags == ["cs2", "esports"] for c in contracts)
 
 
+def _page(body: dict) -> MagicMock:
+    page = MagicMock()
+    page.json.return_value = body
+    return page
+
+
+def _fetch_pages(series: list[dict], event_overrides: list[dict]) -> list[MagicMock]:
+    return [
+        _page({"series": series, "cursor": ""}),
+        _page({"series_fee_change_arr": []}),
+        _page({"event_fee_changes": event_overrides, "cursor": ""}),
+        _page({"events": [EVENTS_BY_TICKER["KXRAMPBREX-40"]], "cursor": ""}),
+    ]
+
+
 def test_fetch_joins_series_tags():
     session = MagicMock()
-    series_page = MagicMock()
-    series_page.json.return_value = {"series": [{"ticker": "KXRAMPBREX", "tags": ["IPOs"]}], "cursor": ""}
-    events_page = MagicMock()
-    events_page.json.return_value = {"events": [EVENTS_BY_TICKER["KXRAMPBREX-40"]], "cursor": ""}
-    session.get.side_effect = [series_page, events_page]
+    session.get.side_effect = _fetch_pages([{"ticker": "KXRAMPBREX", "tags": ["IPOs"]}], [])
     contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
     assert contracts and all(c.event_tags == ["ipo"] for c in contracts)
+
+
+def test_fetch_sets_fee_keys_only_where_a_schedule_applies():
+    session = MagicMock()
+    session.get.side_effect = _fetch_pages([{"ticker": "KXRAMPBREX", "fee_type": "quadratic", "fee_multiplier": 1}], [])
+    contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
+    assert contracts and all((c.fee_group, c.fee_event) == (None, None) for c in contracts)
+
+    session.get.side_effect = _fetch_pages(
+        [{"ticker": "KXRAMPBREX", "fee_type": "quadratic_with_maker_fees", "fee_multiplier": 1}],
+        [{"id": "e", "event_ticker": "KXRAMPBREX-40", "series_ticker": "KXRAMPBREX", "fee_type_override": "quadratic",
+          "fee_multiplier_override": 1, "scheduled_ts": "2026-10-18T00:00:00Z"}],
+    )
+    contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
+    assert contracts and all((c.fee_group, c.fee_event) == ("KXRAMPBREX", "KXRAMPBREX-40") for c in contracts)
 
 
 @pytest.mark.parametrize("category, series_ticker, series_tags", [
@@ -461,11 +488,20 @@ def test_malformed_series_entries_are_skipped():
     assert KalshiAdapter(session=session)._fetch_series_tags() == {"KXRAMPBREX": ["IPOs"]}
 
 
-def test_series_outage_still_maps_events():
-    import requests
+def test_series_outage_still_maps_events_with_the_last_fee_scopes():
     session = MagicMock()
-    events_page = MagicMock()
-    events_page.json.return_value = {"events": [EVENTS_BY_TICKER["KXRAMPBREX-40"]], "cursor": ""}
-    session.get.side_effect = [requests.exceptions.ConnectionError("down"), events_page]
-    contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
+    adapter = KalshiAdapter(session=session)
+    session.get.side_effect = _fetch_pages(
+        [{"ticker": "KXRAMPBREX", "tags": ["IPOs"], "fee_type": "quadratic_with_maker_fees", "fee_multiplier": 1}], [])
+    list(adapter.fetch(EXCHANGE_ID))
+    session.get.side_effect = [requests.exceptions.ConnectionError("down"), _fetch_pages([], [])[-1]]
+    contracts = [c for page in adapter.fetch(EXCHANGE_ID) for c in page]
     assert contracts and all(c.mapped_category == "FINANCE" and c.event_tags == [] for c in contracts)
+    assert all(c.fee_group == "KXRAMPBREX" for c in contracts)
+
+
+def test_series_outage_before_any_fee_scopes_fails_the_cycle():
+    session = MagicMock()
+    session.get.side_effect = [requests.exceptions.ConnectionError("down")]
+    with pytest.raises(requests.exceptions.ConnectionError):
+        list(KalshiAdapter(session=session).fetch(EXCHANGE_ID))

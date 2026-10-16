@@ -37,9 +37,6 @@ class AdapterContract:
     event_volume: float | None = None
     min_size: float = 0.0
     # The venue's keys that fee schedules target (sm.listing.fee_group / fee_event), e.g. a Kalshi series and event.
+    # Set only where a schedule other than the exchange's default can apply.
     fee_group: str | None = None
     fee_event: str | None = None
-    # A fee schedule of the listing's own (an sm.fee_schedule definition), for venues that set fees per market, and
-    # when it first held.
-    listing_fee: dict | None = None
-    listing_fee_since: str | None = None

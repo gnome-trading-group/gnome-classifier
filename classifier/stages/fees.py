@@ -2,9 +2,11 @@
 
 Each schedule is a definition the registry validates (endpoints/fees.ts): a fill's fee is the sum of its components,
 charged at the taker or maker rate by the fill's liquidity, then rounded. A schedule targets the whole exchange, a fee
-group (a Kalshi series), a fee event (a Kalshi event ticker) or one listing (a Polymarket International market), and
+group (a Kalshi series, a Polymarket International fee type), a fee event (a Kalshi event ticker) or one listing, and
 holds from its effective_from until the next schedule at the same target.
 """
+import hashlib
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -13,6 +15,7 @@ from classifier.utils import bulk_create_chunked
 logger = logging.getLogger(__name__)
 
 KALSHI_TAKER_RATE = 0.07
+KALSHI_DEFAULT_FEE = ("quadratic", 1.0)
 # Maker fees as a share of the taker fee, by Kalshi's fee_type (GET /series). 'flat' series follow a fee table no
 # definition expresses; none are listed today.
 KALSHI_MAKER_SHARE = {
@@ -23,13 +26,36 @@ KALSHI_MAKER_SHARE = {
 # Kalshi rounded every fee up to the cent until it began rounding balances to $0.0001 and carrying the overpayment
 # across an order's fills (docs.kalshi.com/getting_started/fee_rounding). The date is its changelog's, not confirmed.
 KALSHI_ACCUMULATOR_FROM = datetime(2026, 3, 3, tzinfo=timezone.utc)
+# Kalshi's series fee history starts in October 2025, but some series have charged maker fees since before it and have
+# never changed. Kalshi moved maker fees to the 0.0175 curve on 2025-07-01, so that is as far back as their current fee
+# is known to hold.
+KALSHI_UNRECORDED_FEE_FROM = datetime(2025, 7, 1, tzinfo=timezone.utc)
 _KALSHI_CENT_ROUNDING = {"mode": "CEIL", "increment": 0.01, "scope": "FILL"}
 _KALSHI_ACCUMULATOR_ROUNDING = {"mode": "CEIL", "increment": 0.0001, "scope": "ORDER_ACCUMULATOR"}
 
-# Polymarket International charges fees in collateral, rounded to $0.00001 (docs.polymarket.com/trading/fees), and
-# charged none before 2026-01-05: a market listed earlier that carries a schedule now can only have had it since.
-POLYMARKET_INTL_FEES_FROM = datetime(2026, 1, 5, tzinfo=timezone.utc)
+# Polymarket International charges fees in collateral, rounded to $0.00001 (docs.polymarket.com/trading/fees).
 _POLYMARKET_INTL_ROUNDING = {"mode": "HALF_UP", "increment": 0.00001, "scope": "FILL"}
+# Every market of a Gamma feeType carries the same feeSchedule. Gamma doesn't say when a type began charging, so these
+# are the rollout dates (pineanalytics.substack.com/p/polymarket-fee-rollout) with the rates each began at; a type
+# seen at other rates, or not listed here, holds from when the classifier first sees it.
+#   type: (from, rate, exponent)
+POLYMARKET_INTL_FEE_TYPES = {
+    "crypto_15_min": (datetime(2026, 1, 5, tzinfo=timezone.utc), 0.25, 2),
+    "sports_fees": (datetime(2026, 2, 18, tzinfo=timezone.utc), 0.0175, 1),
+    "crypto_fees_v2": (datetime(2026, 3, 30, tzinfo=timezone.utc), 0.07, 1),
+    "sports_fees_v2": (datetime(2026, 3, 30, tzinfo=timezone.utc), 0.03, 1),
+    "politics_fees": (datetime(2026, 3, 30, tzinfo=timezone.utc), 0.04, 1),
+    "finance_prices_fees": (datetime(2026, 3, 30, tzinfo=timezone.utc), 0.04, 1),
+    "economics_fees": (datetime(2026, 3, 30, tzinfo=timezone.utc), 0.05, 1),
+    "culture_fees": (datetime(2026, 3, 30, tzinfo=timezone.utc), 0.05, 1),
+    "weather_fees": (datetime(2026, 3, 30, tzinfo=timezone.utc), 0.05, 1),
+    "tech_fees": (datetime(2026, 3, 30, tzinfo=timezone.utc), 0.04, 1),
+    "mentions_fees": (datetime(2026, 3, 30, tzinfo=timezone.utc), 0.04, 1),
+    "general_fees": (datetime(2026, 3, 30, tzinfo=timezone.utc), 0.05, 1),
+    # Not announced; the dates are their earliest markets'.
+    "sports_fees_v3": (datetime(2026, 7, 11, tzinfo=timezone.utc), 0.05, 1),
+    "sports_fees_nfl_cfb_oct26": (datetime(2026, 8, 21, tzinfo=timezone.utc), 0.03, 1),
+}
 
 
 def _rate(value: float) -> float:
@@ -75,13 +101,38 @@ def _with_rounding_cutover(rows: list[dict], scope: dict, definition_at, source_
     return sorted(rows + [cutover], key=lambda r: _parse_time(r["effective_from"]))
 
 
-def kalshi_schedules(exchange_id: int, series_changes: list[dict], event_changes: list[dict]) -> list[dict]:
-    """Fee schedules from Kalshi's recorded series changes (GET /series/fee_changes?show_historical=true) and event
-    overrides (GET /events/fee_changes), each keyed by the change's id so a later sync skips what it already wrote.
+def _kalshi_fee(series: dict) -> tuple[str, float]:
+    fee_type, multiplier = series.get("fee_type"), series.get("fee_multiplier")
+    if fee_type is None or multiplier is None:
+        return KALSHI_DEFAULT_FEE
+    return fee_type, float(multiplier)
+
+
+def kalshi_fee_scopes(series: list[dict], series_changes: list[dict], event_changes: list[dict]) -> tuple[set[str], set[str]]:
+    """The series and events kalshi_schedules writes schedules for: listings outside them pay the exchange default, so
+    only listings inside them need their fee keys."""
+    groups = {c["series_ticker"] for c in series_changes}
+    groups |= {s["ticker"] for s in series if s.get("ticker") and _kalshi_fee(s) != KALSHI_DEFAULT_FEE}
+    return groups, {c["event_ticker"] for c in event_changes}
+
+
+def kalshi_schedules(exchange_id: int, series: list[dict], series_changes: list[dict], event_changes: list[dict]) -> list[dict]:
+    """Fee schedules from Kalshi's series (GET /series), their recorded fee changes
+    (GET /series/fee_changes?show_historical=true) and event overrides (GET /events/fee_changes), each keyed by the
+    change's id so a later sync skips what it already wrote. A series charging other than the default with no recorded
+    change holds its fee from KALSHI_UNRECORDED_FEE_FROM.
 
     An event override replaces its series' fee type, multiplier or both; one with neither lifts the override (a null
     definition). The part an override leaves out is taken from the series as it stood when the override began.
     """
+    unrecorded_from = _iso(KALSHI_UNRECORDED_FEE_FROM)
+    recorded = {c["series_ticker"] for c in series_changes}
+    series_changes = series_changes + [
+        {"series_ticker": s["ticker"], "fee_type": _kalshi_fee(s)[0], "fee_multiplier": _kalshi_fee(s)[1],
+         "scheduled_ts": unrecorded_from, "id": f"unrecorded-{s['ticker']}"}
+        for s in series
+        if s.get("ticker") and s["ticker"] not in recorded and _kalshi_fee(s) != KALSHI_DEFAULT_FEE
+    ]
     by_series: dict[str, list[dict]] = {}
     for change in series_changes:
         by_series.setdefault(change["series_ticker"], []).append(change)
@@ -163,16 +214,24 @@ def polymarket_intl_definition(market: dict) -> dict | None:
     }
 
 
-def polymarket_intl_fee_since(market: dict) -> str:
-    """When a market's schedule first held: its listing, but no earlier than Polymarket charged any fees."""
-    created = market.get("createdAt")
-    since = POLYMARKET_INTL_FEES_FROM
-    if isinstance(created, str):
-        try:
-            since = max(since, _parse_time(created))
-        except ValueError:
-            pass
-    return _iso(since)
+def polymarket_intl_schedules(exchange_id: int, definitions: dict[str, dict], now: datetime) -> list[dict]:
+    """One schedule per Polymarket International fee type, from the definitions its markets carry. A type at the
+    rates POLYMARKET_INTL_FEE_TYPES lists holds from its rollout; any other from `now`, the first sync to see it."""
+    schedules = []
+    for fee_type, definition in definitions.items():
+        known = POLYMARKET_INTL_FEE_TYPES.get(fee_type)
+        launch = known and polymarket_intl_definition(
+            {"feesEnabled": True, "feeSchedule": {"rate": known[1], "exponent": known[2], "takerOnly": True}})
+        if launch == definition:
+            effective_from = known[0]
+        else:
+            logger.warning("Polymarket International fee type %s charges %s, which no rollout lists; holding it from "
+                           "now", fee_type, definition["components"])
+            effective_from = now
+        digest = hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()[:12]
+        schedules.append({"exchange_id": exchange_id, "fee_group": fee_type, "effective_from": _iso(effective_from),
+                          "definition": definition, "source_ref": f"polymarket_intl:fee_type:{fee_type}:{digest}"})
+    return schedules
 
 
 def sync_venue_fee_schedules(adapters, exchange_by_code: dict, registry, db) -> dict:

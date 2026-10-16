@@ -495,17 +495,6 @@ class StubDB:
         return {lid: self._r._fee_keys_by_listing.get(lid, (None, None))
                 for lid in listing_ids if any(l.listing_id == lid for l in self._r._listings)}
 
-    def get_listing_fee_definitions(self, listing_ids: list[int]) -> dict[int, dict | None]:
-        id_set = set(listing_ids)
-        latest: dict[int, tuple] = {}
-        for row in self._r._fee_schedules:
-            lid = row.get("listing_id")
-            if lid in id_set:
-                key = (row["effective_from"], row["recorded_at"])
-                if lid not in latest or key >= latest[lid][0]:
-                    latest[lid] = (key, row["definition"])
-        return {lid: definition for lid, (_, definition) in latest.items()}
-
     def get_fee_source_refs(self, exchange_id: int) -> set[str]:
         return {row["source_ref"] for row in self._r._fee_schedules
                 if row.get("exchange_id") == exchange_id and row.get("source_ref")}

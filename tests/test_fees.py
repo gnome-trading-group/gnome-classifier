@@ -1,14 +1,16 @@
 import dataclasses
 from datetime import datetime, timezone
 
+from classifier.adapters.polymarket_intl import PolymarketIntlAdapter
 from classifier.adapters.polymarket_us import _sport_slug
 from classifier.adapters.types import AdapterContract
 from classifier.stages.entities import create_entities
 from classifier.stages.fees import (
     kalshi_definition,
+    kalshi_fee_scopes,
     kalshi_schedules,
     polymarket_intl_definition,
-    polymarket_intl_fee_since,
+    polymarket_intl_schedules,
     sync_venue_fee_schedules,
 )
 from gnomepy.registry.types import AssetClass, ContractType, Exchange, SecurityType
@@ -44,7 +46,7 @@ def test_kalshi_series_history_gains_a_row_at_the_rounding_cutover():
         {"id": "a", "series_ticker": "KXMLBGAME", "fee_type": "quadratic_with_maker_fees", "fee_multiplier": 1,
          "scheduled_ts": "2025-10-04T07:00:00Z"},
     ]
-    rows = kalshi_schedules(5, series, [])
+    rows = kalshi_schedules(5, [], series, [])
     assert [(r["effective_from"], r["source_ref"], _taker_maker(r["definition"]), r["definition"]["rounding"]["scope"])
             for r in rows] == [
         ("2025-10-04T07:00:00Z", "kalshi:series_fee_change:a", (0.07, 0.0175), "FILL"),
@@ -63,12 +65,42 @@ def test_kalshi_event_override_fills_in_its_series_and_a_lifted_override_clears(
         {"id": "e2", "event_ticker": "KXMLBHIT-G", "series_ticker": "KXMLBHIT", "fee_type_override": None,
          "fee_multiplier_override": None, "scheduled_ts": "2026-10-20T00:00:00Z"},
     ]
-    rows = [r for r in kalshi_schedules(5, series, events) if "fee_event" in r]
+    rows = [r for r in kalshi_schedules(5, [], series, events) if "fee_event" in r]
     assert [(r["effective_from"], r["definition"] and _taker_maker(r["definition"])) for r in rows] == [
         ("2026-10-16T00:00:00Z", (0.07, 0.0175)),
         ("2026-10-20T00:00:00Z", None),
     ]
     assert all(r["fee_event"] == "KXMLBHIT-G" for r in rows)
+
+
+def test_kalshi_series_charging_other_than_the_default_without_history_holds_from_july_2025():
+    series = [
+        {"ticker": "KXNBA", "fee_type": "quadratic_with_maker_fees", "fee_multiplier": 1},
+        {"ticker": "KXMLBGAME", "fee_type": "quadratic_with_maker_fees", "fee_multiplier": 0.5},
+        {"ticker": "KXPLAIN", "fee_type": "quadratic", "fee_multiplier": 1},
+        {"ticker": "KXBARE"},
+    ]
+    changes = [{"id": "a", "series_ticker": "KXMLBGAME", "fee_type": "quadratic_with_maker_fees", "fee_multiplier": 0.5,
+                "scheduled_ts": "2026-08-07T00:00:00Z"}]
+    rows = kalshi_schedules(5, series, changes, [])
+    assert [(r["fee_group"], r["effective_from"], r["source_ref"], _taker_maker(r["definition"])) for r in rows] == [
+        ("KXMLBGAME", "2026-08-07T00:00:00Z", "kalshi:series_fee_change:a", (0.035, 0.00875)),
+        ("KXNBA", "2025-07-01T00:00:00Z", "kalshi:series_fee_change:unrecorded-KXNBA", (0.07, 0.0175)),
+        ("KXNBA", "2026-03-03T00:00:00Z", "kalshi:series_fee_change:unrecorded-KXNBA:accumulator", (0.07, 0.0175)),
+    ]
+
+
+def test_kalshi_fee_scopes_are_the_series_and_events_with_schedules():
+    series = [
+        {"ticker": "KXNBA", "fee_type": "quadratic_with_maker_fees", "fee_multiplier": 1},
+        {"ticker": "KXINX", "fee_type": "quadratic", "fee_multiplier": 1},
+        {"ticker": "KXPLAIN", "fee_type": "quadratic", "fee_multiplier": 1},
+    ]
+    changes = [{"id": "a", "series_ticker": "KXINX", "fee_type": "quadratic", "fee_multiplier": 1,
+                "scheduled_ts": "2026-07-03T00:00:00Z"}]
+    events = [{"id": "e", "event_ticker": "KXMLBRFI-G", "series_ticker": "KXMLBRFI", "fee_type_override": "quadratic",
+               "fee_multiplier_override": 1, "scheduled_ts": "2026-10-18T00:00:00Z"}]
+    assert kalshi_fee_scopes(series, changes, events) == ({"KXNBA", "KXINX"}, {"KXMLBRFI-G"})
 
 
 def test_polymarket_intl_definition_from_the_market_schedule():
@@ -83,10 +115,39 @@ def test_polymarket_intl_definition_from_the_market_schedule():
     assert polymarket_intl_definition({"feesEnabled": False}) is None
 
 
-def test_polymarket_intl_fees_hold_from_listing_but_never_before_fees_existed():
-    assert polymarket_intl_fee_since({"createdAt": "2026-10-01T18:30:11.496931Z"}) == "2026-10-01T18:30:11.496931Z"
-    assert polymarket_intl_fee_since({"createdAt": "2025-06-01T00:00:00Z"}) == "2026-01-05T00:00:00Z"
-    assert polymarket_intl_fee_since({}) == "2026-01-05T00:00:00Z"
+def _intl_definition(rate: float, exponent: int = 1) -> dict:
+    return polymarket_intl_definition(
+        {"feesEnabled": True, "feeSchedule": {"exponent": exponent, "rate": rate, "takerOnly": True}})
+
+
+def test_polymarket_intl_fee_types_hold_from_their_rollout_unless_their_rates_moved():
+    now = datetime(2026, 10, 16, 12, tzinfo=timezone.utc)
+    rows = polymarket_intl_schedules(3, {
+        "crypto_15_min": _intl_definition(0.25, 2),
+        "politics_fees": _intl_definition(0.04),
+        "economics_fees": _intl_definition(0.06),
+        "new_fees": _intl_definition(0.05),
+    }, now)
+    assert [(r["fee_group"], r["effective_from"]) for r in rows] == [
+        ("crypto_15_min", "2026-01-05T00:00:00Z"),
+        ("politics_fees", "2026-03-30T00:00:00Z"),
+        ("economics_fees", "2026-10-16T12:00:00Z"),
+        ("new_fees", "2026-10-16T12:00:00Z"),
+    ]
+    assert all(r["exchange_id"] == 3 and r["source_ref"].startswith(f"polymarket_intl:fee_type:{r['fee_group']}:")
+               for r in rows)
+    moved = polymarket_intl_schedules(3, {"politics_fees": _intl_definition(0.05)}, now)
+    assert moved[0]["source_ref"] != rows[1]["source_ref"]
+
+
+def test_polymarket_intl_markets_are_grouped_by_fee_type():
+    adapter = PolymarketIntlAdapter()
+    schedule = {"exponent": 1, "rate": 0.04, "takerOnly": True, "rebateRate": 0.25}
+    assert adapter._fee_group({"feeType": "politics_fees", "feesEnabled": True, "feeSchedule": schedule}) == "politics_fees"
+    assert adapter._fee_group({"feeType": None, "feesEnabled": False}) is None
+    assert adapter._fee_group({"feeType": "zero_fees", "feesEnabled": True,
+                               "feeSchedule": {**schedule, "rate": 0}}) is None
+    assert [r["fee_group"] for r in adapter.fetch_fee_schedules(3)] == ["politics_fees"]
 
 
 def test_polymarket_us_fee_group_is_the_sport():
@@ -117,23 +178,10 @@ def test_listings_carry_fee_keys_and_follow_the_venue(stub_registry, stub_db, mo
     assert set(stub_registry._fee_keys_by_listing.values()) == {("KXT", "KXT-B")}
 
 
-def test_listing_fee_schedules_are_written_once_then_on_change(stub_registry, stub_db, mock_converse):
-    fee = polymarket_intl_definition({"feesEnabled": True, "feeSchedule": {"exponent": 1, "rate": 0.03, "takerOnly": True}})
-    yes = _contract("Yes", listing_fee=fee, listing_fee_since="2026-03-01T00:00:00Z")
-    create_entities(stub_registry, mock_converse, [yes], db=stub_db)
-    create_entities(stub_registry, mock_converse, [yes], db=stub_db)
-    assert [(r["effective_from"], r["definition"]) for r in stub_registry._fee_schedules] == [("2026-03-01T00:00:00Z", fee)]
-
-    dearer = polymarket_intl_definition({"feesEnabled": True, "feeSchedule": {"exponent": 1, "rate": 0.05, "takerOnly": True}})
-    create_entities(stub_registry, mock_converse, [dataclasses.replace(yes, listing_fee=dearer)], db=stub_db)
-    create_entities(stub_registry, mock_converse, [dataclasses.replace(yes, listing_fee=None)], db=stub_db)
-    later = stub_registry._fee_schedules[1:]
-    assert [r["definition"] for r in later] == [dearer, None]
-    assert all(r["effective_from"] > "2026-10-01" for r in later)
-
-    no_fee = _contract("No")
-    create_entities(stub_registry, mock_converse, [no_fee], db=stub_db)
-    assert len(stub_registry._fee_schedules) == 3
+def test_a_lifted_event_override_keeps_its_fee_event(stub_registry, stub_db, mock_converse):
+    create_entities(stub_registry, mock_converse, [_contract("Yes", fee_group="KXT", fee_event="KXT-A")], db=stub_db)
+    create_entities(stub_registry, mock_converse, [_contract("Yes")], db=stub_db)
+    assert set(stub_registry._fee_keys_by_listing.values()) == {(None, "KXT-A")}
 
 
 class _FeeAdapter:
