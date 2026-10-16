@@ -90,6 +90,18 @@ def test_kalshi_series_charging_other_than_the_default_without_history_holds_fro
     ]
 
 
+def test_kalshi_fee_types_no_schedule_expresses_are_recorded_without_one():
+    changes = [{"id": "a", "series_ticker": "KXFLAT", "fee_type": "flat", "fee_multiplier": 1,
+                "scheduled_ts": "2026-08-07T00:00:00Z"}]
+    events = [{"id": "e", "event_ticker": "KXFLAT-G", "series_ticker": "KXFLAT", "fee_type_override": "flat",
+               "fee_multiplier_override": 1, "scheduled_ts": "2026-10-18T00:00:00Z"}]
+    rows = kalshi_schedules(5, [], changes, events)
+    assert [(r.get("fee_group") or r.get("fee_event"), r["definition"], r["source_ref"]) for r in rows] == [
+        ("KXFLAT", None, "kalshi:series_fee_change:a:unsupported:flat"),
+        ("KXFLAT-G", None, "kalshi:event_fee_change:e:unsupported:flat"),
+    ]
+
+
 def test_kalshi_fee_scopes_are_the_series_and_events_with_schedules():
     series = [
         {"ticker": "KXNBA", "fee_type": "quadratic_with_maker_fees", "fee_multiplier": 1},

@@ -101,6 +101,12 @@ def _with_rounding_cutover(rows: list[dict], scope: dict, definition_at, source_
     return sorted(rows + [cutover], key=lambda r: _parse_time(r["effective_from"]))
 
 
+def _unsupported(row: dict, source_ref: str, fee_type: str) -> dict:
+    """A fee type no definition expresses, recorded with no definition so the target falls through to the next scope
+    (as if Kalshi had set nothing) and the registry's fee monitoring can flag it by its source_ref."""
+    return {**row, "definition": None, "source_ref": f"{source_ref}:unsupported:{fee_type}"}
+
+
 def _kalshi_fee(series: dict) -> tuple[str, float]:
     fee_type, multiplier = series.get("fee_type"), series.get("fee_multiplier")
     if fee_type is None or multiplier is None:
@@ -154,8 +160,10 @@ def kalshi_schedules(exchange_id: int, series: list[dict], series_changes: list[
             at = _parse_time(c["scheduled_ts"])
             definition = kalshi_definition(c["fee_type"], float(c["fee_multiplier"]), at)
             if definition is None:
-                logger.warning("Kalshi series %s has fee type %s from %s, which no schedule expresses; skipping",
+                logger.warning("Kalshi series %s has fee type %s from %s, which no schedule expresses",
                                series, c["fee_type"], c["scheduled_ts"])
+                rows.append(_unsupported({**scope, "effective_from": _iso(at)},
+                                         f"kalshi:series_fee_change:{c['id']}", c["fee_type"]))
                 continue
             rows.append({**scope, "effective_from": _iso(at), "definition": definition,
                          "source_ref": f"kalshi:series_fee_change:{c['id']}", "_type": c["fee_type"],
@@ -182,8 +190,9 @@ def kalshi_schedules(exchange_id: int, series: list[dict], series_changes: list[
             multiplier = float(multiplier) if multiplier is not None else series_multiplier
             definition = kalshi_definition(fee_type, multiplier, at)
             if definition is None:
-                logger.warning("Kalshi event %s has fee type %s from %s, which no schedule expresses; skipping",
+                logger.warning("Kalshi event %s has fee type %s from %s, which no schedule expresses",
                                event, fee_type, c["scheduled_ts"])
+                rows.append(_unsupported(row, row["source_ref"], fee_type))
                 continue
             rows.append({**row, "definition": definition, "_type": fee_type, "_multiplier": multiplier})
         rows = _with_rounding_cutover(
