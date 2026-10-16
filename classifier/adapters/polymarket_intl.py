@@ -10,6 +10,7 @@ from classifier import taxonomy
 from classifier.adapters.settlement import chunked, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
+from classifier.stages.fees import polymarket_intl_definition, polymarket_intl_fee_since
 from classifier.types import ExchangeId
 from classifier.utils import format_security_symbol
 
@@ -347,6 +348,8 @@ class PolymarketIntlAdapter:
                 security_symbol=format_security_symbol(self.symbol_prefix, _market_symbol_base(market, condition_id)),
                 exchange_event_native_url=f"https://polymarket.com/event/{event_slug}",
                 event_volume=event_volume,
+                listing_fee=polymarket_intl_definition(market),
+                listing_fee_since=polymarket_intl_fee_since(market),
             ))
         return contracts
 
@@ -414,5 +417,7 @@ class PolymarketIntlAdapter:
                 security_symbol=format_security_symbol(self.symbol_prefix, _market_symbol_base(market, condition_id), outcome),
                 exchange_event_native_url=native_url,
                 event_volume=event_volume,
+                listing_fee=polymarket_intl_definition(market),
+                listing_fee_since=polymarket_intl_fee_since(market),
             ))
         return contracts

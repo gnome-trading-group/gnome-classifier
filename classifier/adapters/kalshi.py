@@ -11,6 +11,7 @@ from classifier import taxonomy
 from classifier.adapters.settlement import PRICE_SCALE, chunked, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
+from classifier.stages.fees import kalshi_schedules
 from classifier.types import ExchangeId
 from classifier.utils import format_security_symbol
 
@@ -128,6 +129,32 @@ class KalshiAdapter:
             cursor = data.get("cursor", "")
             if not cursor or not series:
                 return tags_by_series
+
+    def fetch_fee_schedules(self, exchange_id: ExchangeId) -> list[dict]:
+        """Every series fee change Kalshi has recorded, and the event overrides it lists now (it keeps no history of
+        those, so overrides already lifted are only known from earlier syncs)."""
+        series = self._get_json("/series/fee_changes", {"show_historical": "true"}).get("series_fee_change_arr") or []
+        events: list[dict] = []
+        cursor = ""
+        while True:
+            params: dict = {"limit": SERIES_PAGE_SIZE}
+            if cursor:
+                params["cursor"] = cursor
+            data = self._get_json("/events/fee_changes", params)
+            events.extend(data.get("event_fee_changes") or [])
+            cursor = data.get("cursor", "")
+            if not cursor:
+                break
+        return kalshi_schedules(exchange_id, series, events)
+
+    def _get_json(self, path: str, params: dict) -> dict:
+        try:
+            res = self._session.get(f"{BASE_URL}{path}", params=params, timeout=30)
+            res.raise_for_status()
+            return res.json()
+        except requests.exceptions.RequestException as e:
+            logger.error("Kalshi API error on %s: %s", path, e)
+            raise
 
     def fetch_resolved(self, exchange_id: ExchangeId, lookback_days: int) -> set[str]:
         resolved: set[str] = set()
@@ -308,6 +335,8 @@ class KalshiAdapter:
                     security_symbol=format_security_symbol(self.symbol_prefix, ticker),
                     exchange_event_native_url=native_url,
                     event_volume=event_volume,
+                    fee_group=series_ticker or None,
+                    fee_event=event_ticker,
                 ))
             else:
                 # Each market of an event that isn't mutually exclusive is its own yes/no question, so it is its
@@ -353,6 +382,8 @@ class KalshiAdapter:
                         security_symbol=format_security_symbol(self.symbol_prefix, ticker, side),
                         exchange_event_native_url=native_url,
                         event_volume=market_volume,
+                        fee_group=series_ticker or None,
+                        fee_event=event_ticker,
                     ))
 
         return contracts

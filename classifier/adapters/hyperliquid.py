@@ -24,6 +24,9 @@ LOT_SIZE = 1_000_000
 # looks up at most this many; the rest wait for the next cycle.
 MAX_SETTLEMENT_LOOKUPS = 40
 
+# Outcome tokens have their own fee rules (charged only on closing or settling), apart from perps and spot.
+OUTCOME_FEE_GROUP = "outcome"
+
 _TEMPLATE_PREFIX = "template:"
 _TIMESTAMP_FORMAT = "%Y%m%d-%H%M"
 
@@ -366,4 +369,5 @@ class HyperliquidAdapter:
             exchange_event_native_id=native_id,
             security_symbol=security_symbol,
             event_volume=volume,
+            fee_group=OUTCOME_FEE_GROUP,
         )

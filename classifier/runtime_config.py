@@ -11,6 +11,7 @@ from classifier.constants import (
     DEFAULT_CANONICALIZE_MODEL,
     DEFAULT_BULK_CREATE_BATCH_SIZE,
     DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD,
+    DEFAULT_FEE_SYNC_INTERVAL_SECONDS,
     DEFAULT_FETCH_INTERVAL_SECONDS,
     DEFAULT_FETCH_MAX_SQS_MESSAGES,
     DEFAULT_HEDGEABLE_WITH_CONFIDENCE,
@@ -52,6 +53,7 @@ class FeatureFlags:
     semantic_judgements_enabled: bool = False
     stale_cleanup_enabled: bool = False
     settlement_enabled: bool = False
+    fee_sync_enabled: bool = False
     debug: bool = False
 
 
@@ -109,6 +111,7 @@ class WorkerParams:
     resolve_interval_seconds: int = DEFAULT_RESOLVE_INTERVAL_SECONDS
     stale_interval_seconds: int = DEFAULT_STALE_INTERVAL_SECONDS
     settle_interval_seconds: int = DEFAULT_SETTLE_INTERVAL_SECONDS
+    fee_sync_interval_seconds: int = DEFAULT_FEE_SYNC_INTERVAL_SECONDS
 
 
 @dataclasses.dataclass

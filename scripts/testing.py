@@ -138,6 +138,9 @@ class StubRegistry(RegistryClient):
         self._listings: list[Listing] = []
         self._listing_specs: list[ListingSpec] = []
         self._min_size_by_spec_id: dict[int, int] = {}
+        # Fee state lives beside the gnomepy dataclasses, which may predate these fields.
+        self._fee_keys_by_listing: dict[int, tuple[str | None, str | None]] = {}
+        self._fee_schedules: list[dict] = []
         self._event_contracts: list[EventContract] = []
         self._contract_relationships: list[ContractRelationship] = []
         self._currencies: list[Currency] = []
@@ -251,6 +254,7 @@ class StubRegistry(RegistryClient):
                 "date_created": "",
             }
             self._listings.append(Listing(**d))
+            self._fee_keys_by_listing[listing_id] = (item.get("fee_group"), item.get("fee_event"))
             results.append(d)
         return results
 
@@ -285,6 +289,14 @@ class StubRegistry(RegistryClient):
             self._listing_specs.append(ListingSpec(**d))
             self._min_size_by_spec_id[spec_id] = item.get("min_size", 0)
             results.append(d)
+        return results
+
+    def bulk_create_fee_schedules(self, items: list[dict]) -> list[dict]:
+        results = []
+        for item in items:
+            row = {"fee_schedule_id": self._alloc_id(), "recorded_at": len(self._fee_schedules), **item}
+            self._fee_schedules.append(row)
+            results.append(row)
         return results
 
     def bulk_create_contract_relationships(self, items: list[dict]) -> list[dict]:
@@ -329,6 +341,9 @@ class StubRegistry(RegistryClient):
         return {}
 
     def patch_listing(self, listing_id: int, **kwargs) -> dict:
+        if "fee_group" in kwargs or "fee_event" in kwargs:
+            group, event = self._fee_keys_by_listing.get(listing_id, (None, None))
+            self._fee_keys_by_listing[listing_id] = (kwargs.pop("fee_group", group), kwargs.pop("fee_event", event))
         for i, l in enumerate(self._listings):
             if l.listing_id == listing_id:
                 updated = dataclasses.replace(l, **kwargs)
@@ -475,6 +490,25 @@ class StubDB:
                 min_size = self._r._min_size_by_spec_id.get(s.id, 0)
                 seen[s.listing_id] = (s.tick_size, s.lot_size, s.min_notional, s.contract_multiplier, min_size)
         return seen
+
+    def get_listing_fee_keys(self, listing_ids: list[int]) -> dict[int, tuple[str | None, str | None]]:
+        return {lid: self._r._fee_keys_by_listing.get(lid, (None, None))
+                for lid in listing_ids if any(l.listing_id == lid for l in self._r._listings)}
+
+    def get_listing_fee_definitions(self, listing_ids: list[int]) -> dict[int, dict | None]:
+        id_set = set(listing_ids)
+        latest: dict[int, tuple] = {}
+        for row in self._r._fee_schedules:
+            lid = row.get("listing_id")
+            if lid in id_set:
+                key = (row["effective_from"], row["recorded_at"])
+                if lid not in latest or key >= latest[lid][0]:
+                    latest[lid] = (key, row["definition"])
+        return {lid: definition for lid, (_, definition) in latest.items()}
+
+    def get_fee_source_refs(self, exchange_id: int) -> set[str]:
+        return {row["source_ref"] for row in self._r._fee_schedules
+                if row.get("exchange_id") == exchange_id and row.get("source_ref")}
 
     def get_unresolved_events(self) -> list[Event]:
         return self._r.get_event(resolved=False)

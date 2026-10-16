@@ -8,6 +8,7 @@ import boto3
 import redis as redis_lib
 
 from classifier.adapters import ADAPTERS
+from classifier.stages.fees import sync_venue_fee_schedules
 from classifier.stages.fetch import diff_contracts, fetch_exchanges, fetch_resolved_outcomes
 from classifier.stages.settle import record_settlements
 from classifier.stages.stale import update_stale_tracker
@@ -109,6 +110,7 @@ class FetchRunner:
         last_resolve = -float("inf")
         last_stale = -float("inf")
         last_settle = -float("inf")
+        last_fee_sync = -float("inf")
 
         # The FetchWorkerStarts metric filter in cdk/lib/stacks/classifier-stack.ts counts this message to catch crash
         # loops; keep its wording in step with the filter.
@@ -147,11 +149,19 @@ class FetchRunner:
                 except Exception:
                     logger.exception("settle cycle failed")
 
+            if now - last_fee_sync >= wp.fee_sync_interval_seconds:
+                last_fee_sync = now
+                try:
+                    self._run_fee_sync(rc, registry)
+                except Exception:
+                    logger.exception("fee sync cycle failed")
+
             next_times = [
                 last_fetch + wp.fetch_interval_seconds,
                 last_resolve + wp.resolve_interval_seconds,
                 last_stale + wp.stale_interval_seconds,
                 last_settle + wp.settle_interval_seconds,
+                last_fee_sync + wp.fee_sync_interval_seconds,
             ]
             sleep_secs = max(0.0, min(next_times) - time.monotonic())
             if sleep_secs > 0:
@@ -272,6 +282,15 @@ class FetchRunner:
             processing.settlement_lookback_days, processing.settle_max_candidates, self._settle_cursors,
         )
         logger.info("Settle cycle complete: %s", counts)
+
+    def _run_fee_sync(self, rc, registry):
+        if not rc.config.feature_flags.fee_sync_enabled:
+            logger.info("fee_sync_enabled=False, skipping fee sync cycle")
+            return
+        if self._db is None:
+            self._db = init_db()
+        counts = sync_venue_fee_schedules(ADAPTERS, fetch_exchanges(registry), registry, self._db)
+        logger.info("Fee sync cycle: %s", counts)
 
     def _run_stale(self, rc, r, sqs, registry):
         logger.info("Starting stale cycle")

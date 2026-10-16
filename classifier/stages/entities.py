@@ -1,5 +1,6 @@
 import dataclasses
 import logging
+from datetime import datetime, timezone
 
 from classifier.adapters.types import AdapterContract
 from classifier.cache import ClassifierCache
@@ -117,6 +118,8 @@ def create_entities_from_canonical(
     listing_specs_created, listing_specs_updated = _sync_listing_specs(
         registry, unique_contracts, listing_id_by_key, spec_by_listing_id,
     )
+    _sync_listing_fee_keys(registry, db, unique_contracts, listing_id_by_key)
+    _sync_listing_fees(registry, db, unique_contracts, listing_id_by_key)
 
     _reconcile_stale_entities(registry, contracts, entity_ctx.event_id_by_native, db)
 
@@ -284,6 +287,8 @@ def _create_listings(
             security_id=security_id_by_key[_listing_key(c)],
             exchange_security_id=c.exchange_security_id,
             exchange_security_symbol=c.exchange_security_symbol,
+            fee_group=c.fee_group,
+            fee_event=c.fee_event,
         )
         for c in contracts
     ]
@@ -362,6 +367,54 @@ def _sync_listing_specs(
         except Exception as e:
             logger.error("Bulk listing_spec creation failed: %s", e)
     return posted - updates, updates
+
+
+def _sync_listing_fee_keys(
+    registry: RegistryClient,
+    db: ClassifierDB,
+    contracts: list[AdapterContract],
+    listing_id_by_key: dict[ListingKey, int],
+) -> int:
+    """Brings existing listings' fee keys up to what the venue reports (a listing created before them, or a venue
+    regrouping a market)."""
+    wanted = {listing_id_by_key[_listing_key(c)]: (c.fee_group, c.fee_event)
+              for c in contracts if _listing_key(c) in listing_id_by_key}
+    current = db.get_listing_fee_keys(list(wanted))
+    pending = [dict(listing_id=lid, fee_group=group, fee_event=event)
+               for lid, (group, event) in wanted.items() if current.get(lid, (None, None)) != (group, event)]
+    for _, chunk in bulk_create_chunked(pending, "listing fee keys"):
+        registry.bulk_patch_listings(chunk)
+    return len(pending)
+
+
+def _sync_listing_fees(
+    registry: RegistryClient,
+    db: ClassifierDB,
+    contracts: list[AdapterContract],
+    listing_id_by_key: dict[ListingKey, int],
+) -> int:
+    """Records a change to a listing's own fee schedule (venues that set fees per market). A listing's first schedule
+    holds from when the venue says it did; a later change, or a schedule the venue drops, from now."""
+    by_listing = {listing_id_by_key[_listing_key(c)]: c for c in contracts if _listing_key(c) in listing_id_by_key}
+    current = db.get_listing_fee_definitions(list(by_listing))
+    now = datetime.now(timezone.utc).isoformat()
+    pending = []
+    for listing_id, c in by_listing.items():
+        if listing_id not in current:
+            if c.listing_fee is None:
+                continue
+            effective_from = c.listing_fee_since or now
+        elif current[listing_id] == c.listing_fee:
+            continue
+        else:
+            effective_from = now
+        pending.append(dict(
+            listing_id=listing_id, effective_from=effective_from, definition=c.listing_fee,
+            source="VENUE_API", source_ref=f"{c.exchange_id}:{c.exchange_security_id}",
+        ))
+    for _, chunk in bulk_create_chunked(pending, "listing fee schedules"):
+        registry.bulk_create_fee_schedules(chunk)
+    return len(pending)
 
 
 def _reconcile_stale_entities(

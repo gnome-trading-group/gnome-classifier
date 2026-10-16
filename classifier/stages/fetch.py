@@ -1,5 +1,6 @@
 import dataclasses
 import hashlib
+import json
 import logging
 
 from classifier.adapters import ADAPTERS
@@ -22,6 +23,9 @@ def contract_hash(contract: AdapterContract) -> str:
         str(int(contract.min_notional)),
         str(int(contract.contract_multiplier)),
         str(int(contract.min_size)),
+        contract.fee_group or "",
+        contract.fee_event or "",
+        json.dumps(contract.listing_fee, sort_keys=True) if contract.listing_fee is not None else "",
     ])
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 

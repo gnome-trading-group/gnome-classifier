@@ -78,6 +78,16 @@ def _is_open(market: dict) -> bool:
     )
 
 
+def _sport_slug(event: dict) -> str | None:
+    """The event's sport (e.g. "table-tennis"), the fee group Polymarket US prices some sports by; the gateway marks
+    the tag that names a sport with a `sport` object."""
+    for tag in event.get("tags") or []:
+        sport = tag.get("sport") if isinstance(tag, dict) else None
+        if isinstance(sport, dict) and sport.get("slug"):
+            return sport["slug"]
+    return None
+
+
 class PolymarketUsAdapter:
     exchange_code = "POLYMARKET_US"
     symbol_prefix = "PM_US"
@@ -193,6 +203,7 @@ class PolymarketUsAdapter:
         tag_labels = [t.get("label") if isinstance(t, dict) else t for t in event.get("tags") or []]
         mapped_category = taxonomy.polymarket_us_category(event_category)
         event_tags = taxonomy.polymarket_tags(tag_labels, event.get("seriesSlug"), event_slug)
+        fee_group = _sport_slug(event)
 
         contracts: list[AdapterContract] = []
         for market in event.get("markets") or []:
@@ -236,5 +247,6 @@ class PolymarketUsAdapter:
                     security_symbol=format_security_symbol(self.symbol_prefix, slug, leg),
                     exchange_event_native_url=native_url,
                     event_volume=volume_by_slug.get(slug, 0.0),
+                    fee_group=fee_group,
                 ))
         return contracts

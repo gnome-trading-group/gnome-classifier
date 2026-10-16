@@ -97,7 +97,7 @@ All five run as ECS services on a single EC2 auto-scaling group (spot t3.medium,
 1. Loads the last-seen contract hashes from Redis (`fetch:known_contracts`, `"exchange_id:exchange_security_id"` → hash).
 2. Looks up exchanges in the registry by `exchange_code` and, for each adapter, streams pages from `adapter.fetch(exchange_id)`.
 3. For each page, `diff_contracts()` (`classifier/stages/fetch.py`):
-   - Hashes every contract (`contract_hash`: exchange/security IDs, outcome label, event title, native event ID, tick/lot size, min notional, contract multiplier).
+   - Hashes every contract (`contract_hash`: exchange/security IDs, outcome label, event title, native event ID, tick/lot size, min notional, contract multiplier, min size, fee keys, listing fee schedule).
    - Groups contracts by `(exchange_id, exchange_event_native_id)`.
    - Drops groups whose `event_volume` is below `min_event_volume` (when set).
    - Emits one `{"type": "new", "contracts": [...]}` message per group in which any contract is new or changed, capped at `fetch_max_sqs_messages` per cycle.
@@ -134,6 +134,16 @@ Handles events that an exchange silently stops listing without marking them reso
    - Newly seen events are added with `miss_count = 0`.
    - Entries reaching `stale_miss_threshold` (default 6) become `{"type": "stale", "exchange_id": X, "native_event_id": Y}` messages and leave the tracker. Anything beyond `stale_max_sqs_messages` stays in the tracker at the threshold count for the next cycle.
 4. Sends stale messages and saves the tracker.
+
+---
+
+### Fee Sync (`FetchRunner._run_fee_sync`)
+
+**Every `fee_sync_interval_seconds` (default 3600s).** Skipped when `fee_sync_enabled` is false.
+
+`sync_venue_fee_schedules()` (`classifier/stages/fees.py`) asks each adapter with `fetch_fee_schedules` for the fee schedules its venue publishes and writes those the registry doesn't hold yet (`sm.fee_schedule`, matched by `source_ref`). Only Kalshi has one: every recorded series change (`/series/fee_changes?show_historical=true`, since 2025-10-04) and the event overrides listed now (`/events/fee_changes`, which keeps no history). Schedules from before Kalshi's 2026-03-03 rounding change get a second row from that date with the new rounding.
+
+Fee schedules a venue sets per market (Polymarket International) come with the contracts instead: NormalizeWorker writes a listing's first schedule from when the market listed (never before 2026-01-05, when Polymarket began charging fees) and any later change from now.
 
 ---
 
@@ -227,6 +237,8 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 | `mapped_category` | Registry category from the exchange's labels (`classifier/taxonomy.py`), or `None` when they leave it open |
 | `event_tags` | Normalized exchange tags, led by the esports game (`cs2`, `dota 2`, …) when there is one |
 | `event_volume` | Volume used for `min_event_volume` filtering, when available |
+| `fee_group` / `fee_event` | Venue keys that fee schedules target (`sm.listing.fee_group` / `fee_event`): Kalshi series and event ticker, Polymarket US sport, Hyperliquid `outcome` |
+| `listing_fee` / `listing_fee_since` | The listing's own fee schedule (an `sm.fee_schedule` definition) and when it first held, for venues that set fees per market (Polymarket International) |
 
 ### Polymarket International (`classifier/adapters/polymarket_intl.py`)
 
