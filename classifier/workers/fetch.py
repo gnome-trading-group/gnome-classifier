@@ -178,7 +178,8 @@ class FetchRunner:
         queue_url = os.environ["CONTRACTS_QUEUE_URL"]
         known_contracts = _redis_load_known_contracts(r)
         exchange_by_code = fetch_exchanges(registry)
-        min_event_volume = rc.config.thresholds.min_event_volume
+        thresholds = rc.config.thresholds
+        min_event_volume = thresholds.min_event_volume
         max_messages = rc.config.processing.fetch_max_sqs_messages
         debug = rc.config.feature_flags.debug
 
@@ -207,6 +208,8 @@ class FetchRunner:
                         min_event_volume=min_event_volume,
                         max_messages=remaining,
                         debug=debug,
+                        min_volume_by_tag=thresholds.min_event_volume_by_tag,
+                        min_volume_by_category=thresholds.min_event_volume_by_category,
                     )
                     if new_msgs:
                         sqs_send_batch(sqs, queue_url, new_msgs)

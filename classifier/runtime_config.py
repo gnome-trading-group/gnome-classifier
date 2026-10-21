@@ -78,6 +78,10 @@ class Thresholds:
     min_confidence: float = DEFAULT_MIN_CONFIDENCE
     hedgeable_with_confidence: float = DEFAULT_HEDGEABLE_WITH_CONFIDENCE
     min_event_volume: float | None = DEFAULT_MIN_EVENT_VOLUME
+    # Per-tag / per-category thresholds that replace min_event_volume for matching events; the smallest
+    # matching value wins and None ungates. Empty defaults so entries removed in the controller stay removed.
+    min_event_volume_by_tag: dict[str, float | None] = dataclasses.field(default_factory=dict)
+    min_event_volume_by_category: dict[str, float | None] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass

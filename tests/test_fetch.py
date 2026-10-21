@@ -5,7 +5,7 @@ import pytest
 
 from classifier.adapters.types import AdapterContract
 from classifier.runtime_config import ClassifierConfig, FeatureFlags, Thresholds
-from classifier.stages.fetch import fetch_all
+from classifier.stages.fetch import diff_contracts, event_min_volume, fetch_all
 from classifier.workers.fetch import FetchRunner
 from gnomepy.registry.types import AssetClass, ContractType, Exchange, SecurityType
 
@@ -107,17 +107,21 @@ def _make_contract(
     )
 
 
-def _make_fetch_rc(min_event_volume: float | None = None):
+def _make_fetch_rc(min_event_volume: float | None = None, by_tag=None, by_category=None):
     rc = MagicMock()
     rc.config = ClassifierConfig(
         feature_flags=FeatureFlags(fetch_enabled=True),
-        thresholds=Thresholds(min_event_volume=min_event_volume),
+        thresholds=Thresholds(
+            min_event_volume=min_event_volume,
+            min_event_volume_by_tag=by_tag or {},
+            min_event_volume_by_category=by_category or {},
+        ),
     )
     return rc
 
 
-def _run_fetch(moto_env, contracts, min_event_volume=None):
-    rc = _make_fetch_rc(min_event_volume)
+def _run_fetch(moto_env, contracts, min_event_volume=None, by_tag=None, by_category=None):
+    rc = _make_fetch_rc(min_event_volume, by_tag, by_category)
     r = MagicMock()
     r.get.return_value = None
     runner = FetchRunner()
@@ -250,3 +254,65 @@ class TestVolumeGateOnlyForNewEvents:
         msgs, saved = _run_fetch_with_known(moto_env, [_make_contract("evt-2", "sec-9", event_volume=10.0)], {}, min_event_volume=1000.0)
         assert msgs == []
         assert "1:sec-9" not in saved
+
+
+def _tagged(native_id, volume, tags=(), category=None):
+    contract = _make_contract(native_id, f"sec-{native_id}", event_volume=volume)
+    contract.event_tags = list(tags)
+    contract.mapped_category = category
+    return contract
+
+
+class TestEventMinVolume:
+    def test_no_match_uses_default(self):
+        assert event_min_volume(_tagged("e", 1.0, ["nba"], "SPORTS"), 1000.0, {"cs2": 50.0}, {"CRYPTO": 10.0}) == 1000.0
+
+    def test_tag_match_replaces_default(self):
+        assert event_min_volume(_tagged("e", 1.0, ["cs2", "esports"]), 1000.0, {"cs2": 50.0}, {}) == 50.0
+
+    def test_override_can_raise_threshold(self):
+        assert event_min_volume(_tagged("e", 1.0, ["crypto"]), 1000.0, {"crypto": 5000.0}, {}) == 5000.0
+
+    def test_category_match(self):
+        assert event_min_volume(_tagged("e", 1.0, [], "SPORTS"), 1000.0, {}, {"SPORTS": 200.0}) == 200.0
+
+    def test_smallest_match_wins_across_tags_and_categories(self):
+        contract = _tagged("e", 1.0, ["cs2", "esports"], "SPORTS")
+        assert event_min_volume(contract, 1000.0, {"cs2": 50.0, "esports": 300.0}, {"SPORTS": 200.0}) == 50.0
+
+    def test_none_override_ungates(self):
+        contract = _tagged("e", 1.0, ["cs2"], "SPORTS")
+        assert event_min_volume(contract, 1000.0, {"cs2": None}, {"SPORTS": 200.0}) is None
+
+    def test_keys_match_case_insensitively(self):
+        contract = _tagged("e", 1.0, ["cs2"], "SPORTS")
+        assert event_min_volume(contract, 1000.0, {"CS2": 50.0}, {}) == 50.0
+        assert event_min_volume(contract, 1000.0, {}, {"sports": 200.0}) == 200.0
+
+
+class TestVolumeOverridesInDiff:
+    def _sent_events(self, contracts, default, by_tag=None, by_category=None):
+        msgs, _, _, _ = diff_contracts(
+            contracts, {}, [], {}, default, max_messages=100,
+            min_volume_by_tag=by_tag, min_volume_by_category=by_category,
+        )
+        return {m["contracts"][0]["exchange_event_native_id"] for m in msgs}
+
+    def test_tag_override_lets_small_event_through(self):
+        contracts = [_tagged("cs2-match", 80.0, ["cs2"]), _tagged("nba-game", 80.0, ["nba"])]
+        assert self._sent_events(contracts, 1000.0, {"cs2": 50.0}) == {"cs2-match"}
+
+    def test_override_applies_with_global_gate_disabled(self):
+        contracts = [_tagged("btc", 80.0, ["crypto"]), _tagged("nba-game", 80.0, ["nba"])]
+        assert self._sent_events(contracts, None, {"crypto": 500.0}) == {"nba-game"}
+
+    def test_category_override_lets_small_event_through(self):
+        contracts = [_tagged("game", 150.0, [], "SPORTS"), _tagged("vote", 150.0, [], "POLITICS")]
+        assert self._sent_events(contracts, 1000.0, by_category={"SPORTS": 100.0}) == {"game"}
+
+
+class TestVolumeOverridesInWorker:
+    def test_worker_passes_overrides_from_config(self, moto_env):
+        contracts = [_tagged("cs2-match", 80.0, ["cs2"]), _tagged("nba-game", 80.0, ["nba"])]
+        msgs = _run_fetch(moto_env, contracts, min_event_volume=1000.0, by_tag={"cs2": 50.0})
+        assert [json.loads(m["Body"])["contracts"][0]["exchange_event_native_id"] for m in msgs] == ["cs2-match"]

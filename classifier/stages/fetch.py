@@ -28,6 +28,23 @@ def contract_hash(contract: AdapterContract) -> str:
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
+def event_min_volume(
+    contract: AdapterContract,
+    default: float | None,
+    by_tag: dict[str, float | None],
+    by_category: dict[str, float | None],
+) -> float | None:
+    """The volume an event needs: the smallest matching tag/category override, else the default. None is ungated."""
+    matches = [v for tag, v in by_tag.items() if tag.lower() in contract.event_tags]
+    if contract.mapped_category:
+        matches += [v for cat, v in by_category.items() if cat.upper() == contract.mapped_category]
+    if not matches:
+        return default
+    if any(v is None for v in matches):
+        return None
+    return min(matches)
+
+
 def diff_contracts(
     active_contracts: list[AdapterContract],
     known_hashes: dict[str, str],
@@ -36,6 +53,8 @@ def diff_contracts(
     min_event_volume: float | None,
     max_messages: int,
     debug: bool = False,
+    min_volume_by_tag: dict[str, float | None] | None = None,
+    min_volume_by_category: dict[str, float | None] | None = None,
 ) -> tuple[list[dict], dict[str, str], dict[int, set[str]], set[int]]:
     """Returns (new_messages, updated_hashes, active_by_exchange, successful_exchange_ids)."""
     contracts_by_native: dict[tuple[int, str], list[AdapterContract]] = {}
@@ -53,20 +72,26 @@ def diff_contracts(
         ex.exchange_id for name, ex in exchange_by_code.items() if name not in failed_adapters
     }
 
-    if min_event_volume is not None:
+    by_tag = min_volume_by_tag or {}
+    by_category = min_volume_by_category or {}
+    if min_event_volume is not None or by_tag or by_category:
         filtered_count = 0
         for nk, group in list(contracts_by_native.items()):
             # Volume only gates ingesting new events; an event fetch has already sent keeps
             # flowing so quiet markets still pick up added and removed contracts.
             already_sent = any(f"{c.exchange_id}:{c.exchange_security_id}" in known_hashes for c in group)
             vol = group[0].event_volume
-            if not already_sent and vol is not None and vol < min_event_volume:
+            threshold = event_min_volume(group[0], min_event_volume, by_tag, by_category)
+            if not already_sent and vol is not None and threshold is not None and vol < threshold:
                 filtered_count += 1
                 del contracts_by_native[nk]
                 for c in group:
                     current_hashes.pop(f"{c.exchange_id}:{c.exchange_security_id}", None)
         if filtered_count and debug:
-            logger.info("Filtered %d low-volume event groups (min_event_volume=%.2f)", filtered_count, min_event_volume)
+            logger.info(
+                "Filtered %d low-volume event groups (min_event_volume=%s, by_tag=%s, by_category=%s)",
+                filtered_count, min_event_volume, by_tag, by_category,
+            )
 
     new_messages: list[dict] = []
     for nk, group in contracts_by_native.items():

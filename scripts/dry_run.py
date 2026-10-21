@@ -110,6 +110,19 @@ def _fetch_contracts(adapter: str | None, max_contracts: int | None):
     return registry, db, contracts, exchange_by_code
 
 
+def _parse_volume_overrides(ctx, param, values: tuple[str, ...]) -> dict[str, float | None]:
+    overrides: dict[str, float | None] = {}
+    for item in values:
+        key, sep, raw = item.partition("=")
+        if not sep or not key:
+            raise click.BadParameter(f"expected KEY=VALUE, got {item!r}")
+        try:
+            overrides[key] = None if raw.lower() == "none" else float(raw)
+        except ValueError:
+            raise click.BadParameter(f"invalid volume {raw!r} for {key!r}")
+    return overrides
+
+
 def _display_fetch_results(contracts, new_messages: list[dict], adapter: str | None, min_volume: float | None):
     all_native = {(c.exchange_id, c.exchange_event_native_id) for c in contracts}
     total_events = len(all_native)
@@ -148,7 +161,7 @@ def _display_fetch_results(contracts, new_messages: list[dict], adapter: str | N
     print(f"{'='*70}")
     print(f"  events shown    : {shown}")
     if filtered_out:
-        print(f"  filtered out    : {filtered_out}  (min_volume=${min_volume:,.2f})")
+        print(f"  filtered out    : {filtered_out}  (min_volume={min_volume})")
     print(f"  contracts total : {sum(len(msg['contracts']) for msg in new_messages)}")
     if volumes:
         print(f"  volume range    : ${min(volumes):,.2f} – ${max(volumes):,.2f}")
@@ -255,7 +268,9 @@ def main(ctx, debug: bool, output_path: str):
 @click.argument("adapter")
 @click.option("-n", "max_contracts", type=int, default=None, help="Limit to first N contracts")
 @click.option("--min-volume", type=float, default=DEFAULT_MIN_EVENT_VOLUME, show_default=True, help="Exclude events below this $ volume (0 to disable)")
-def fetch(adapter: str, max_contracts: int | None, min_volume: float):
+@click.option("--tag-volume", "tag_volumes", multiple=True, callback=_parse_volume_overrides, help="Per-tag threshold, e.g. cs2=50 (repeatable; 'none' ungates)")
+@click.option("--category-volume", "category_volumes", multiple=True, callback=_parse_volume_overrides, help="Per-category threshold, e.g. SPORTS=200 (repeatable; 'none' ungates)")
+def fetch(adapter: str, max_contracts: int | None, min_volume: float, tag_volumes: dict, category_volumes: dict):
     """Fetch raw contracts from ADAPTER and display them grouped by event."""
     _, _, contracts, exchange_by_code = _fetch_contracts(adapter, max_contracts)
     if not contracts:
@@ -264,6 +279,7 @@ def fetch(adapter: str, max_contracts: int | None, min_volume: float):
     volume_filter = min_volume if min_volume > 0 else None
     new_messages, _, _, _ = diff_contracts(
         contracts, {}, [], exchange_by_code, volume_filter, max_messages=100_000,
+        min_volume_by_tag=tag_volumes, min_volume_by_category=category_volumes,
     )
     _display_fetch_results(contracts, new_messages, adapter, volume_filter)
 
