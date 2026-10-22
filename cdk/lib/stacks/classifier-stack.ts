@@ -356,5 +356,14 @@ export class ClassifierStack extends cdk.Stack {
       value: this.notificationsTopic.topicArn,
       exportName: 'ClassifierNotificationsTopicArn',
     });
+
+    // The monitoring stack imported these URLs only for its dashboard; CloudFormation can't drop an export while it
+    // is still imported, so they stay one release while that stack deploys, then go.
+    for (const queue of [
+      this.contractsQueue, this.contractsDlq, this.entitiesQueue, this.entitiesDlq,
+      this.embeddingsQueue, this.embeddingsDlq, this.slackQueue, this.slackDlq,
+    ]) {
+      this.exportValue(queue.queueUrl);
+    }
   }
 }

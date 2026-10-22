@@ -3,7 +3,7 @@ import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
-import { CustomMetricWithAlarm, MonitoringFacade, noopAction } from 'cdk-monitoring-constructs';
+import { CustomMetricWithAlarm, DefaultDashboardFactory, MonitoringFacade, noopAction } from 'cdk-monitoring-constructs';
 
 interface Props extends cdk.StackProps {
   contractsQueue: sqs.Queue;
@@ -56,6 +56,11 @@ export class MonitoringStack extends cdk.Stack {
     // The alarms carry no action: the registry's alerting stack hears every alarm change through EventBridge. Nothing
     // here touches trading, so none of it pages.
     const monitoring = new MonitoringFacade(this, 'ClassifierDashboard', {
+      // Only the alarms are used; each dashboard is billed monthly and nobody reads them.
+      dashboardFactory: new DefaultDashboardFactory(this, 'ClassifierDashboardFactory', {
+        dashboardNamePrefix: 'ClassifierDashboard',
+        createDashboard: false,
+      }),
       alarmFactoryDefaults: {
         actionsEnabled: true,
         alarmNamePrefix: 'Classifier-',
@@ -63,8 +68,6 @@ export class MonitoringStack extends cdk.Stack {
         datapointsToAlarm: 1,
       },
     });
-
-    monitoring.addLargeHeader('Gnome Classifier');
 
     for (const [name, queue, dlq] of [
       ['Contracts', props.contractsQueue, props.contractsDlq],
