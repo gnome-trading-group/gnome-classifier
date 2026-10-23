@@ -1,16 +1,21 @@
+import dataclasses
 import json
 import logging
 import os
 import signal
 import time
+from datetime import timedelta
 
 import boto3
 import redis as redis_lib
 
+from gnomepy.registry.types import Exchange
+
 from classifier.adapters import ADAPTERS
 from classifier.stages.fees import sync_venue_fee_schedules
 from classifier.stages.fetch import diff_contracts, fetch_exchanges, fetch_resolved_outcomes
-from classifier.stages.settle import record_settlements
+from classifier.stages.reactivate import reactivate_listings
+from classifier.stages.settle import check_closures, empty_counts, merge_counts, record_settlements
 from classifier.stages.stale import update_stale_tracker
 from classifier.workers.base import sqs_send_batch
 from classifier.workers.config import init_db, init_registry, init_runtime_config
@@ -85,11 +90,23 @@ def _redis_save_stale_tracker(r: redis_lib.Redis, data: dict[str, dict]):
 
 # ── FetchRunner ───────────────────────────────────────────────────────────────
 
+@dataclasses.dataclass
+class FetchResult:
+    active_by_exchange: dict[int, set[str]]
+    successful_ids: set[int]
+    # Of the exchanges whose fetch succeeded: each by code, the keys ("exchange_id:exchange_security_id") of every
+    # contract it lists, and the exchange_security_ids that were in its previous fetch but not this one.
+    exchanges: dict[str, Exchange] = dataclasses.field(default_factory=dict)
+    fetched_keys: dict[str, str] = dataclasses.field(default_factory=dict)
+    left_feed_by_exchange: dict[int, set[str]] = dataclasses.field(default_factory=dict)
+
+
 class FetchRunner:
     def __init__(self):
         self._running = False
         self._active_events: tuple[dict[int, set[str]], set[int]] | None = None
         self._db = None
+        self._sns = None
         self._settle_cursors: dict[str, int] = {}
 
     def _handle_shutdown(self, signum, frame):
@@ -104,6 +121,7 @@ class FetchRunner:
         rc = init_runtime_config()
         r = redis_lib.Redis.from_url(os.environ["REDIS_ENDPOINT"], decode_responses=False)
         sqs = boto3.client("sqs")
+        self._sns = boto3.client("sns")
         registry = init_registry()
 
         last_fetch = -float("inf")
@@ -123,10 +141,14 @@ class FetchRunner:
 
             if now - last_fetch >= wp.fetch_interval_seconds:
                 last_fetch = now
+                fetched = None
                 try:
-                    self._active_events = self._run_fetch(rc, r, sqs, registry)
+                    fetched = self._run_fetch(rc, r, sqs, registry)
+                    self._active_events = (fetched.active_by_exchange, fetched.successful_ids)
                 except Exception:
                     logger.exception("fetch cycle failed")
+                if fetched is not None:
+                    self._run_after_fetch(rc, registry, fetched)
 
             if now - last_resolve >= wp.resolve_interval_seconds:
                 last_resolve = now
@@ -142,7 +164,7 @@ class FetchRunner:
                 except Exception:
                     logger.exception("stale cleanup cycle failed")
 
-            if now - last_settle >= wp.settle_interval_seconds:
+            if now - last_settle >= wp.settle_sweep_interval_seconds:
                 last_settle = now
                 try:
                     self._run_settle(rc, registry)
@@ -160,7 +182,7 @@ class FetchRunner:
                 last_fetch + wp.fetch_interval_seconds,
                 last_resolve + wp.resolve_interval_seconds,
                 last_stale + wp.stale_interval_seconds,
-                last_settle + wp.settle_interval_seconds,
+                last_settle + wp.settle_sweep_interval_seconds,
                 last_fee_sync + wp.fee_sync_interval_seconds,
             ]
             sleep_secs = max(0.0, min(next_times) - time.monotonic())
@@ -169,11 +191,11 @@ class FetchRunner:
 
         logger.info("FetchRunner stopped")
 
-    def _run_fetch(self, rc, r, sqs, registry) -> tuple[dict[int, set[str]], set[int]]:
+    def _run_fetch(self, rc, r, sqs, registry) -> FetchResult:
         logger.info("Starting fetch cycle")
         if not rc.config.feature_flags.fetch_enabled:
             logger.info("fetch_enabled=False, skipping fetch cycle")
-            return self._active_events or ({}, set())
+            return FetchResult(*(self._active_events or ({}, set())))
 
         queue_url = os.environ["CONTRACTS_QUEUE_URL"]
         known_contracts = _redis_load_known_contracts(r)
@@ -186,6 +208,7 @@ class FetchRunner:
         merged_hashes: dict[str, str] = dict(known_contracts)
         active_by_exchange: dict[int, set[str]] = {}
         successful_ids: set[int] = set()
+        left_feed_by_exchange: dict[int, set[str]] = {}
         failed: list[str] = []
         total_sent = 0
 
@@ -218,6 +241,9 @@ class FetchRunner:
                     exchange_active.update(page_active.get(exchange.exchange_id, set()))
                 logger.info("Fetched %d contracts from %s, sent %d groups", adapter_contracts_count, adapter.exchange_code, total_sent)
                 prefix = f"{exchange.exchange_id}:"
+                left_feed_by_exchange[exchange.exchange_id] = {
+                    k.removeprefix(prefix) for k in known_contracts if k.startswith(prefix) and k not in exchange_hashes
+                }
                 merged_hashes = {k: v for k, v in merged_hashes.items() if not k.startswith(prefix)}
                 merged_hashes.update(exchange_hashes)
                 active_by_exchange[exchange.exchange_id] = exchange_active
@@ -233,7 +259,55 @@ class FetchRunner:
 
         _redis_save_known_contracts(r, merged_hashes)
         logger.info("Fetch cycle complete: %d new/changed groups", total_sent)
-        return active_by_exchange, successful_ids
+        return FetchResult(
+            active_by_exchange, successful_ids,
+            exchanges={code: ex for code, ex in exchange_by_code.items() if ex.exchange_id in successful_ids},
+            fetched_keys=merged_hashes, left_feed_by_exchange=left_feed_by_exchange,
+        )
+
+    def _run_after_fetch(self, rc, registry, fetched: FetchResult):
+        """Brings listings in line with what the fetch just saw: looks up the contracts that left the feed, the outcomes
+        that closed lately and may have settled since, and turns back on retired listings the feed lists as open."""
+        if not fetched.exchanges:
+            return
+        flags, processing = rc.config.feature_flags, rc.config.processing
+        counts = empty_counts()
+        if flags.settlement_enabled:
+            try:
+                merge_counts(counts, check_closures(ADAPTERS, fetched.exchanges, fetched.left_feed_by_exchange,
+                                                    registry, self._get_db(), processing.closure_check_max_lookups))
+            except Exception:
+                logger.exception("closure check cycle failed")
+            try:
+                merge_counts(counts, record_settlements(
+                    ADAPTERS, fetched.exchanges, registry, self._get_db(),
+                    timedelta(hours=processing.settle_recent_hours), processing.settle_max_candidates,
+                ))
+            except Exception:
+                logger.exception("recent settle cycle failed")
+        if flags.reactivation_enabled:
+            try:
+                reactivate_listings(fetched.successful_ids, fetched.fetched_keys, registry, self._get_db(),
+                                    timedelta(days=processing.reactivation_lookback_days))
+            except Exception:
+                logger.exception("reactivation cycle failed")
+        self._announce_resolved(counts)
+
+    def _get_db(self):
+        # Connected on first use, so the worker runs without database access while nothing needs it.
+        if self._db is None:
+            self._db = init_db()
+        return self._db
+
+    def _announce_resolved(self, counts: dict):
+        """Tells the launcher (which stops sessions on them) and Slack about events that just resolved."""
+        if not counts["resolved_event_ids"]:
+            return
+        payload = {"type": "resolved", **{k: v for k, v in counts.items() if k != "failed_exchanges"}}
+        try:
+            self._sns.publish(TopicArn=os.environ["NOTIFICATIONS_TOPIC_ARN"], Message=json.dumps(payload))
+        except Exception:
+            logger.warning("SNS publish failed, notification lost", exc_info=True)
 
     def _run_resolve(self, rc, r, sqs, registry):
         logger.info("Starting resolve cycle")
@@ -257,7 +331,7 @@ class FetchRunner:
                 key = (exchange_id, native_id)
                 current_resolved.add(key)
                 if key not in sent_resolved:
-                    new_messages.append({"type": "resolved", "exchange_id": exchange_id, "native_id": native_id})
+                    new_messages.append({"type": "closed", "exchange_id": exchange_id, "native_id": native_id})
 
         max_send = rc.config.processing.resolve_max_sqs_messages
         if len(new_messages) > max_send:
@@ -266,33 +340,32 @@ class FetchRunner:
 
         if new_messages:
             sqs_send_batch(sqs, queue_url, new_messages)
-            logger.info("Sent %d resolved contracts to contracts-queue", len(new_messages))
+            logger.info("Sent %d closed contracts to contracts-queue", len(new_messages))
 
         sent_keys = {(m["exchange_id"], m["native_id"]) for m in new_messages}
         _redis_save_sent_resolved(r, (sent_resolved & current_resolved) | sent_keys)
-        logger.info("Resolve cycle complete: %d newly resolved", len(new_messages))
+        logger.info("Resolve cycle complete: %d newly closed", len(new_messages))
 
     def _run_settle(self, rc, registry):
+        """The sweep of the whole settlement lookback, for values that take longer than the recent window after each
+        fetch, and venues that never retire a settled listing."""
         if not rc.config.feature_flags.settlement_enabled:
             logger.info("settlement_enabled=False, skipping settle cycle")
             return
-        # Connected on first use, so the worker runs without database access while settlement is off.
-        if self._db is None:
-            self._db = init_db()
         processing = rc.config.processing
         counts = record_settlements(
-            ADAPTERS, fetch_exchanges(registry), registry, self._db,
-            processing.settlement_lookback_days, processing.settle_max_candidates, self._settle_cursors,
+            ADAPTERS, fetch_exchanges(registry), registry, self._get_db(),
+            timedelta(days=processing.settlement_lookback_days), processing.settle_max_candidates, self._settle_cursors,
         )
-        logger.info("Settle cycle complete: %s", counts)
+        logger.info("Settle cycle complete: %s",
+                    {k: v for k, v in counts.items() if k not in ("resolved_event_ids", "resolved_event_names")})
+        self._announce_resolved(counts)
 
     def _run_fee_sync(self, rc, registry):
         if not rc.config.feature_flags.fee_sync_enabled:
             logger.info("fee_sync_enabled=False, skipping fee sync cycle")
             return
-        if self._db is None:
-            self._db = init_db()
-        counts = sync_venue_fee_schedules(ADAPTERS, fetch_exchanges(registry), registry, self._db)
+        counts = sync_venue_fee_schedules(ADAPTERS, fetch_exchanges(registry), registry, self._get_db())
         logger.info("Fee sync cycle: %s", counts)
 
     def _run_stale(self, rc, r, sqs, registry):

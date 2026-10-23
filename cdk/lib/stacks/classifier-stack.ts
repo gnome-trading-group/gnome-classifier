@@ -43,6 +43,10 @@ export class ClassifierStack extends cdk.Stack {
   public readonly fetchCycleFailures: cloudwatch.Metric;
   /** Hourly count of stale checks skipped because a venue's feed came back empty or partial. */
   public readonly venueFeedGaps: cloudwatch.Metric;
+  /** Hourly count of fetches after which so many contracts left a venue's feed that none were looked up. */
+  public readonly closureChecksSkipped: cloudwatch.Metric;
+  /** Hourly count of fetches that turned back on many listings their venue had misreported as closed. */
+  public readonly listingsReactivated: cloudwatch.Metric;
   /** Hourly count of securities an adapter tried to move to a second event. */
   public readonly identityRegressions: cloudwatch.Metric;
 
@@ -252,11 +256,14 @@ export class ClassifierStack extends cdk.Stack {
       CONTRACTS_QUEUE_URL: this.contractsQueue.queueUrl,
       // The settle cycle reads which deactivated outcomes still lack a settlement value.
       DB_SECRET_NAME: 'registry-database-root-user',
+      // Events resolve on their settlement values, recorded here, and are announced to the launcher and Slack.
+      NOTIFICATIONS_TOPIC_ARN: this.notificationsTopic.topicArn,
       ...controllerEnv,
     // A full fetch holds every venue's markets at once (Polymarket International alone is ~460k); at 1024 MiB its
     // peaks were OOM-killing the worker every few minutes, cutting off the resolve and stale cycles behind it.
     }, 2048, (role) => {
       this.contractsQueue.grantSendMessages(role);
+      this.notificationsTopic.grantPublish(role);
       dbSecret.grantRead(role);
       role.addToPolicy(new iam.PolicyStatement({
         actions: ['apigateway:GET'],
@@ -268,6 +275,10 @@ export class ClassifierStack extends cdk.Stack {
       logs.FilterPattern.anyTerm('cycle failed', 'Failed to fetch settlements from'));
     this.venueFeedGaps = logMetric(workerLogGroups.Fetch, 'VenueFeedGaps',
       logs.FilterPattern.literal('"not counting misses this cycle"'));
+    this.closureChecksSkipped = logMetric(workerLogGroups.Fetch, 'ClosureChecksSkipped',
+      logs.FilterPattern.literal('"not checking them this cycle"'));
+    this.listingsReactivated = logMetric(workerLogGroups.Fetch, 'ListingsReactivated',
+      logs.FilterPattern.literal('"retired listings as open again"'));
 
     // ── NormalizeWorker ───────────────────────────────────────────────
 

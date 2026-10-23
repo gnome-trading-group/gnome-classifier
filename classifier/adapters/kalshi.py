@@ -8,7 +8,7 @@ import requests.exceptions
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier import taxonomy
-from classifier.adapters.settlement import PRICE_SCALE, chunked, to_price
+from classifier.adapters.settlement import CLOSED, OPEN, PRICE_SCALE, MarketState, chunked, settled, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
 from classifier.stages.fees import kalshi_fee_scopes, kalshi_schedules
@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://external-api.kalshi.com/trade-api/v2"
 PAGE_SIZE = 200
 SERIES_PAGE_SIZE = 1000
-# Tickers per /markets lookup when collecting settlements.
-SETTLEMENT_BATCH_SIZE = 100
+# Tickers per /markets lookup when asking about specific markets.
+LOOKUP_BATCH_SIZE = 100
 # Kalshi marks a market determined, then may amend or dispute it; only finalized values are paid out.
 FINAL_STATUS = "finalized"
 
@@ -198,14 +198,20 @@ class KalshiAdapter:
 
         return resolved
 
-    def fetch_settlements(self, exchange_security_ids: set[str]) -> dict[str, int]:
+    def fetch_market_states(self, exchange_security_ids: set[str]) -> dict[str, MarketState]:
         ids_by_ticker: dict[str, list[str]] = {}
         for security_id in exchange_security_ids:
             ids_by_ticker.setdefault(security_id.partition(":")[0], []).append(security_id)
 
-        settlements: dict[str, int] = {}
-        for tickers in chunked(sorted(ids_by_ticker), SETTLEMENT_BATCH_SIZE):
+        states: dict[str, MarketState] = {}
+        for tickers in chunked(sorted(ids_by_ticker), LOOKUP_BATCH_SIZE):
             for market in self._fetch_markets(tickers):
+                security_ids = ids_by_ticker.get(market.get("ticker", ""), [])
+                # The same test fetch uses to decide what is tradable.
+                if market.get("status", "active") == "active":
+                    states.update(dict.fromkeys(security_ids, OPEN))
+                    continue
+                states.update(dict.fromkeys(security_ids, CLOSED))
                 if market.get("status") != FINAL_STATUS:
                     continue
                 yes_price = to_price(market.get("settlement_value_dollars"))
@@ -213,10 +219,10 @@ class KalshiAdapter:
                     logger.warning("Kalshi %s finalized without a usable settlement value: %r",
                                    market.get("ticker"), market.get("settlement_value_dollars"))
                     continue
-                for security_id in ids_by_ticker.get(market.get("ticker", ""), []):
+                for security_id in security_ids:
                     # The NO listing trades in NO terms (the gateway inverts its orders), so it pays 1 - YES.
-                    settlements[security_id] = PRICE_SCALE - yes_price if security_id.endswith(":no") else yes_price
-        return settlements
+                    states[security_id] = settled(PRICE_SCALE - yes_price if security_id.endswith(":no") else yes_price)
+        return states
 
     def _fetch_markets(self, tickers: list[str]) -> list[dict]:
         params = {"tickers": ",".join(tickers), "limit": len(tickers)}

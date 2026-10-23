@@ -1,6 +1,7 @@
 import dataclasses
 import json
 import math
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import anthropic
@@ -146,6 +147,8 @@ class StubRegistry(RegistryClient):
         self._currencies: list[Currency] = []
         self._hedge_keywords: list[tuple[int, str]] = []
         self._settlement_by_event_contract: dict[int, int] = {}
+        # When each listing was last written, standing in for sm.listing.date_modified; unset reads as just now.
+        self._listing_modified_at: dict[int, datetime] = {}
 
     def _alloc_id(self) -> int:
         i = self._next_id
@@ -348,6 +351,7 @@ class StubRegistry(RegistryClient):
             if l.listing_id == listing_id:
                 updated = dataclasses.replace(l, **kwargs)
                 self._listings[i] = updated
+                self._listing_modified_at[listing_id] = datetime.now(timezone.utc)
                 return dataclasses.asdict(updated)
         return {}
 
@@ -467,16 +471,57 @@ class StubDB:
             if (l.exchange_id, l.exchange_security_id) in key_set
         }
 
+    def _modified_within(self, listing: Listing, max_age: timedelta) -> bool:
+        modified_at = self._r._listing_modified_at.get(listing.listing_id)
+        return modified_at is None or datetime.now(timezone.utc) - modified_at < max_age
+
     def get_unsettled_contracts(
-        self, exchange_id: int, lookback_days: int, after_id: int, limit: int, include_active: bool = False,
+        self, exchange_id: int, max_age: timedelta, after_id: int, limit: int, include_active: bool = False,
     ) -> list[tuple[int, str]]:
         eligible = {l.security_id: l.exchange_security_id for l in self._r._listings
-                    if l.exchange_id == exchange_id and (include_active or not l.active)}
+                    if l.exchange_id == exchange_id
+                    and ((not l.active and self._modified_within(l, max_age)) or (l.active and include_active))}
         return sorted(
             (ec.event_contract_id, eligible[ec.security_id]) for ec in self._r._event_contracts
             if ec.security_id in eligible and ec.event_contract_id not in self._r._settlement_by_event_contract
             and ec.event_contract_id > after_id
         )[:limit]
+
+    def get_unsettled_event_contracts(
+        self, exchange_id: int, exchange_security_ids: list[str],
+    ) -> dict[str, tuple[int, int]]:
+        wanted = set(exchange_security_ids)
+        id_by_security = {l.security_id: l.exchange_security_id for l in self._r._listings
+                          if l.exchange_id == exchange_id and l.exchange_security_id in wanted}
+        return {
+            id_by_security[ec.security_id]: (ec.event_contract_id, ec.event_id)
+            for ec in self._r._event_contracts
+            if ec.security_id in id_by_security
+            and ec.event_contract_id not in self._r._settlement_by_event_contract
+        }
+
+    def get_unresolved_event_settlements(self, event_ids: list[int]) -> dict[int, dict[int, bool]]:
+        unresolved = {ev.event_id for ev in self._r._events if not ev.resolved and ev.event_id in event_ids}
+        result: dict[int, dict[int, bool]] = {}
+        for ec in self._r._event_contracts:
+            if ec.event_id in unresolved:
+                result.setdefault(ec.event_id, {})[ec.event_contract_id] = (
+                    ec.event_contract_id in self._r._settlement_by_event_contract)
+        return result
+
+    def get_retired_unsettled_listings(self, exchange_id: int, max_age: timedelta) -> list[tuple[int, int, str]]:
+        unsettled = {ec.security_id for ec in self._r._event_contracts
+                     if ec.event_contract_id not in self._r._settlement_by_event_contract}
+        return [
+            (l.listing_id, l.security_id, l.exchange_security_id) for l in self._r._listings
+            if l.exchange_id == exchange_id and not l.active and l.security_id in unsettled
+            and self._modified_within(l, max_age)
+        ]
+
+    def get_resolved_event_ids_for_securities(self, security_ids: list[int]) -> set[int]:
+        resolved = {ev.event_id for ev in self._r._events if ev.resolved}
+        wanted = set(security_ids)
+        return {ec.event_id for ec in self._r._event_contracts if ec.security_id in wanted and ec.event_id in resolved}
 
     def get_event_ids_by_security(self, security_ids: list[int]) -> dict[int, int]:
         id_set = set(security_ids)

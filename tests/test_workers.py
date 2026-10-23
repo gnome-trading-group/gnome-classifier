@@ -164,7 +164,9 @@ class TestNormalizeWorker:
         assert "new_entity" not in types_seen
         assert "new_events" not in types_seen
 
-    def test_resolved_contracts_publishes_resolved(self, moto_env, stub_registry, stub_db, mock_converse):
+    def test_closed_contracts_deactivate_listings_without_resolving_or_announcing(
+        self, moto_env, stub_registry, stub_db, mock_converse,
+    ):
         stub_registry.bulk_create_events([{"title": "Test event", "exchange_id": 1, "native_event_id": "evt-1"}])
         event_id = stub_registry._events[0].event_id
         stub_registry.bulk_create_securities([{"symbol": "SYM", "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
@@ -178,13 +180,13 @@ class TestNormalizeWorker:
         _patch_normalize_setup(worker, stub_registry, stub_db, mock_converse, sns_client)
         worker._setup()
 
-        messages = [_sqs_msg({"type": "resolved", "exchange_id": 1, "native_id": "sec-native-1"})]
+        messages = [_sqs_msg({"type": "closed", "exchange_id": 1, "native_id": "sec-native-1"})]
         worker.process_batch(messages)
 
-        delivered = _drain_queue(moto_env["sqs"], moto_env["slack_queue"])
-        payloads = [json.loads(json.loads(m["Body"])["Message"]) for m in delivered]
-        types_seen = {p["type"] for p in payloads}
-        assert "resolved" in types_seen
+        assert stub_registry._listings[0].active is False
+        assert stub_registry._securities[0].active is False
+        assert stub_registry._events[0].resolved is False
+        assert _drain_queue(moto_env["sqs"], moto_env["slack_queue"]) == []
 
 
 class TestEmbedWorker:

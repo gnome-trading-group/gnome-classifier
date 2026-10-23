@@ -35,6 +35,8 @@ class AppStage extends cdk.Stage {
       workerStarts: classifierStack.workerStarts,
       fetchCycleFailures: classifierStack.fetchCycleFailures,
       venueFeedGaps: classifierStack.venueFeedGaps,
+      closureChecksSkipped: classifierStack.closureChecksSkipped,
+      listingsReactivated: classifierStack.listingsReactivated,
       identityRegressions: classifierStack.identityRegressions,
     });
   }

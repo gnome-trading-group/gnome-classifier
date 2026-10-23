@@ -1,8 +1,28 @@
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Iterator
 
 # Settlement values are prices in the registry's fixed point: 1e9 = $1, the most an outcome can pay.
 PRICE_SCALE = 1_000_000_000
+
+
+@dataclass(frozen=True)
+class MarketState:
+    """What a venue says about one contract when asked about it directly, which unlike its bulk lists it gets right.
+
+    `settlement` is set only once the venue has made the contract's value final; a contract can be closed for days
+    before then (disputes, Polymarket US resolving).
+    """
+    open: bool
+    settlement: int | None = None
+
+
+OPEN = MarketState(open=True)
+CLOSED = MarketState(open=False)
+
+
+def settled(price: int) -> MarketState:
+    return MarketState(open=False, settlement=price)
 
 
 def to_price(value) -> int | None:

@@ -8,7 +8,7 @@ import requests.exceptions
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier import taxonomy
-from classifier.adapters.settlement import chunked, to_price
+from classifier.adapters.settlement import CLOSED, OPEN, MarketState, chunked, settled, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
@@ -28,8 +28,8 @@ LOT_SIZE = 10_000
 MARKET_STATUS_OPEN = "MARKET_STATUS_OPEN"
 # Closed and resolving markets have no side prices yet; only a resolved market's are what each side paid.
 MARKET_STATUS_RESOLVED = "MARKET_STATUS_RESOLVED"
-# Slugs per /markets lookup when collecting settlements.
-SETTLEMENT_BATCH_SIZE = 50
+# Slugs per /markets lookup when asking about specific markets.
+LOOKUP_BATCH_SIZE = 50
 
 # The gateway documents volume fields but never returns them; it does honour volumeNumMin/Max
 # filters (shares). Querying disjoint ranges buckets each market by volume without the values.
@@ -133,24 +133,31 @@ class PolymarketUsAdapter:
 
         return resolved
 
-    def fetch_settlements(self, exchange_security_ids: set[str]) -> dict[str, int]:
-        slugs = sorted({security_id.rpartition(":")[0] for security_id in exchange_security_ids})
-        settlements: dict[str, int] = {}
-        for batch in chunked(slugs, SETTLEMENT_BATCH_SIZE):
+    def fetch_market_states(self, exchange_security_ids: set[str]) -> dict[str, MarketState]:
+        legs_by_slug: dict[str, list[str]] = {}
+        for security_id in exchange_security_ids:
+            legs_by_slug.setdefault(security_id.rpartition(":")[0], []).append(security_id)
+        states: dict[str, MarketState] = {}
+        for batch in chunked(sorted(legs_by_slug), LOOKUP_BATCH_SIZE):
             for market in self._fetch_markets(batch):
+                legs = legs_by_slug.get(market.get("slug", ""), [])
+                if _is_open(market):
+                    states.update(dict.fromkeys(legs, OPEN))
+                    continue
+                states.update(dict.fromkeys(legs, CLOSED))
                 if market.get("status") != MARKET_STATUS_RESOLVED:
                     continue
                 for side in market.get("marketSides") or []:
                     # Each side reports its own payout, so the short side's is already 1 - long.
                     security_id = f"{market.get('slug')}:{'long' if side.get('long') else 'short'}"
-                    if security_id not in exchange_security_ids:
+                    if security_id not in states:
                         continue
                     price = to_price(side.get("price"))
                     if price is None:
                         logger.warning("Polymarket US %s resolved with an unusable price: %r", security_id, side.get("price"))
                         continue
-                    settlements[security_id] = price
-        return settlements
+                    states[security_id] = settled(price)
+        return states
 
     def _fetch_markets(self, slugs: list[str]) -> list[dict]:
         params = {"slug": slugs, "limit": len(slugs)}

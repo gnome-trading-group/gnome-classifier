@@ -6,7 +6,7 @@ import boto3
 
 from classifier.adapters.types import AdapterContract
 from classifier.stages.entities import create_entities
-from classifier.stages.resolve import detect_resolved_events
+from classifier.stages.resolve import deactivate_closed_listings
 from classifier.stages.stale import deactivate_stale_events
 from classifier.workers.base import BaseWorker
 from classifier.workers.config import WorkerConfig, init_bedrock, init_cache, init_db, init_registry, init_runtime_config
@@ -42,7 +42,7 @@ class NormalizeWorker(BaseWorker):
 
     def process_batch(self, messages: list[dict]) -> list[dict]:
         new_contracts: list[AdapterContract] = []
-        resolved_by_exchange: dict[int, set[str]] = {}
+        closed_by_exchange: dict[int, set[str]] = {}
         stale_events: list[tuple[int, str]] = []
 
         for msg in messages:
@@ -50,9 +50,8 @@ class NormalizeWorker(BaseWorker):
             if body["type"] == "new":
                 for c in body["contracts"]:
                     new_contracts.append(AdapterContract(**c))
-            elif body["type"] == "resolved":
-                exchange_id = body["exchange_id"]
-                resolved_by_exchange.setdefault(exchange_id, set()).add(body["native_id"])
+            elif body["type"] == "closed":
+                closed_by_exchange.setdefault(body["exchange_id"], set()).add(body["native_id"])
             elif body["type"] == "stale":
                 stale_events.append((body["exchange_id"], body["native_event_id"]))
 
@@ -60,12 +59,10 @@ class NormalizeWorker(BaseWorker):
 
         cfg = self._runtime_config.config
 
-        if resolved_by_exchange:
-            resolution_counts = detect_resolved_events(resolved_by_exchange, self._registry, self._db,
-                                                       debug=cfg.feature_flags.debug)
-            if any(v for v in resolution_counts.values()):
-                self._publish_to_sns({"type": "resolved", **resolution_counts})
-                logger.info("Resolution: %s", resolution_counts)
+        # Closing only deactivates listings, so there is nothing to announce: events resolve on their settlement values,
+        # in the fetch worker.
+        if closed_by_exchange:
+            deactivate_closed_listings(closed_by_exchange, self._registry, self._db, debug=cfg.feature_flags.debug)
 
         if stale_events:
             stale_counts = deactivate_stale_events(stale_events, self._registry, self._db,

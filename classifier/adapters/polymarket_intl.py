@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from datetime import datetime, timezone, timedelta
 
 import requests.exceptions
@@ -7,7 +8,7 @@ import requests.exceptions
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier import taxonomy
-from classifier.adapters.settlement import chunked, to_price
+from classifier.adapters.settlement import CLOSED, OPEN, MarketState, chunked, settled, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
 from classifier.stages.fees import polymarket_intl_definition, polymarket_intl_schedules
@@ -17,9 +18,14 @@ from classifier.utils import format_security_symbol
 logger = logging.getLogger(__name__)
 
 GAMMA_API_URL = "https://gamma-api.polymarket.com"
+CLOB_API_URL = "https://clob.polymarket.com"
 PAGE_SIZE = 500
-# Condition ids per /markets lookup when collecting settlements; each is 66 characters of query string.
-SETTLEMENT_BATCH_SIZE = 50
+# Condition ids per /markets lookup when asking about specific markets; each is 66 characters of query string.
+LOOKUP_BATCH_SIZE = 50
+# Gamma stops answering for many markets some time after they close, though the CLOB still has them (with their
+# winner). Those are looked up on the CLOB one request each, at most this many an hour, so a backlog drains over a few
+# hours instead of stalling one cycle.
+CLOB_LOOKUPS_PER_HOUR = 2_000
 # A market closes before its result is final: UMA proposes one, which can be disputed, before it resolves.
 FINAL_UMA_STATUS = "resolved"
 
@@ -108,6 +114,8 @@ class PolymarketIntlAdapter:
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.1)
         self._fee_definitions: dict[str, dict] = {}
+        self._clob_window_start = -float("inf")
+        self._clob_lookups = 0
 
     def fetch_fee_schedules(self, exchange_id: ExchangeId) -> list[dict]:
         return polymarket_intl_schedules(exchange_id, dict(self._fee_definitions), datetime.now(timezone.utc))
@@ -180,32 +188,87 @@ class PolymarketIntlAdapter:
 
         return resolved
 
-    def fetch_settlements(self, exchange_security_ids: set[str]) -> dict[str, int]:
-        condition_ids = sorted({security_id.partition(":")[0] for security_id in exchange_security_ids})
-        settlements: dict[str, int] = {}
-        for batch in chunked(condition_ids, SETTLEMENT_BATCH_SIZE):
-            for market in self._fetch_markets(batch):
-                if not market.get("closed") or market.get("umaResolutionStatus") != FINAL_UMA_STATUS:
-                    continue
-                try:
-                    token_ids = _json_list(market.get("clobTokenIds"))
-                    prices = _json_list(market.get("outcomePrices"))
-                except (TypeError, ValueError):
-                    logger.warning("Polymarket %s resolved with unreadable tokens or prices", market.get("conditionId"))
-                    continue
-                for token_id, raw_price in zip(token_ids, prices):
-                    security_id = f"{market.get('conditionId')}:{token_id}"
-                    if security_id not in exchange_security_ids:
-                        continue
-                    price = to_price(raw_price)
-                    if price is None:
-                        logger.warning("Polymarket %s resolved with an unusable price: %r", security_id, raw_price)
-                        continue
-                    settlements[security_id] = price
-        return settlements
+    def fetch_market_states(self, exchange_security_ids: set[str]) -> dict[str, MarketState]:
+        ids_by_condition: dict[str, list[str]] = {}
+        for security_id in exchange_security_ids:
+            ids_by_condition.setdefault(security_id.partition(":")[0], []).append(security_id)
 
-    def _fetch_markets(self, condition_ids: list[str]) -> list[dict]:
-        params = {"condition_ids": condition_ids, "closed": "true", "limit": len(condition_ids)}
+        states: dict[str, MarketState] = {}
+        found: set[str] = set()
+        # Gamma returns only open markets unless asked for closed ones, and never both at once.
+        for closed in (True, False):
+            for batch in chunked(sorted(set(ids_by_condition) - found), LOOKUP_BATCH_SIZE):
+                for market in self._fetch_markets(batch, closed):
+                    condition_id = market.get("conditionId", "")
+                    if condition_id in ids_by_condition:
+                        found.add(condition_id)
+                        states.update(self._gamma_states(market, ids_by_condition[condition_id]))
+        for condition_id in sorted(set(ids_by_condition) - found):
+            if not self._take_clob_lookup():
+                break
+            market = self._fetch_clob_market(condition_id)
+            if market is not None:
+                states.update(self._clob_states(market, ids_by_condition[condition_id]))
+        return states
+
+    @staticmethod
+    def _gamma_states(market: dict, security_ids: list[str]) -> dict[str, MarketState]:
+        if not market.get("closed"):
+            return dict.fromkeys(security_ids, OPEN)
+        states = dict.fromkeys(security_ids, CLOSED)
+        if market.get("umaResolutionStatus") != FINAL_UMA_STATUS:
+            return states
+        try:
+            token_ids = _json_list(market.get("clobTokenIds"))
+            prices = _json_list(market.get("outcomePrices"))
+        except (TypeError, ValueError):
+            logger.warning("Polymarket %s resolved with unreadable tokens or prices", market.get("conditionId"))
+            return states
+        for token_id, raw_price in zip(token_ids, prices):
+            security_id = f"{market.get('conditionId')}:{token_id}"
+            if security_id not in states:
+                continue
+            price = to_price(raw_price)
+            if price is None:
+                logger.warning("Polymarket %s resolved with an unusable price: %r", security_id, raw_price)
+                continue
+            states[security_id] = settled(price)
+        return states
+
+    @staticmethod
+    def _clob_states(market: dict, security_ids: list[str]) -> dict[str, MarketState]:
+        # Placeholder options (e.g. "Person F") have no tokens yet, so nothing about them can be read.
+        tokens = [t for t in market.get("tokens") or [] if t.get("token_id")]
+        if not tokens:
+            return {}
+        if not market.get("closed"):
+            return dict.fromkeys(security_ids, OPEN)
+        states = dict.fromkeys(security_ids, CLOSED)
+        # The CLOB names a winner only once the result is final.
+        if not any(t.get("winner") for t in tokens):
+            return states
+        for token in tokens:
+            security_id = f"{market.get('condition_id')}:{token['token_id']}"
+            if security_id not in states:
+                continue
+            price = to_price(token.get("price"))
+            if price is None:
+                logger.warning("Polymarket %s resolved with an unusable CLOB price: %r", security_id, token.get("price"))
+                continue
+            states[security_id] = settled(price)
+        return states
+
+    def _take_clob_lookup(self) -> bool:
+        now = time.monotonic()
+        if now - self._clob_window_start >= 3600:
+            self._clob_window_start, self._clob_lookups = now, 0
+        if self._clob_lookups >= CLOB_LOOKUPS_PER_HOUR:
+            return False
+        self._clob_lookups += 1
+        return True
+
+    def _fetch_markets(self, condition_ids: list[str], closed: bool) -> list[dict]:
+        params = {"condition_ids": condition_ids, "closed": "true" if closed else "false", "limit": len(condition_ids)}
         try:
             res = self._session.get(f"{GAMMA_API_URL}/markets", params=params, timeout=30)
             res.raise_for_status()
@@ -215,6 +278,20 @@ class PolymarketIntlAdapter:
             raise
         except requests.exceptions.RequestException as e:
             logger.error("Polymarket markets API error: %s", e)
+            raise
+
+    def _fetch_clob_market(self, condition_id: str) -> dict | None:
+        try:
+            res = self._session.get(f"{CLOB_API_URL}/markets/{condition_id}", timeout=30)
+            if res.status_code == 404:
+                return None
+            res.raise_for_status()
+            return res.json()
+        except requests.exceptions.RetryError as e:
+            logger.error("Polymarket CLOB market retries exhausted: %s", e)
+            raise
+        except requests.exceptions.RequestException as e:
+            logger.error("Polymarket CLOB market API error: %s", e)
             raise
 
     def _fetch_closed_events(self, lookback_days: int):

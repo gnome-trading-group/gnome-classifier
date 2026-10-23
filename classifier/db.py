@@ -1,5 +1,6 @@
 import logging
 from contextlib import contextmanager
+from datetime import timedelta
 
 import psycopg2
 import psycopg2.extras
@@ -111,10 +112,10 @@ class ClassifierDB:
                 return {(row[0], row[1]): (row[2], row[3]) for row in cur.fetchall()}
 
     def get_unsettled_contracts(
-        self, exchange_id: int, lookback_days: int, after_id: int, limit: int, include_active: bool = False,
+        self, exchange_id: int, max_age: timedelta, after_id: int, limit: int, include_active: bool = False,
     ) -> list[tuple[int, str]]:
         """Returns up to `limit` [(event_contract_id, exchange_security_id)], in id order after `after_id`, for outcomes
-        with no settlement value yet whose listing was deactivated within the lookback (or is active, if asked)."""
+        with no settlement value yet whose listing was deactivated within `max_age` (or is active, if asked)."""
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -122,12 +123,76 @@ class ClassifierDB:
                     " FROM sm.listing l"
                     " JOIN sm.event_contract ec ON ec.security_id = l.security_id"
                     " WHERE l.exchange_id = %s AND ec.settlement_price IS NULL"
-                    " AND ((NOT l.active AND l.date_modified > NOW() - make_interval(days => %s)) OR (l.active AND %s))"
+                    " AND ((NOT l.active AND l.date_modified > NOW() - %s) OR (l.active AND %s))"
                     " AND ec.event_contract_id > %s"
                     " ORDER BY ec.event_contract_id LIMIT %s",
-                    (exchange_id, lookback_days, include_active, after_id, limit),
+                    (exchange_id, max_age, include_active, after_id, limit),
                 )
                 return [(row[0], row[1]) for row in cur.fetchall()]
+
+    def get_unsettled_event_contracts(
+        self, exchange_id: int, exchange_security_ids: list[str],
+    ) -> dict[str, tuple[int, int]]:
+        """Returns {exchange_security_id: (event_contract_id, event_id)} for these listings' outcomes with no settlement
+        value yet."""
+        if not exchange_security_ids:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT l.exchange_security_id, ec.event_contract_id, ec.event_id"
+                    " FROM sm.listing l"
+                    " JOIN sm.event_contract ec ON ec.security_id = l.security_id"
+                    " WHERE l.exchange_id = %s AND l.exchange_security_id = ANY(%s) AND ec.settlement_price IS NULL",
+                    (exchange_id, exchange_security_ids),
+                )
+                return {row[0]: (row[1], row[2]) for row in cur.fetchall()}
+
+    def get_unresolved_event_settlements(self, event_ids: list[int]) -> dict[int, dict[int, bool]]:
+        """Returns {event_id: {event_contract_id: has a settlement value}} for the unresolved ones of these events."""
+        if not event_ids:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT ec.event_id, ec.event_contract_id, ec.settlement_price IS NOT NULL"
+                    " FROM sm.event_contract ec"
+                    " JOIN sm.event e ON e.event_id = ec.event_id"
+                    " WHERE ec.event_id = ANY(%s) AND NOT e.resolved",
+                    (event_ids,),
+                )
+                result: dict[int, dict[int, bool]] = {}
+                for event_id, event_contract_id, is_settled in cur.fetchall():
+                    result.setdefault(event_id, {})[event_contract_id] = is_settled
+                return result
+
+    def get_retired_unsettled_listings(self, exchange_id: int, max_age: timedelta) -> list[tuple[int, int, str]]:
+        """Returns [(listing_id, security_id, exchange_security_id)] for inactive listings deactivated within `max_age`
+        whose outcome has no settlement value."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT l.listing_id, l.security_id, l.exchange_security_id"
+                    " FROM sm.listing l"
+                    " JOIN sm.event_contract ec ON ec.security_id = l.security_id"
+                    " WHERE l.exchange_id = %s AND NOT l.active AND ec.settlement_price IS NULL"
+                    " AND l.date_modified > NOW() - %s",
+                    (exchange_id, max_age),
+                )
+                return [(row[0], row[1], row[2]) for row in cur.fetchall()]
+
+    def get_resolved_event_ids_for_securities(self, security_ids: list[int]) -> set[int]:
+        if not security_ids:
+            return set()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT DISTINCT ec.event_id FROM sm.event_contract ec"
+                    " JOIN sm.event e ON e.event_id = ec.event_id"
+                    " WHERE ec.security_id = ANY(%s) AND e.resolved",
+                    (security_ids,),
+                )
+                return {row[0] for row in cur.fetchall()}
 
     def get_event_ids_by_security(self, security_ids: list[int]) -> dict[int, int]:
         """Returns {security_id: event_id} for the securities already linked to an event."""

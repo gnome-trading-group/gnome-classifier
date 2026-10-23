@@ -22,6 +22,8 @@ interface Props extends cdk.StackProps {
   workerStarts: Record<string, cloudwatch.Metric>;
   fetchCycleFailures: cloudwatch.Metric;
   venueFeedGaps: cloudwatch.Metric;
+  closureChecksSkipped: cloudwatch.Metric;
+  listingsReactivated: cloudwatch.Metric;
   identityRegressions: cloudwatch.Metric;
 }
 
@@ -124,7 +126,8 @@ export class MonitoringStack extends cdk.Stack {
         {
           title: 'Fetch loop failures per hour',
           metrics: [countAlarm(props.fetchCycleFailures, 'FetchCycleFailures', 3,
-            'Fetch, resolve, stale or settle cycles (or a venue settlement lookup) failed 3+ times in an hour', 'Error')],
+            'Fetch-loop cycles (fetch, closure check, settle, reactivation, resolve, stale) or a venue settlement '
+            + 'lookup failed 3+ times in an hour', 'Error')],
         },
         {
           title: 'Securities refused a second event per hour',
@@ -138,6 +141,17 @@ export class MonitoringStack extends cdk.Stack {
           // of the window after which its events would otherwise have been retired.
           metrics: [countAlarm(props.venueFeedGaps, 'VenueFeedGaps', 1,
             'A venue feed has been empty or partial for 6 hours', 'Warning', 6)],
+        },
+        {
+          title: 'Venues misreporting markets per hour',
+          // Either signature of a venue feed contradicting itself: hundreds of contracts vanishing from one fetch, or
+          // a fetch listing dozens of markets as open that something had retired as closed (as on 2026-10-22).
+          metrics: [
+            countAlarm(props.closureChecksSkipped, 'ClosureChecksSkipped', 1,
+              'Hundreds of contracts left a venue feed at once; they wait for the resolve cycle', 'Warning'),
+            countAlarm(props.listingsReactivated, 'ListingsReactivated', 1,
+              'A venue listed dozens of retired markets as open again; the classifier turned them back on', 'Warning'),
+          ],
         },
       ],
     });

@@ -6,7 +6,7 @@ import requests.exceptions
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier import taxonomy
-from classifier.adapters.settlement import PRICE_SCALE, to_price
+from classifier.adapters.settlement import PRICE_SCALE, MarketState, settled, to_price
 from classifier.adapters.types import AdapterContract
 from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
@@ -157,7 +157,8 @@ class HyperliquidAdapter:
             for side in (0, 1)
         }
 
-    def fetch_settlements(self, exchange_security_ids: set[str]) -> dict[str, int]:
+    def fetch_market_states(self, exchange_security_ids: set[str]) -> dict[str, MarketState]:
+        """Only settled outcomes: settledOutcome can't tell an open outcome from one that is closed but unsettled."""
         sides_by_outcome: dict[int, list[tuple[str, int]]] = {}
         for security_id in exchange_security_ids:
             encoding = security_id.removeprefix("#")
@@ -166,21 +167,21 @@ class HyperliquidAdapter:
             outcome, side = divmod(int(encoding), 10)
             sides_by_outcome.setdefault(outcome, []).append((security_id, side))
 
-        settlements: dict[str, int] = {}
+        states: dict[str, MarketState] = {}
         # The settle stage pages candidates at settle_page_size; this only guards a caller that doesn't.
         for outcome in sorted(sides_by_outcome)[:MAX_SETTLEMENT_LOOKUPS]:
             # Null until the outcome settles; settlement is automatic and final, with no dispute window.
-            settled = self._post_info("settledOutcome", outcome=outcome)
-            if not settled:
+            result = self._post_info("settledOutcome", outcome=outcome)
+            if not result:
                 continue
-            yes_price = to_price(settled.get("settleFraction"))
+            yes_price = to_price(result.get("settleFraction"))
             if yes_price is None:
                 logger.warning("Hyperliquid outcome %d settled with an unusable fraction: %r",
-                               outcome, settled.get("settleFraction"))
+                               outcome, result.get("settleFraction"))
                 continue
             for security_id, side in sides_by_outcome[outcome]:
-                settlements[security_id] = yes_price if side == 0 else PRICE_SCALE - yes_price
-        return settlements
+                states[security_id] = settled(yes_price if side == 0 else PRICE_SCALE - yes_price)
+        return states
 
     def _post_info(self, request_type: str, **params):
         try:

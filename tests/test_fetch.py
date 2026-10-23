@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -6,7 +7,8 @@ import pytest
 from classifier.adapters.types import AdapterContract
 from classifier.runtime_config import ClassifierConfig, FeatureFlags, Thresholds
 from classifier.stages.fetch import diff_contracts, event_min_volume, fetch_all
-from classifier.workers.fetch import FetchRunner
+from classifier.stages.settle import empty_counts
+from classifier.workers.fetch import FetchResult, FetchRunner
 from gnomepy.registry.types import AssetClass, ContractType, Exchange, SecurityType
 
 
@@ -192,9 +194,9 @@ def _run_fetch_pages(moto_env, pages, known_contracts=None, raise_after_pages=Fa
         patch("classifier.workers.fetch.fetch_exchanges", return_value={"POLYMARKET_INTL": MagicMock(exchange_id=1)}),
         patch("classifier.workers.fetch.ADAPTERS", [mock_adapter]),
     ):
-        active_by_exchange, successful_ids = runner._run_fetch(rc, r, moto_env["sqs"], MagicMock())
+        result = runner._run_fetch(rc, r, moto_env["sqs"], MagicMock())
     saved_hashes = json.loads(r.set.call_args[0][1])
-    return active_by_exchange, successful_ids, saved_hashes
+    return result.active_by_exchange, result.successful_ids, saved_hashes
 
 
 class TestPaginatedFetch:
@@ -316,3 +318,106 @@ class TestVolumeOverridesInWorker:
         contracts = [_tagged("cs2-match", 80.0, ["cs2"]), _tagged("nba-game", 80.0, ["nba"])]
         msgs = _run_fetch(moto_env, contracts, min_event_volume=1000.0, by_tag={"cs2": 50.0})
         assert [json.loads(m["Body"])["contracts"][0]["exchange_event_native_id"] for m in msgs] == ["cs2-match"]
+
+
+class TestLeftFeed:
+    def _run(self, moto_env, contracts, known_contracts, fail=False):
+        rc = _make_fetch_rc()
+        r = MagicMock()
+        r.get.return_value = json.dumps(known_contracts).encode()
+
+        def fetch(exchange_id):
+            yield contracts
+            if fail:
+                raise RuntimeError("down")
+
+        mock_adapter = MagicMock()
+        mock_adapter.exchange_code = "POLYMARKET_INTL"
+        mock_adapter.fetch.side_effect = fetch
+        with (
+            patch("classifier.workers.fetch.fetch_exchanges", return_value={"POLYMARKET_INTL": _make_exchange("POLYMARKET_INTL")}),
+            patch("classifier.workers.fetch.ADAPTERS", [mock_adapter]),
+        ):
+            return FetchRunner()._run_fetch(rc, r, moto_env["sqs"], MagicMock())
+
+    def test_contracts_missing_from_this_fetch_left_the_feed(self, moto_env):
+        known = {"1:cond:tok-a": "h", "1:cond:tok-b": "h", "2:other": "h"}
+        result = self._run(moto_env, [_make_contract("evt-1", "cond:tok-a")], known)
+        # Ids keep their own colons; another exchange's contracts are not this one's to report.
+        assert result.left_feed_by_exchange == {1: {"cond:tok-b"}}
+        assert "1:cond:tok-a" in result.fetched_keys and "1:cond:tok-b" not in result.fetched_keys
+        assert set(result.exchanges) == {"POLYMARKET_INTL"}
+
+    def test_a_failed_fetch_reports_nothing(self, moto_env):
+        result = self._run(moto_env, [_make_contract("evt-1", "sec-1")], {"1:sec-2": "h"}, fail=True)
+        assert result.left_feed_by_exchange == {} and result.exchanges == {}
+
+
+class TestAfterFetch:
+    def _rc(self, **flags):
+        rc = MagicMock()
+        rc.config = ClassifierConfig(feature_flags=FeatureFlags(**flags))
+        return rc
+
+    def _fetched(self):
+        return FetchResult({1: {"evt"}}, {1}, exchanges={"POLYMARKET_INTL": _make_exchange("POLYMARKET_INTL")},
+                           fetched_keys={"1:sec": "h"}, left_feed_by_exchange={1: {"gone"}})
+
+    def test_runs_closure_check_recent_settle_and_reactivation_and_announces_resolutions(self, monkeypatch):
+        calls = []
+        resolved = {**empty_counts(), "events_resolved": 1, "resolved_event_ids": [7], "resolved_event_names": ["E"]}
+        monkeypatch.setattr("classifier.workers.fetch.check_closures", lambda *a: calls.append(("closures", a[2])) or resolved)
+        monkeypatch.setattr("classifier.workers.fetch.record_settlements", lambda *a: calls.append(("recent", a[4])) or empty_counts())
+        monkeypatch.setattr("classifier.workers.fetch.reactivate_listings", lambda *a: calls.append(("reactivate", a[0])))
+        runner = FetchRunner()
+        runner._db = "db"
+        runner._sns = MagicMock()
+        monkeypatch.setenv("NOTIFICATIONS_TOPIC_ARN", "arn:topic")
+
+        runner._run_after_fetch(self._rc(settlement_enabled=True, reactivation_enabled=True), MagicMock(), self._fetched())
+
+        assert calls == [("closures", {1: {"gone"}}), ("recent", timedelta(hours=6)), ("reactivate", {1})]
+        message = json.loads(runner._sns.publish.call_args.kwargs["Message"])
+        assert message["type"] == "resolved" and message["resolved_event_ids"] == [7]
+        assert "failed_exchanges" not in message
+
+    def test_does_nothing_with_its_flags_off_or_without_a_successful_fetch(self, monkeypatch):
+        calls = []
+        for name in ("check_closures", "record_settlements", "reactivate_listings"):
+            monkeypatch.setattr(f"classifier.workers.fetch.{name}", lambda *a: calls.append(a))
+        runner = FetchRunner()
+        runner._sns = MagicMock()
+        runner._run_after_fetch(self._rc(), MagicMock(), self._fetched())
+        runner._run_after_fetch(self._rc(settlement_enabled=True, reactivation_enabled=True), MagicMock(),
+                                FetchResult({}, set()))
+        assert calls == [] and not runner._sns.publish.called
+
+    def test_one_failing_step_does_not_stop_the_others(self, monkeypatch):
+        calls = []
+
+        def boom(*a):
+            raise RuntimeError("venue down")
+
+        monkeypatch.setattr("classifier.workers.fetch.check_closures", boom)
+        monkeypatch.setattr("classifier.workers.fetch.record_settlements", lambda *a: calls.append("recent") or empty_counts())
+        monkeypatch.setattr("classifier.workers.fetch.reactivate_listings", lambda *a: calls.append("reactivate"))
+        runner = FetchRunner()
+        runner._db = "db"
+        runner._run_after_fetch(self._rc(settlement_enabled=True, reactivation_enabled=True), MagicMock(), self._fetched())
+        assert calls == ["recent", "reactivate"]
+
+
+def test_resolve_cycle_reports_closed_contracts_once(moto_env):
+    rc = MagicMock()
+    rc.config = ClassifierConfig(feature_flags=FeatureFlags(resolve_enabled=True))
+    r = MagicMock()
+    r.get.return_value = json.dumps([[1, "already-sent"]]).encode()
+    with (
+        patch("classifier.workers.fetch.fetch_exchanges", return_value={}),
+        patch("classifier.workers.fetch.fetch_resolved_outcomes",
+              return_value=({1: {"already-sent", "cond:tok"}}, [])),
+    ):
+        FetchRunner()._run_resolve(rc, r, moto_env["sqs"], MagicMock())
+    resp = moto_env["sqs"].receive_message(QueueUrl=moto_env["contracts_queue"], MaxNumberOfMessages=10, WaitTimeSeconds=0)
+    assert [json.loads(m["Body"]) for m in resp.get("Messages", [])] == [
+        {"type": "closed", "exchange_id": 1, "native_id": "cond:tok"}]

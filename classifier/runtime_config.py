@@ -9,6 +9,7 @@ import requests
 from classifier.constants import (
     DEFAULT_CANONICALIZE_BATCH_SIZE,
     DEFAULT_CANONICALIZE_MODEL,
+    DEFAULT_CLOSURE_CHECK_MAX_LOOKUPS,
     DEFAULT_BULK_CREATE_BATCH_SIZE,
     DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD,
     DEFAULT_FEE_SYNC_INTERVAL_SECONDS,
@@ -22,12 +23,14 @@ from classifier.constants import (
     DEFAULT_NOTIFY_MAX_MESSAGES,
     DEFAULT_NOTIFY_MAX_WAIT_SECONDS,
     DEFAULT_NEIGHBOR_SEARCH_LIMIT,
+    DEFAULT_REACTIVATION_LOOKBACK_DAYS,
     DEFAULT_RESOLUTION_LOOKBACK_DAYS,
     DEFAULT_RESOLVE_INTERVAL_SECONDS,
     DEFAULT_RESOLVE_MAX_SQS_MESSAGES,
     DEFAULT_SEMANTIC_JUDGMENT_MODEL,
-    DEFAULT_SETTLE_INTERVAL_SECONDS,
     DEFAULT_SETTLE_MAX_CANDIDATES,
+    DEFAULT_SETTLE_RECENT_HOURS,
+    DEFAULT_SETTLE_SWEEP_INTERVAL_SECONDS,
     DEFAULT_SETTLEMENT_LOOKBACK_DAYS,
     DEFAULT_STALE_INTERVAL_SECONDS,
     DEFAULT_STALE_MAX_SQS_MESSAGES,
@@ -53,6 +56,7 @@ class FeatureFlags:
     semantic_judgements_enabled: bool = False
     stale_cleanup_enabled: bool = False
     settlement_enabled: bool = False
+    reactivation_enabled: bool = False
     fee_sync_enabled: bool = False
     debug: bool = False
 
@@ -91,6 +95,9 @@ class Processing:
     resolution_lookback_days: int = DEFAULT_RESOLUTION_LOOKBACK_DAYS
     settlement_lookback_days: int = DEFAULT_SETTLEMENT_LOOKBACK_DAYS
     settle_max_candidates: int = DEFAULT_SETTLE_MAX_CANDIDATES
+    settle_recent_hours: int = DEFAULT_SETTLE_RECENT_HOURS
+    closure_check_max_lookups: int = DEFAULT_CLOSURE_CHECK_MAX_LOOKUPS
+    reactivation_lookback_days: int = DEFAULT_REACTIVATION_LOOKBACK_DAYS
     neighbor_search_limit: int = DEFAULT_NEIGHBOR_SEARCH_LIMIT
     voyage_embed_chunk_size: int = DEFAULT_VOYAGE_EMBED_CHUNK_SIZE
     anthropic_sync_threshold: int = DEFAULT_SYNC_THRESHOLD
@@ -114,7 +121,7 @@ class WorkerParams:
     fetch_interval_seconds: int = DEFAULT_FETCH_INTERVAL_SECONDS
     resolve_interval_seconds: int = DEFAULT_RESOLVE_INTERVAL_SECONDS
     stale_interval_seconds: int = DEFAULT_STALE_INTERVAL_SECONDS
-    settle_interval_seconds: int = DEFAULT_SETTLE_INTERVAL_SECONDS
+    settle_sweep_interval_seconds: int = DEFAULT_SETTLE_SWEEP_INTERVAL_SECONDS
     fee_sync_interval_seconds: int = DEFAULT_FEE_SYNC_INTERVAL_SECONDS
 
 

@@ -41,6 +41,7 @@ import json
 import logging
 import os
 from collections import Counter
+from datetime import timedelta
 
 import anthropic
 import click
@@ -60,7 +61,7 @@ from classifier.client import BatchAnthropicClient, BatchVoyageClient, BedrockCo
 from classifier.stages.canonicalize import canonicalize_events
 from classifier.stages.classify import classify_semantic_sync, prepare_semantic_batch, run_classification_sync
 from classifier.stages.fetch import diff_contracts, fetch_all, fetch_resolved_outcomes
-from classifier.stages.resolve import detect_resolved_events
+from classifier.stages.resolve import deactivate_closed_listings
 from classifier.stages.settle import record_settlements
 from classifier.stages.stale import deactivate_stale_events
 from classifier.types import CanonicalizeInput
@@ -404,7 +405,7 @@ def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
 @click.option("--lookback", type=int, default=RESOLUTION_LOOKBACK_DAYS, show_default=True, help="Days to look back for resolved events")
 @click.pass_context
 def resolve(ctx, adapter: str | None, lookback: int):
-    """Detect resolved outcomes and show what would be deactivated (dry-run mode)."""
+    """Detect closed outcomes and show what would be deactivated (dry-run mode); events resolve only on settlement."""
     registry = StubRegistry()
     try:
         exchange_by_code = fetch_exchanges(registry, adapter)
@@ -437,8 +438,8 @@ def resolve(ctx, adapter: str | None, lookback: int):
         print(f"  {exchange_code}: {len(ids)} resolved ids")
 
     db_label = "real DB (seeded)" if database_url else "stub DB (empty)"
-    print(f"\nRunning resolution detection ({db_label}, dry-run writes)...", flush=True)
-    result = detect_resolved_events(resolved_by_exchange, registry, db, debug=ctx.obj.get("debug", False))
+    print(f"\nRunning closed-listing deactivation ({db_label}, dry-run writes)...", flush=True)
+    result = deactivate_closed_listings(resolved_by_exchange, registry, db, debug=ctx.obj.get("debug", False))
 
     print(f"\n{'='*70}")
     print("RESOLUTION SUMMARY")
@@ -470,7 +471,7 @@ def settle(ctx, adapter: str | None, lookback: int):
     except ValueError as e:
         raise click.ClickException(str(e))
     result = record_settlements(
-        ADAPTERS, exchange_by_code, registry, ClassifierDB(dsn=database_url), lookback,
+        ADAPTERS, exchange_by_code, registry, ClassifierDB(dsn=database_url), timedelta(days=lookback),
         DEFAULT_SETTLE_MAX_CANDIDATES, {},
     )
 

@@ -71,14 +71,15 @@ Each prediction market exchange has its own schema, naming conventions and contr
                          │                       │ ──► Registry API (sm.contract_relationship)
                          └───────────────────────┘
 
-      NormalizeWorker / RelationshipsWorker ──► SNS topic ──► slack-queue ──► NotifyWorker ──► Slack
+      FetchRunner / NormalizeWorker / RelationshipsWorker ──► SNS topic ──► slack-queue ──► NotifyWorker ──► Slack
+                                                                     └──► launcher (stops sessions on resolved events)
 ```
 
 **Components:**
 
 | Component | CMD | Trigger |
 |---|---|---|
-| FetchRunner | `fetch` | Internal loop; fetch / resolve / stale cycles on intervals from runtime config |
+| FetchRunner | `fetch` | Internal loop; fetch (then closure check, recent settlements, reactivation) / settle sweep / resolve / stale cycles on intervals from runtime config |
 | NormalizeWorker | `normalize` | Continuous SQS poll (contracts-queue) |
 | EmbedWorker | `embed` | Continuous SQS poll (entities-queue) |
 | RelationshipsWorker | `relationships` | Continuous SQS poll (embeddings-queue) |
@@ -103,19 +104,43 @@ All five run as ECS services on a single EC2 auto-scaling group (spot t3.medium,
    - Emits one `{"type": "new", "contracts": [...]}` message per group in which any contract is new or changed, capped at `fetch_max_sqs_messages` per cycle.
 4. Sends messages to the contracts queue page by page.
 5. Commits per exchange: on success, that exchange's hashes are replaced with the freshly fetched ones and its active native event IDs are recorded (`active_by_exchange`, `successful_ids`). If an adapter raises (adapters raise on API errors rather than returning partial results), the exchange keeps its previous hashes (plus hashes of groups already sent this cycle) and is left out of `successful_ids`.
-6. Saves the merged hashes back to Redis and keeps `(active_by_exchange, successful_ids)` in memory for the stale cycle.
+6. Saves the merged hashes back to Redis and keeps `(active_by_exchange, successful_ids)` in memory for the stale cycle. For each exchange that succeeded it also notes which contracts were in the previous hashes but not this fetch (left the feed), for the steps below.
 
 **Why group by event?** NormalizeWorker reconciles an event's listings against the message, so it always needs the complete current contract set of the event, not just the changed contract.
 
 ---
 
+### After each fetch: closures, settlements, reactivation (`FetchRunner._run_after_fetch`)
+
+Runs for the exchanges whose fetch just succeeded. Each step is logged and skipped on failure without stopping the others.
+
+**Listings, securities and events.** A listing is *active* while its venue trades it, and can be turned back on. An event is *resolved* only once every one of its outcomes has a settlement value, or once it has been gone from its venue's feed for a day (stale cleanup, for markets that are voided or delisted and never pay out). A venue's bulk list of closed markets therefore only ever turns listings off: on 2026-10-22 Polymarket US's gateway ignored `closed=true` and listed every open market as closed.
+
+1. **Closure check** (`check_closures`, `classifier/stages/settle.py`; needs `settlement_enabled`). The contracts that left an exchange's feed are looked up on the venue one market at a time (`adapter.fetch_market_states`), which unlike its bulk lists it gets right. Contracts it reports as no longer open are deactivated, and settled if their value is final; still-open ones (the feed missed them) and ones it doesn't know are left alone. More than `closure_check_max_lookups` (500) leaving one feed at once is a feed fault, not markets closing: none are checked (warning `"not checking them this cycle"`, the `ClosureChecksSkipped` alarm) and the resolve cycle picks them up.
+2. **Recent settlements** (`record_settlements` without cursors; needs `settlement_enabled`). Outcomes deactivated within `settle_recent_hours` (6) with no value yet are looked up again. Nearly all values arrive in that window, so a value is recorded within a fetch of the venue making it final.
+3. **Reactivation** (`reactivate_listings`, `classifier/stages/reactivate.py`; needs `reactivation_enabled`). Listings deactivated within `reactivation_lookback_days` (30) with no settlement value, which the fetch lists as tradable again, are turned back on with their securities, and their events are un-resolved (embeddings come back on the next embed batch). At least 50 on one exchange at once logs `"retired listings as open again"` (the `ListingsReactivated` alarm).
+
+Recording a value runs `apply_market_states()`: values go to `sm.event_contract.settlement_price` (the registry keeps the first one), listings the venue no longer trades are deactivated, and events whose every outcome now has a value are resolved (`resolved_at = now`, embeddings deleted). Events resolved this way are published to SNS as `{"type": "resolved", ...counts, "resolved_event_ids": [...], "resolved_event_names": [...]}`, which the launcher reads to stop sessions on them.
+
+`fetch_market_states(exchange_security_ids)` returns a `MarketState(open, settlement)` per contract the venue answered for: open; closed with no final value yet (Kalshi `determined`/`disputed`, Polymarket UMA proposals, Polymarket US resolving); or settled. Hyperliquid only reports settled outcomes (`settledOutcome` can't tell open from closed). Polymarket International asks Gamma for closed and then open markets, and asks the CLOB (`/markets/{condition_id}`, which names the winner) about markets Gamma no longer returns, at most `CLOB_LOOKUPS_PER_HOUR` (2000) an hour.
+
+---
+
+### Settle sweep (`FetchRunner._run_settle`)
+
+**Every `settle_sweep_interval_seconds` (default 3600s).** Skipped when `settlement_enabled` is false.
+
+`record_settlements()` with per-exchange cursors looks up every outcome deactivated within `settlement_lookback_days` (30) that still has no value, `settle_max_candidates` (20000) per exchange per cycle, continuing where the last cycle stopped and wrapping around. This catches values that take longer than the recent window (disputes), and Hyperliquid outcomes, whose listings stay active after they settle (`settle_active_listings`, paged at 40 lookups). Resolutions are published as above.
+
+---
+
 ### Stage 2: Resolve (`FetchRunner._run_resolve`)
 
-**Every `resolve_interval_seconds` (default 1800s).** Skipped when `resolve_enabled` is false.
+**Every `resolve_interval_seconds` (default 1800s).** Skipped when `resolve_enabled` is false. A backstop for markets that close without the fetch seeing them leave (e.g. after a restart, or more than the closure check's cap at once).
 
 1. `fetch_resolved_outcomes()` calls `adapter.fetch_resolved(exchange_id, resolution_lookback_days)` on each adapter. Each returns a set of `exchange_security_id`s, including individually closed markets inside still-open events (see [Exchange Adapters](#exchange-adapters)). A failing adapter is logged and skipped.
 2. Loads already-sent IDs from Redis (`fetch:sent_resolved`).
-3. Sends `{"type": "resolved", "exchange_id": X, "native_id": <exchange_security_id>}` for each unsent ID, capped at `resolve_max_sqs_messages`.
+3. Sends `{"type": "closed", "exchange_id": X, "native_id": <exchange_security_id>}` for each unsent ID, capped at `resolve_max_sqs_messages`.
 4. Saves `(previously sent ∩ currently resolved) ∪ newly sent`, so entries drop out once they leave the lookback window.
 
 ---
@@ -132,7 +157,7 @@ Handles events that an exchange silently stops listing without marking them reso
    - Entries on failed exchanges are carried forward unchanged (no miss-counting).
    - Entries present in the active set reset to `miss_count = 0`; absent ones increment.
    - Newly seen events are added with `miss_count = 0`.
-   - Entries reaching `stale_miss_threshold` (default 6) become `{"type": "stale", "exchange_id": X, "native_event_id": Y}` messages and leave the tracker. Anything beyond `stale_max_sqs_messages` stays in the tracker at the threshold count for the next cycle.
+   - Entries reaching `stale_miss_threshold` (default 24, a day of hourly cycles) become `{"type": "stale", "exchange_id": X, "native_event_id": Y}` messages and leave the tracker. Anything beyond `stale_max_sqs_messages` stays in the tracker at the threshold count for the next cycle.
 4. Sends stale messages and saves the tracker.
 
 ---
@@ -156,14 +181,9 @@ Listings only carry fee keys where one of these schedules can apply: a Kalshi se
 
 Messages are collected into a batch (20s long-polling) until `normalize_max_messages` is reached or `normalize_max_wait_seconds` has passed since the first message. `process_batch()` then handles all three message types:
 
-**`type: "resolved"`** → `detect_resolved_events()` (`classifier/stages/resolve.py`):
-1. Finds active listings matching the resolved `exchange_security_id`s and deactivates them.
-2. Deactivates securities left with no active listings.
-3. Marks events with no remaining active securities as resolved (`resolved = true`, `resolved_at = now`) and deletes their embeddings.
+**`type: "closed"`** → `deactivate_closed_listings()` (`classifier/stages/resolve.py`): deactivates the active listings matching the closed `exchange_security_id`s and the securities left with no active listings. Never resolves an event (see [After each fetch](#after-each-fetch-closures-settlements-reactivation-fetchrunner_run_after_fetch)), so nothing is published.
 
-**`type: "stale"`** → `deactivate_stale_events()` (`classifier/stages/stale.py`): looks up the event by `(exchange_id, native_event_id)` on `sm.event`, deactivates that event's active listings on that exchange, then runs the same security/event cascade as resolution.
-
-Both publish `{"type": "resolved", ...counts, "resolved_event_ids": [...], "resolved_event_names": [...]}` to SNS when anything changed.
+**`type: "stale"`** → `deactivate_stale_events()` (`classifier/stages/stale.py`): looks up the event by `(exchange_id, native_event_id)` on `sm.event`, deactivates that event's active listings on that exchange and securities left with none, and resolves events with no remaining active securities (`resolved = true`, `resolved_at = now`, embeddings deleted). Publishes `{"type": "resolved", ...counts, "resolved_event_ids": [...], "resolved_event_names": [...]}` to SNS when anything changed.
 
 **`type: "new"`** → `create_entities()` (see [Entity Creation Pipeline](#entity-creation-pipeline)). Every new security yields `{"type": "new_security", "security_id", "security_symbol"}` on the entities queue; securities belonging to a newly created event also carry `created_event_id` / `created_event_name`.
 
@@ -297,7 +317,7 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 | `description` | text | Optional description |
 | `category` | text | One of the standardized categories |
 | `tags` | text[] | Keyword tags |
-| `resolved` | bool | True when the event has settled |
+| `resolved` | bool | True once every outcome has a settlement value, or the event has been gone from its venue's feed for a day |
 | `resolved_at` | timestamptz | When it was resolved |
 | `expiry` | timestamptz | Expected resolution time |
 | `exchange_id` | int FK → sm.exchange | Exchange the event comes from |
@@ -473,6 +493,8 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 |---|---|
 | `fetch_enabled` | FetchRunner runs fetch cycles |
 | `resolve_enabled` | FetchRunner runs resolve cycles |
+| `settlement_enabled` | FetchRunner runs the closure check and recent settlements after each fetch, and the settle sweep |
+| `reactivation_enabled` | FetchRunner reactivates retired listings its fetch lists as open again |
 | `stale_cleanup_enabled` | FetchRunner runs stale cycles |
 | `canonicalization_enabled` | NormalizeWorker calls Bedrock for category and tags |
 | `semantic_judgements_enabled` | RelationshipsWorker runs the semantic phase |
@@ -502,10 +524,15 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 | `canonicalize_batch_size` | `15` | Events per categorization request |
 | `bulk_create_batch_size` | `200` | Items per registry bulk-create call |
 | `resolution_lookback_days` | `3` | How far back to query resolved markets |
+| `settlement_lookback_days` | `30` | How long after deactivation the settle sweep looks for a value |
+| `settle_max_candidates` | `20000` | Outcomes per exchange per settlement pass |
+| `settle_recent_hours` | `6` | Outcomes deactivated this recently are looked up after every fetch |
+| `closure_check_max_lookups` | `500` | More contracts than this leaving one feed at once are not looked up |
+| `reactivation_lookback_days` | `30` | How long after deactivation a listing can be turned back on |
 | `neighbor_search_limit` | `60` | Max pgvector neighbors per event |
 | `voyage_embed_chunk_size` | `2000` | Events per Voyage embedding chunk |
 | `anthropic_sync_threshold` | `10` | Judgment requests: sync calls at or below this many, Batch API above |
-| `stale_miss_threshold` | `6` | Consecutive stale-cycle misses before an event is stale |
+| `stale_miss_threshold` | `24` | Consecutive stale-cycle misses before an event is stale |
 | `fetch_max_sqs_messages` | `100000` | Max groups sent per fetch cycle |
 | `resolve_max_sqs_messages` | `100000` | Max messages sent per resolve cycle |
 | `stale_max_sqs_messages` | `100000` | Max messages sent per stale cycle |
@@ -521,6 +548,7 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 | `fetch_interval_seconds` | `60` | FetchRunner fetch cycle interval |
 | `resolve_interval_seconds` | `1800` | FetchRunner resolve cycle interval |
 | `stale_interval_seconds` | `3600` | FetchRunner stale cycle interval |
+| `settle_sweep_interval_seconds` | `3600` | FetchRunner settle sweep interval |
 
 **`CategoryFilter`**
 
@@ -557,7 +585,7 @@ Registry and controller API keys are read from API Gateway (`apigateway:GET`) at
 | `EmbeddingsQueue` | 15 min | 14 days | 3 |
 | `SlackQueue` | 2 min | 7 days | 5 |
 
-Workers override the visibility timeout to 15 minutes on each receive. `NotificationsTopic` (SNS, exported as `ClassifierNotificationsTopicArn`) fans out to `SlackQueue`.
+Workers override the visibility timeout to 15 minutes on each receive. `NotificationsTopic` (SNS, exported as `ClassifierNotificationsTopicArn`) fans out to `SlackQueue` and the launcher. FetchRunner publishes events resolved on settlement, NormalizeWorker stale resolutions, RelationshipsWorker new events.
 
 ### ECS Cluster
 
@@ -578,7 +606,7 @@ Single-node `cache.t3.micro` Redis in private subnets. Port 6379 is open to the 
 
 ### Monitoring
 
-`MonitoringStack` builds a CloudWatch dashboard via `cdk-monitoring-constructs` with alarms routed to Slack: max message age (1 hour) on each queue, any message in a DLQ, and service health for all five workers.
+`MonitoringStack` builds a CloudWatch dashboard via `cdk-monitoring-constructs` with alarms routed to Slack: max message age (1 hour) on each queue, any message in a DLQ, and service health for all five workers. Log-count alarms on the fetch worker cover failed cycles (`FetchCycleFailures`), empty or partial venue feeds (`VenueFeedGaps`), and venues misreporting markets (`ClosureChecksSkipped`, `ListingsReactivated`).
 
 ---
 
