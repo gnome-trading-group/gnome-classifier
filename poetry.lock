@@ -802,14 +802,14 @@ files = [
 
 [[package]]
 name = "gnomepy"
-version = "2.27.0"
+version = "3.1.0"
 description = ""
 optional = false
 python-versions = "<3.14,>=3.13"
 groups = ["main"]
 files = [
-    {file = "gnomepy-2.27.0-py3-none-any.whl", hash = "sha256:7ec217236ad9ddea875ea1806a0ee1e73973619da7611ce1b5091539705c6762"},
-    {file = "gnomepy-2.27.0.tar.gz", hash = "sha256:ccd1e37dc5271c8531a69374b0167e1d62e59750b83a2e269bbb528e00806970"},
+    {file = "gnomepy-3.1.0-py3-none-any.whl", hash = "sha256:86f801f7fbc450764a9061d6876379771dda37895bf9b67e904fbbe1e0d1264a"},
+    {file = "gnomepy-3.1.0.tar.gz", hash = "sha256:44e510e65d40fad88440a311c29d48f21a49636e1f446f38b448b47579fc781f"},
 ]
 
 [package.dependencies]
@@ -2519,4 +2519,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<3.14"
-content-hash = "563f0e20cd8153b2ad7bf03b57c6f796c38960e10530378c9eb526433497e8a8"
+content-hash = "337335fe77bf0553a8852f7068bfb4553cc67c0818c49c37512957e44974e5a3"
