@@ -206,7 +206,7 @@ class _FeeAdapter:
 
 def test_venue_schedules_are_written_once(stub_registry, stub_db):
     exchanges = {"KALSHI": Exchange(exchange_id=2, exchange_code="KALSHI", exchange_name="Kalshi", region="",
-                                    schema_type="", date_modified="", date_created="")}
+                                    date_modified="", date_created="")}
     first = sync_venue_fee_schedules([_FeeAdapter()], exchanges, stub_registry, stub_db)
     second = sync_venue_fee_schedules([_FeeAdapter()], exchanges, stub_registry, stub_db)
     assert (first["fee_schedules_written"], second["fee_schedules_written"]) == (1, 0)

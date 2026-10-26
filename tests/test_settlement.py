@@ -187,7 +187,7 @@ def test_hyperliquid_caps_lookups_per_cycle_oldest_outcomes_first():
 # ── Settle stage ──────────────────────────────────────────────────────────────
 
 KALSHI_EXCHANGES = {"KALSHI": Exchange(exchange_id=2, exchange_code="KALSHI", exchange_name="", region="",
-                                       schema_type="", date_modified="", date_created="")}
+                                       date_modified="", date_created="")}
 LOOKBACK = timedelta(days=30)
 
 
@@ -305,7 +305,7 @@ def test_hyperliquid_settles_active_outcomes_and_retires_them(stub_registry, stu
     adapter = HyperliquidAdapter(session=_hl_session())
     HL_SETTLED["6209"] = {"settleFraction": "1.0"}
     exchanges = {"HYPERLIQUID": Exchange(exchange_id=2, exchange_code="HYPERLIQUID", exchange_name="", region="",
-                                         schema_type="", date_modified="", date_created="")}
+                                         date_modified="", date_created="")}
     try:
         result = record_settlements([adapter], exchanges, stub_registry, stub_db, LOOKBACK, 20_000, {})
     finally:
@@ -326,7 +326,7 @@ def test_only_the_sweep_looks_at_active_outcomes(stub_registry, stub_db):
     _seed(stub_registry, 10, 100, "#62090", active=True)
     adapter = _adapter("HYPERLIQUID", settle_active_listings=True, fetch_market_states=MagicMock(return_value={}))
     exchanges = {"HYPERLIQUID": Exchange(exchange_id=2, exchange_code="HYPERLIQUID", exchange_name="", region="",
-                                         schema_type="", date_modified="", date_created="")}
+                                         date_modified="", date_created="")}
     record_settlements([adapter], exchanges, stub_registry, stub_db, timedelta(hours=6), 100)
     assert not adapter.fetch_market_states.called
 
@@ -337,7 +337,7 @@ def test_hyperliquid_candidates_are_paged_to_its_lookup_budget(stub_registry, st
     adapter = _adapter("HYPERLIQUID", settle_active_listings=True, settle_page_size=MAX_SETTLEMENT_LOOKUPS,
                        fetch_market_states=MagicMock(return_value={}))
     exchanges = {"HYPERLIQUID": Exchange(exchange_id=2, exchange_code="HYPERLIQUID", exchange_name="", region="",
-                                         schema_type="", date_modified="", date_created="")}
+                                         date_modified="", date_created="")}
     cursors: dict[str, int] = {}
     record_settlements([adapter], exchanges, stub_registry, stub_db, LOOKBACK, 20_000, cursors)
     assert len(adapter.fetch_market_states.call_args.args[0]) == MAX_SETTLEMENT_LOOKUPS

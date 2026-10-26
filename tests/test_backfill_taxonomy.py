@@ -8,7 +8,7 @@ from classifier.adapters.types import AdapterContract
 from scripts import backfill_taxonomy
 
 EXCHANGES = {
-    code: Exchange(exchange_id=eid, exchange_code=code, exchange_name=code, region="", schema_type="",
+    code: Exchange(exchange_id=eid, exchange_code=code, exchange_name=code, region="", 
                    date_modified="", date_created="")
     for code, eid in {"POLYMARKET_INTL": 1, "KALSHI": 2, "HYPERLIQUID": 3, "POLYMARKET_US": 4}.items()
 }

@@ -15,7 +15,7 @@ from gnomepy.registry.types import AssetClass, ContractType, Exchange, SecurityT
 def _make_exchange(code: str, exchange_id: int = 1) -> Exchange:
     return Exchange(
         exchange_id=exchange_id, exchange_code=code, exchange_name=code.title(),
-        region="", schema_type="", date_modified="", date_created="",
+        region="", date_modified="", date_created="",
     )
 
 

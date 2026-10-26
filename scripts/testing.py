@@ -157,9 +157,9 @@ class StubRegistry(RegistryClient):
 
     def get_exchange(self) -> list[Exchange]:
         return [
-            Exchange(exchange_id=1, exchange_code="POLYMARKET_INTL", exchange_name="Polymarket (International)", region="", schema_type="", date_modified="", date_created=""),
-            Exchange(exchange_id=2, exchange_code="KALSHI", exchange_name="Kalshi", region="", schema_type="", date_modified="", date_created=""),
-            Exchange(exchange_id=3, exchange_code="HYPERLIQUID", exchange_name="Hyperliquid", region="", schema_type="", date_modified="", date_created=""),
+            Exchange(exchange_id=1, exchange_code="POLYMARKET_INTL", exchange_name="Polymarket (International)", region="", date_modified="", date_created=""),
+            Exchange(exchange_id=2, exchange_code="KALSHI", exchange_name="Kalshi", region="", date_modified="", date_created=""),
+            Exchange(exchange_id=3, exchange_code="HYPERLIQUID", exchange_name="Hyperliquid", region="", date_modified="", date_created=""),
         ]
 
     def get_currency(self) -> list[Currency]:
