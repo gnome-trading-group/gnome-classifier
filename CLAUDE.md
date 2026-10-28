@@ -29,7 +29,7 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
 - `classifier/workers/` - `runner.py` (Click entrypoint, the Docker `ENTRYPOINT`), `fetch.py` (`FetchRunner`, the
   timed loop), `base.py` (SQS batch loop for the other four), `config.py` (env vars, client init)
 - `classifier/stages/` - the logic per step: `fetch` (diff + volume gate), `entities`, `canonicalize`, `embed`,
-  `classify`, `resolve`, `stale`, `settle`, `reactivate`, `fees`
+  `classify`, `resolve`, `stale`, `settle`, `reactivate`, `fees`, `volume` (events' 24h volume to the registry)
 - `classifier/adapters/` - one per venue (`kalshi`, `polymarket_intl`, `polymarket_us`, `hyperliquid`), registered in
   `ADAPTERS`; `types.py` (`AdapterContract`, `MarketState`), `settlement.py`
 - `classifier/relationships/` - `rule_based` (hedge keywords), `semantic` (Claude judge), `structural` (complements)
@@ -55,6 +55,11 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
 - A fetch message carries an event's full contract set, because Normalize deactivates listings missing from it.
 - Volume gate: `min_event_volume` (default 1000, overridable per tag/category) only gates events never sent before;
   already-sent events keep flowing. Polymarket US volume is approximated from share buckets.
+- Event volume: after a fetch, at most every `worker_params.volume_interval_seconds` (900), `VolumeWriter` patches
+  `sm.event.volume_24h` (market-data collection rules select events by it) for events whose reading moved at least
+  `volume_min_change` (0.10) or was last written `volume_max_age_seconds` (3600) ago. Only venues whose fetch
+  succeeded; what it last wrote is in memory, so a restart rewrites every event once. Needs registry migration 054
+  applied first (the patch fails on a registry without the column).
 - Bulk "closed" feeds only ever deactivate listings; an event resolves only when every outcome has a settlement value,
   or after a day missing from its feed (stale). Polymarket US once listed every open market as closed (2026-10-22).
 - Feature flags (`feature_flags.*` in the controller service config `classifier`, all default false): `fetch_enabled`,
@@ -93,7 +98,8 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   Docker image. There are no Lambdas besides CDK's ASG drain hook; resolve, stale and settle are Fetch cycles.
   - Fetch (`fetch`, 2048 MiB): loop; fetch every `fetch_interval_seconds` (60) followed by closure check, recent
     settlements, reactivation; resolve every 1800s; stale every 3600s; settle sweep every 3600s; fee sync every 3600s.
-    Intervals are `worker_params.*` in the service config; each cycle is skipped while its flag is off.
+    Volume write every 900s after a fetch. Intervals are `worker_params.*` in the service config; each cycle is
+    skipped while its flag is off (volume follows `fetch_enabled`).
   - Normalize (512 MiB, ContractsQueue), Embed (512, EntitiesQueue), Relationships (512, EmbeddingsQueue),
     Notify (128, SlackQueue, batches up to 300s): continuous SQS long polling.
 - Logs: one log group per worker, CloudFormation-named
@@ -108,7 +114,7 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   - `Classifier--WorkerHealth-<Worker>WorkerRestarts-Error`: 3+ starts in an hour. Look for OOM kills (ECS stopped
     reason) or a startup exception (missing secret, registry/controller unreachable).
   - `Classifier--WorkerHealth-FetchCycleFailures-Error`: 3+ in an hour of `... cycle failed` (fetch, closure check,
-    recent settle, reactivation, resolve, stale cleanup, settle, fee sync) or `Failed to fetch settlements from <venue>`.
+    recent settle, reactivation, resolve, stale cleanup, settle, fee sync, volume) or `Failed to fetch settlements from <venue>`.
     Read the traceback in the Fetch log group: a gnomepy/registry API mismatch (TypeError on a gnomepy model) needs a
     gnomepy bump; a venue HTTP error is usually that venue being down.
   - `Classifier--WorkerHealth-IdentityRegressions-Error`: an adapter tried to link a security to a second event. Code

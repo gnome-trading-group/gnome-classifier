@@ -349,8 +349,13 @@ class TestLeftFeed:
         assert set(result.exchanges) == {"POLYMARKET_INTL"}
 
     def test_a_failed_fetch_reports_nothing(self, moto_env):
-        result = self._run(moto_env, [_make_contract("evt-1", "sec-1")], {"1:sec-2": "h"}, fail=True)
+        result = self._run(moto_env, [_make_contract("evt-1", "sec-1", 900.0)], {"1:sec-2": "h"}, fail=True)
         assert result.left_feed_by_exchange == {} and result.exchanges == {}
+        assert result.volumes == {}
+
+    def test_a_successful_fetch_reports_each_events_volume(self, moto_env):
+        contracts = [_make_contract("evt-1", "sec-1", 900.0), _make_contract("evt-2", "sec-2")]
+        assert self._run(moto_env, contracts, {}).volumes == {(1, "evt-1"): 900.0}
 
 
 class TestAfterFetch:

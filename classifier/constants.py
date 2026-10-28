@@ -60,6 +60,11 @@ DEFAULT_RESOLVE_INTERVAL_SECONDS = 1800
 DEFAULT_STALE_INTERVAL_SECONDS = 3600
 DEFAULT_SETTLE_SWEEP_INTERVAL_SECONDS = 3600
 DEFAULT_FEE_SYNC_INTERVAL_SECONDS = 3600
+# Events' 24h volume goes to the registry at most this often, after a fetch (classifier.stages.volume).
+DEFAULT_VOLUME_INTERVAL_SECONDS = 900
+# A reading is written when it moved at least this share from the last one written, or that one is this old.
+DEFAULT_VOLUME_MIN_CHANGE = 0.10
+DEFAULT_VOLUME_MAX_AGE_SECONDS = 3600
 
 # 24h dollar volume an event needs before it is ingested; every adapter reports 24h volume.
 DEFAULT_MIN_EVENT_VOLUME: float | None = 1000

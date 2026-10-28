@@ -17,6 +17,7 @@ from classifier.stages.fetch import diff_contracts, fetch_exchanges, fetch_resol
 from classifier.stages.reactivate import reactivate_listings
 from classifier.stages.settle import check_closures, empty_counts, merge_counts, record_settlements
 from classifier.stages.stale import update_stale_tracker
+from classifier.stages.volume import VolumeWriter, event_volumes
 from classifier.workers.base import sqs_send_batch
 from classifier.workers.config import init_db, init_registry, init_runtime_config
 
@@ -99,6 +100,8 @@ class FetchResult:
     exchanges: dict[str, Exchange] = dataclasses.field(default_factory=dict)
     fetched_keys: dict[str, str] = dataclasses.field(default_factory=dict)
     left_feed_by_exchange: dict[int, set[str]] = dataclasses.field(default_factory=dict)
+    # Each event's 24h volume, by (exchange_id, native_event_id), from the exchanges whose fetch succeeded.
+    volumes: dict[tuple[int, str], float] = dataclasses.field(default_factory=dict)
 
 
 class FetchRunner:
@@ -108,6 +111,7 @@ class FetchRunner:
         self._db = None
         self._sns = None
         self._settle_cursors: dict[str, int] = {}
+        self._volumes = VolumeWriter()
 
     def _handle_shutdown(self, signum, frame):
         logger.info("FetchRunner shutting down (signal %d)", signum)
@@ -129,6 +133,7 @@ class FetchRunner:
         last_stale = -float("inf")
         last_settle = -float("inf")
         last_fee_sync = -float("inf")
+        last_volume = -float("inf")
 
         # The FetchWorkerStarts metric filter in cdk/lib/stacks/classifier-stack.ts counts this message to catch crash
         # loops; keep its wording in step with the filter.
@@ -149,6 +154,13 @@ class FetchRunner:
                     logger.exception("fetch cycle failed")
                 if fetched is not None:
                     self._run_after_fetch(rc, registry, fetched)
+                if fetched is not None and fetched.volumes and now - last_volume >= wp.volume_interval_seconds:
+                    last_volume = now
+                    try:
+                        self._volumes.write(self._get_db(), registry, fetched.volumes, now,
+                                            wp.volume_min_change, wp.volume_max_age_seconds)
+                    except Exception:
+                        logger.exception("volume cycle failed")
 
             if now - last_resolve >= wp.resolve_interval_seconds:
                 last_resolve = now
@@ -211,6 +223,7 @@ class FetchRunner:
         left_feed_by_exchange: dict[int, set[str]] = {}
         failed: list[str] = []
         total_sent = 0
+        volumes: dict[tuple[int, str], float] = {}
 
         for adapter in ADAPTERS:
             exchange = exchange_by_code.get(adapter.exchange_code)
@@ -221,10 +234,12 @@ class FetchRunner:
             # must not drop the unfetched contracts' hashes or count their events as missing.
             exchange_hashes: dict[str, str] = {}
             exchange_active: set[str] = set()
+            exchange_volumes: dict[tuple[int, str], float] = {}
             try:
                 adapter_contracts_count = 0
                 for page in adapter.fetch(exchange.exchange_id):
                     adapter_contracts_count += len(page)
+                    exchange_volumes.update(event_volumes(page))
                     remaining = max(0, max_messages - total_sent)
                     new_msgs, updated, page_active, _ = diff_contracts(
                         page, known_contracts, [], exchange_by_code,
@@ -248,6 +263,7 @@ class FetchRunner:
                 merged_hashes.update(exchange_hashes)
                 active_by_exchange[exchange.exchange_id] = exchange_active
                 successful_ids.add(exchange.exchange_id)
+                volumes.update(exchange_volumes)
             except Exception as e:
                 logger.error("Failed to fetch from %s: %s", adapter.exchange_code, e)
                 failed.append(adapter.exchange_code)
@@ -262,7 +278,7 @@ class FetchRunner:
         return FetchResult(
             active_by_exchange, successful_ids,
             exchanges={code: ex for code, ex in exchange_by_code.items() if ex.exchange_id in successful_ids},
-            fetched_keys=merged_hashes, left_feed_by_exchange=left_feed_by_exchange,
+            fetched_keys=merged_hashes, left_feed_by_exchange=left_feed_by_exchange, volumes=volumes,
         )
 
     def _run_after_fetch(self, rc, registry, fetched: FetchResult):
