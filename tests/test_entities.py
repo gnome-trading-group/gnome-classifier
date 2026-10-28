@@ -60,6 +60,17 @@ def test_create_entities_new_event(stub_registry, stub_db, mock_converse):
     assert event.title == "Will BTC hit 100k?"
 
 
+def test_a_new_event_is_created_with_its_volume(stub_registry, stub_db, mock_converse, monkeypatch):
+    sent = []
+    create = stub_registry.bulk_create_events
+    monkeypatch.setattr(stub_registry, "bulk_create_events", lambda items: sent.extend(items) or create(items))
+    contracts = [dataclasses.replace(c, event_volume=4200.5) for c in _binary("Will BTC hit 100k?")]
+
+    create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+
+    assert [item["volume_24h"] for item in sent] == [4200.5]
+
+
 def test_identical_titles_on_two_exchanges_stay_separate(stub_registry, stub_db, mock_converse):
     contracts = _binary("Will BTC hit 100k?", exchange_id=1) + _binary("Will BTC hit 100k?", exchange_id=2)
     result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)

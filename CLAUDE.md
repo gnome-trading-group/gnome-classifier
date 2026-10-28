@@ -58,8 +58,10 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
 - Event volume: after a fetch, at most every `worker_params.volume_interval_seconds` (900), `VolumeWriter` patches
   `sm.event.volume_24h` (market-data collection rules select events by it) for events whose reading moved at least
   `volume_min_change` (0.10) or was last written `volume_max_age_seconds` (3600) ago. Only venues whose fetch
-  succeeded; what it last wrote is in memory, so a restart rewrites every event once. Needs registry migration 054
-  applied first (the patch fails on a registry without the column).
+  succeeded; what it last wrote is in memory, so a restart rewrites every event once. A new event is also created
+  with its volume (`entities._create_events` sends `volume_24h`), so it has one before the next volume pass. Needs
+  registry migration 054 applied first (the patch fails on a registry without the column), and gnome-registry
+  1.55+ for volume on create (older ones ignore the field).
 - Bulk "closed" feeds only ever deactivate listings; an event resolves only when every outcome has a settlement value,
   or after a day missing from its feed (stale). Polymarket US once listed every open market as closed (2026-10-22).
 - Feature flags (`feature_flags.*` in the controller service config `classifier`, all default false): `fetch_enabled`,
