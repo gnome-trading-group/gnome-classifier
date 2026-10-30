@@ -5,11 +5,12 @@ binary pair as the negation of the first. Counts what each family was read by, s
 import dataclasses
 import logging
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 
 from classifier.propositions.inputs import ExtractionInput, is_primary_side
 from classifier.propositions.llm import PropositionExtractor
 from classifier.propositions.subjects import DEFAULT_CANDIDATES, KnownSubject, SubjectIndex, add_known, candidates_for, merge_candidates
-from classifier.propositions.types import Extraction, Method
+from classifier.propositions.types import Extraction, Method, Proposition
 from classifier.propositions.venue import claims, extract_venue
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,9 @@ class ExtractionReport:
     subject_descriptions: dict[str, str] = dataclasses.field(default_factory=dict)
     known: dict[str, KnownSubject] = dataclasses.field(default_factory=dict)
     fell_back: list[int] = dataclasses.field(default_factory=list)
+    # Of `failed`: those only the LLM can read, with it off; and those whose request no provider could take.
+    needs_llm: list[int] = dataclasses.field(default_factory=list)
+    unavailable: list[int] = dataclasses.field(default_factory=list)
 
     def log(self):
         for (family, method), n in sorted(self.by_family.items()):
@@ -56,7 +60,11 @@ def _waves(groups: dict[str, tuple[str, list[ExtractionInput]]]) -> list[dict[st
 def _record_answers(wave, answers, results: dict[int, Extraction], report: "ExtractionReport") -> None:
     for _, chunk in wave.values():
         for item in chunk:
-            answer = answers.get(item.security_id)
+            if item.security_id not in answers:
+                report.failed.append(item.security_id)
+                report.unavailable.append(item.security_id)
+                continue
+            answer = answers[item.security_id]
             if answer is None:
                 report.failed.append(item.security_id)
                 continue
@@ -84,9 +92,13 @@ def extract_propositions(
     extractor: PropositionExtractor | None,
     known: dict[str, KnownSubject] | None = None,
     index: SubjectIndex | None = None,
+    partners: Mapping[int, tuple[Proposition, Method]] | None = None,
 ) -> tuple[dict[int, Extraction], ExtractionReport]:
     """{security_id: Extraction} for every security that could be read, and a report of how. `known` holds subjects
-    already stored; with those read by the venue readers in this pass they are the LLM's candidate subjects."""
+    already stored; with those read by the venue readers in this pass they are the LLM's candidate subjects.
+    `partners` gives, for a second side whose first side isn't among `items`, the first side's stored proposition and
+    how it was read; the second side is its negation."""
+    partners = partners or {}
     report = ExtractionReport(known=dict(known or {}))
     results: dict[int, Extraction] = {}
     by_event: dict[int, list[ExtractionInput]] = defaultdict(list)
@@ -125,17 +137,27 @@ def extract_propositions(
             if index is not None:
                 index.add([report.known[k] for k in report.known if k not in before])
     else:
-        report.failed.extend(i.security_id for _, chunk in llm_events.values() for i in chunk)
+        unread = [i.security_id for _, chunk in llm_events.values() for i in chunk]
+        report.failed.extend(unread)
+        report.needs_llm.extend(unread)
 
     for item in items:
         if is_primary_side(item):
             continue
         partner = next((p for p in by_event[item.event_id] if p.security_id != item.security_id and is_primary_side(p)), None)
+        # The venue readers already negate a No side they are given, but only primary sides reach them: the second
+        # side of a binary is always the first side's negation.
+        if partner is None and item.security_id in partners:
+            stored, method = partners[item.security_id]
+            results[item.security_id] = Extraction(stored.negate(), method, item.source_hash)
+            continue
         read = results.get(partner.security_id) if partner else None
         if read is None:
             report.failed.append(item.security_id)
+            if partner is not None and partner.security_id in report.needs_llm:
+                report.needs_llm.append(item.security_id)
+            if partner is not None and partner.security_id in report.unavailable:
+                report.unavailable.append(item.security_id)
             continue
-        # The venue readers already negate a No side they are given, but only primary sides reach them: the second
-        # side of a binary is always the first side's negation.
         results[item.security_id] = Extraction(read.proposition.negate(), read.method, item.source_hash)
     return results, report

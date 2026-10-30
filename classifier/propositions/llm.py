@@ -258,7 +258,9 @@ class PropositionExtractor:
         groups: dict[str, tuple[str, list[ExtractionInput]]],
         candidates: dict[str, list[KnownSubject]],
     ) -> dict[int, tuple[Proposition, str] | None]:
-        """{request group: (title, inputs)} -> {security_id: (proposition, subject description) or None}."""
+        """{request group: (title, inputs)} -> {security_id: (proposition, subject description) or None}. A contract
+        the model answered without a valid entry maps to None; one whose request no provider could take (an outage,
+        rate limit or exhausted credit) is left out, since nothing was learned about it."""
         jobs = []
         for group, (title, items) in groups.items():
             for start in range(0, len(items), CHUNK_SIZE):
@@ -275,5 +277,6 @@ class PropositionExtractor:
                 except Exception as e:
                     # The PropositionExtractionFailures alarm counts this line.
                     logger.warning("Proposition request for %d contracts failed: %s", len(chunk), e)
-                    results.update({i.security_id: None for i in chunk})
+                    if not is_unavailable(e):
+                        results.update({i.security_id: None for i in chunk})
         return results

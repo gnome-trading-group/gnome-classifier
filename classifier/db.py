@@ -529,6 +529,20 @@ class ClassifierDB:
                 )
                 return {row[0]: (row[1], row[2]) for row in cur.fetchall()}
 
+    def get_stored_propositions(self, security_ids: list[int]) -> dict[int, tuple[Proposition, str, str]]:
+        """{security_id: (proposition on the subject extraction chose, method, source_hash)} for stored propositions."""
+        if not security_ids:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT p.security_id, s.key, p.fields, p.method, p.source_hash FROM sm.contract_proposition p"
+                    " JOIN sm.proposition_subject s ON s.subject_id = p.extracted_subject_id"
+                    " WHERE p.security_id = ANY(%s)",
+                    (list(security_ids),),
+                )
+                return {row[0]: (Proposition.from_fields(row[1], row[2]), row[3], row[4]) for row in cur.fetchall()}
+
     def dirty_subjects(self, limit: int) -> list[int]:
         """Canonical subjects due a derivation: never derived, or changed since."""
         with self._conn() as conn:

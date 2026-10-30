@@ -1,10 +1,12 @@
 import json
 import logging
+import os
 import time
 
 import boto3
 
 from classifier.constants import DEFAULT_VOYAGE_EMBEDDING_MODEL
+from classifier.propositions.attempts import RedisAttemptStore
 from classifier.propositions.llm import PropositionExtractor
 from classifier.stages.propositions import derive_due_subjects, read_backlog, read_propositions, run_drift_check
 from classifier.workers.base import BaseWorker, message_body, parse_security_messages
@@ -32,6 +34,7 @@ class RelationshipsWorker(BaseWorker):
         self._voyage = None
         self._db = None
         self._sns = None
+        self._attempts = None
         self._client_for = claude_client
         self._last_idle_derive = 0.0
         self._last_drift_check = 0.0
@@ -43,6 +46,7 @@ class RelationshipsWorker(BaseWorker):
         self._db = init_db()
         self._runtime_config = init_runtime_config()
         self._sns = boto3.client("sns")
+        self._attempts = RedisAttemptStore(os.environ["REDIS_ENDPOINT"])
 
     def _embed(self, texts: list[str], kind: str) -> list[list[float]]:
         model = self._runtime_config.config.models.voyage_embedding_model or DEFAULT_VOYAGE_EMBEDDING_MODEL
@@ -59,6 +63,7 @@ class RelationshipsWorker(BaseWorker):
         result, self._backlog_after = read_backlog(
             db=self._db, registry=self._registry, extractor=self._extractor(), embed=self._embed,
             limit=self._runtime_config.config.processing.relationships_backlog_limit, after=self._backlog_after,
+            attempts=self._attempts,
         )
         return result
 
@@ -76,8 +81,8 @@ class RelationshipsWorker(BaseWorker):
         cfg = self._runtime_config.config
         if cfg.feature_flags.relationships_enabled:
             result = read_propositions(security_ids, db=self._db, registry=self._registry,
-                                       extractor=self._extractor(), embed=self._embed)
-            result.read += self._read_backlog().read
+                                       extractor=self._extractor(), embed=self._embed, attempts=self._attempts)
+            result.add(self._read_backlog())
             derive_due_subjects(db=self._db, registry=self._registry,
                                 limit=cfg.processing.relationships_derive_limit, result=result)
             logger.info("Relationships pass: %s", result)

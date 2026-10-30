@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 from classifier.cache.base import ClassifierCache
 from classifier.client import BedrockConverseClient, ConverseResult
+from classifier.propositions.attempts import Attempt
 from classifier.propositions.derive import Contract
 from classifier.propositions.inputs import ExtractionInput
 from classifier.propositions.subjects import KnownSubject
@@ -422,6 +423,27 @@ class StubRegistry(RegistryClient):
         }
 
 
+class InMemoryAttemptStore:
+    """The attempt store with expiry against a clock the test moves."""
+
+    def __init__(self):
+        self.clock = 0.0
+        self._items: dict[int, tuple[Attempt, float]] = {}
+
+    def now(self) -> float:
+        return self.clock
+
+    def get_many(self, security_ids: list[int]) -> dict[int, Attempt]:
+        return {sid: held[0] for sid in security_ids if (held := self._items.get(sid)) and held[1] > self.clock}
+
+    def put(self, security_id: int, attempt: Attempt, ttl_seconds: int) -> None:
+        self._items[security_id] = (attempt, self.clock + ttl_seconds)
+
+    def clear(self, security_ids: list[int]) -> None:
+        for sid in security_ids:
+            self._items.pop(sid, None)
+
+
 class StubDB:
     """In-memory ClassifierDB that reads from a StubRegistry's internal state.
 
@@ -659,6 +681,15 @@ class StubDB:
     def get_proposition_versions(self, security_ids: list[int]) -> dict[int, tuple[str, str]]:
         return {sid: (p["source_hash"], p["extractor_version"]) for sid, p in self._r._propositions.items()
                 if sid in set(security_ids)}
+
+    def get_stored_propositions(self, security_ids: list[int]) -> dict[int, tuple[Proposition, str, str]]:
+        out = {}
+        for sid in security_ids:
+            p = self._r._propositions.get(sid)
+            if p is not None:
+                key = self._r._subject_by_id(p["extracted_subject_id"])["key"]
+                out[sid] = (Proposition.from_fields(key, p["fields"]), p["method"], p["source_hash"])
+        return out
 
     def dirty_subjects(self, limit: int) -> list[int]:
         due = [s for s in self._r._subjects.values() if s["derived_at"] is None or s["date_modified"] > s["derived_at"]]

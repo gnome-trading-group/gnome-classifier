@@ -91,7 +91,8 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   `anthropic` until it is enabled per account. Embeddings are Voyage (proposition subjects). Model ids are
   cache keys: changing a model re-runs everything once.
 - Redis (single `cache.t3.micro`, private subnets): `fetch:known_contracts`, `fetch:sent_resolved`,
-  `fetch:stale_tracker`, `exchange_events`, `canon:*`. No bastion, SSM or ECS Exec reaches it, and
+  `fetch:stale_tracker`, `exchange_events`, `canon:*`, `prop:attempt:*` (proposition read backoff; every key
+  expires, since the node's `volatile-lru` only evicts keys that do). No bastion, SSM or ECS Exec reaches it, and
   `poetry run tunnel` is broken. TODO(verify): current access path; previously a temporary EC2 in the worker subnet/SG
   running a script from user-data.
 - `security_symbol` is computed at fetch and baked into ContractsQueue messages, and `contract_hash` excludes it: a

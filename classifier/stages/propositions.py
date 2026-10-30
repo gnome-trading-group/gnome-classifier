@@ -2,8 +2,10 @@
 subjects, then derive and reconcile the relationships of every subject that is due (its propositions changed, or a
 person merged or unmerged it).
 
-Propositions are only re-read when a security's venue source or the extractor changed (source hash, extractor
-version), so a redelivered message costs nothing. A due subject re-derives only the derivation units holding a
+Propositions are only read for securities whose venue source or the extractor changed (source hash, extractor
+version), so a redelivered message costs nothing, and only those securities are read: the rest of their event is left
+alone (a second side is negated from its first side's stored proposition). A security that failed to read, or that
+only the LLM can read while it is off, waits (see `attempts`) instead of being asked again every pass. A due subject re-derives only the derivation units holding a
 contract that changed since its last derivation, and each unit's relationships are replaced as one set, which makes
 redelivery and re-derivation idempotent. Only the fewest rows that rebuild a unit's relationships are stored;
 consumers rebuild the rest (gnomepy `RelationshipGraph`). Bumping DERIVATION_VERSION therefore needs every subject's derived_at
@@ -18,7 +20,9 @@ from gnomepy.registry import RegistryClient
 from classifier.db import ClassifierDB
 from classifier.propositions.derive import DERIVATION_VERSION, Derived, derivation_units, derive_unit, minimal_rows
 from classifier.propositions.drift import check_drift, sample
+from classifier.propositions.attempts import AttemptStore, record, waiting
 from classifier.propositions.extract import extract_propositions
+from classifier.propositions.inputs import ExtractionInput, is_primary_side
 from classifier.propositions.llm import PropositionExtractor
 from classifier.propositions.subjects import (
     CombinedSubjectIndex,
@@ -27,7 +31,7 @@ from classifier.propositions.subjects import (
     StoredSubjectIndex,
     embed_subjects,
 )
-from classifier.propositions.types import EXTRACTOR_VERSION
+from classifier.propositions.types import EXTRACTOR_VERSION, Method
 from classifier.utils import bulk_create_chunked
 
 logger = logging.getLogger(__name__)
@@ -49,12 +53,58 @@ class PassResult:
     inserted: int = 0
     updated: int = 0
     deleted: int = 0
+    backing_off: int = 0
+    parked: int = 0
+    gave_up: int = 0
+
+    def add(self, other: "PassResult") -> None:
+        for f in dataclasses.fields(self):
+            setattr(self, f.name, getattr(self, f.name) + getattr(other, f.name))
 
 
-def _needs_reading(db: ClassifierDB, security_ids: list[int]) -> list[int]:
-    stored = db.get_proposition_versions(security_ids)
+def _plan_reads(
+    db: ClassifierDB, security_ids: list[int], attempts: AttemptStore | None, llm_enabled: bool, result: PassResult,
+) -> tuple[list[ExtractionInput], dict]:
+    """The inputs to read this pass, and stored first sides for second sides read without theirs. A security is read
+    when its source or the extractor changed and it isn't waiting out an earlier attempt; a changed first side brings
+    its second side (a negation, no model call)."""
     inputs = {i.security_id: i for i in db.get_extraction_inputs(security_ids)}
-    return [sid for sid, item in inputs.items() if stored.get(sid) != (item.source_hash, EXTRACTOR_VERSION)]
+    stored = db.get_proposition_versions(security_ids)
+    due = {sid for sid, item in inputs.items() if stored.get(sid) != (item.source_hash, EXTRACTOR_VERSION)}
+    if attempts is not None and due:
+        skip = waiting(attempts, {sid: inputs[sid].source_hash for sid in due}, EXTRACTOR_VERSION, llm_enabled)
+        result.backing_off += len(skip)
+        due -= skip
+    if not due:
+        return [], {}
+
+    events = db.get_event_ids_for_securities(sorted(due))
+    siblings = {i.security_id: i for i in db.get_extraction_inputs(sorted(db.get_security_ids_for_events(list(events))))}
+    by_event: dict[int, list[ExtractionInput]] = {}
+    for item in siblings.values():
+        by_event.setdefault(item.event_id, []).append(item)
+    read = set(due)
+    first_of: dict[int, int] = {}
+    for sid in due:
+        item = siblings.get(sid) or inputs[sid]
+        others = [o for o in by_event.get(item.event_id, []) if o.security_id != sid]
+        if is_primary_side(item):
+            read.update(o.security_id for o in others if not is_primary_side(o))
+        else:
+            first = next((o for o in others if is_primary_side(o)), None)
+            if first is not None:
+                first_of[sid] = first.security_id
+    stored_firsts = db.get_stored_propositions(sorted(set(first_of.values()) - read))
+    partners = {}
+    for second, first in first_of.items():
+        if first in read:
+            continue
+        held = stored_firsts.get(first)
+        if held is not None and held[2] == siblings[first].source_hash:
+            partners[second] = (held[0], Method(held[1]))
+        elif attempts is None or not waiting(attempts, {first: siblings[first].source_hash}, EXTRACTOR_VERSION, llm_enabled):
+            read.add(first)
+    return [siblings.get(sid) or inputs[sid] for sid in sorted(read)], partners
 
 
 def read_propositions(
@@ -64,18 +114,26 @@ def read_propositions(
     registry: RegistryClient,
     extractor: PropositionExtractor | None,
     embed: Embed,
+    attempts: AttemptStore | None = None,
 ) -> PassResult:
     result = PassResult()
-    changed = _needs_reading(db, security_ids)
-    if not changed:
+    items, partners = _plan_reads(db, security_ids, attempts, extractor is not None, result)
+    if not items:
         return result
-    # A binary's second side is read from its first, so whole events are read together.
-    events = db.get_event_ids_for_securities(changed)
-    items = db.get_extraction_inputs(sorted(db.get_security_ids_for_events(list(events))))
     index = CombinedSubjectIndex(StoredSubjectIndex(db, embed), InMemorySubjectIndex(embed))
-    extractions, report = extract_propositions(items, extractor, index=index)
+    extractions, report = extract_propositions(items, extractor, index=index, partners=partners)
     report.log()
     result.read, result.pending = len(extractions), len(report.failed)
+    if attempts is not None:
+        source_of = {i.security_id: i.source_hash for i in items}
+        unavailable, needs_llm = set(report.unavailable), set(report.needs_llm)
+        result.gave_up, result.parked = record(
+            attempts,
+            failed=[(sid, source_of[sid]) for sid in report.failed if sid not in unavailable and sid not in needs_llm],
+            needs_llm=[(sid, source_of[sid]) for sid in report.failed if sid in needs_llm],
+            read=sorted(extractions),
+            extractor_version=EXTRACTOR_VERSION,
+        )
 
     subjects = {e.proposition.subject for e in extractions.values()}
     descriptions = {k: report.known[k].description if k in report.known else "" for k in subjects}
@@ -107,6 +165,7 @@ def read_backlog(
     embed: Embed,
     limit: int,
     after: int = 0,
+    attempts: AttemptStore | None = None,
 ) -> tuple[PassResult, int]:
     """Reads up to `limit` open securities after `after` that still lack a current proposition (see
     `securities_needing_propositions`). Returns the pass and where the next one starts: past this page, or back at the
@@ -116,7 +175,7 @@ def read_backlog(
     following = due[-1] if len(due) == limit else 0
     if not due:
         return PassResult(), following
-    return read_propositions(due, db=db, registry=registry, extractor=extractor, embed=embed), following
+    return read_propositions(due, db=db, registry=registry, extractor=extractor, embed=embed, attempts=attempts), following
 
 
 def _chunks(security_ids: list[int], rows: list[Derived]) -> list[tuple[list[int], list[Derived]]]:

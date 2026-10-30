@@ -184,7 +184,7 @@ If `process_batch()` raises, no messages are deleted; they reappear after the 15
 
 ### Stage 5: Relationships (`classifier/workers/relationships.py` → `RelationshipsWorker`, `classifier/stages/propositions.py`)
 
-**Reads entities-queue.** With `feature_flags.relationships_enabled`: reads the propositions of new or changed securities (venue readers, then Claude when `feature_flags.proposition_llm_enabled`), stores them with their subjects, embeds new subjects, then derives and reconciles every subject due a derivation (also on idle, for merges), and runs the daily drift check (only with the LLM on); see [Relationship Discovery](#relationship-discovery). Afterwards publishes `{"type": "new_events", "created_event_ids", "created_event_names"}` to SNS for any newly created events in the batch.
+**Reads entities-queue.** With `feature_flags.relationships_enabled`: reads the propositions of new or changed securities, and only those (a second side is negated from its first side's stored proposition), skipping securities waiting out an earlier failed read (`prop:attempt:*`) (venue readers, then Claude when `feature_flags.proposition_llm_enabled`), stores them with their subjects, embeds new subjects, then derives and reconciles every subject due a derivation (also on idle, for merges), and runs the daily drift check (only with the LLM on); see [Relationship Discovery](#relationship-discovery). Afterwards publishes `{"type": "new_events", "created_event_ids", "created_event_names"}` to SNS for any newly created events in the batch.
 
 ---
 
@@ -412,6 +412,7 @@ propositions the evaluation commands score against.
 | `fetch:known_contracts` | `{"eid:esid": hash}` | 7 days | FetchRunner fetch cycle |
 | `fetch:sent_resolved` | `[[exchange_id, exchange_security_id], ...]` | 7 days | FetchRunner resolve cycle |
 | `fetch:stale_tracker` | `{"eid:native_event_id": {exchange_id, native_event_id, miss_count}}` | 7 days | FetchRunner stale cycle |
+| `prop:attempt:{security_id}` | `{source_hash, extractor_version, reason, attempts, retry_at}` | a week past `retry_at` | RelationshipsWorker: a security that failed to read (`FAILED`: retried after 10 min, 1 h, 6 h, 1 day, then weekly) or that only the LLM can read while it is off (`NEEDS_LLM`: re-checked weekly, read as soon as the LLM is on); a record for an older source counts as none |
 
 Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner starts that state empty.
 
