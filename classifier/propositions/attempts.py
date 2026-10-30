@@ -7,7 +7,8 @@ read as soon as it is turned on. Records live in the classifier's Redis: nothing
 it, so the attempt count survives the wait; every key expires because the node evicts only keys that do.
 
 A record names the source and extractor version it was made against; one that no longer matches the security's
-current source counts as no record, so a changed source is read straight away.
+current source counts as no record, so a changed source is read straight away. A parked record also names the code
+readers' version, so any change to the readers looks at parked securities again (free: no model call).
 """
 import dataclasses
 import json
@@ -37,6 +38,7 @@ class Attempt:
     reason: str
     attempts: int
     retry_at: float
+    readers_version: str = ""
 
 
 def wait_seconds(attempts: int) -> int:
@@ -80,15 +82,18 @@ def _current(attempt: Attempt | None, source_hash: str, extractor_version: str) 
     return attempt
 
 
-def waiting(store: AttemptStore, sources: dict[int, str], extractor_version: str, llm_enabled: bool) -> set[int]:
+def waiting(store: AttemptStore, sources: dict[int, str], extractor_version: str, llm_enabled: bool,
+            readers_version: str) -> set[int]:
     """The securities among `sources` ({security_id: current source hash}) that are waiting out a failure, or, while
-    the LLM is off, parked for it."""
+    the LLM is off and the readers are unchanged, parked for it."""
     attempts = store.get_many(sorted(sources))
     now = store.now()
     out = set()
     for sid, attempt in attempts.items():
         current = _current(attempt, sources[sid], extractor_version)
-        if current is None or current.retry_at <= now or (current.reason == NEEDS_LLM and llm_enabled):
+        if current is None or current.retry_at <= now:
+            continue
+        if current.reason == NEEDS_LLM and (llm_enabled or current.readers_version != readers_version):
             continue
         out.add(sid)
     return out
@@ -101,6 +106,7 @@ def record(
     needs_llm: Iterable[tuple[int, str]],
     read: list[int],
     extractor_version: str,
+    readers_version: str,
 ) -> tuple[int, int]:
     """Records failed reads and parked securities ((security_id, source hash) each) and clears read ones. Returns how
     many failures this gave up on (reached the weekly wait) and how many were parked."""
@@ -118,6 +124,7 @@ def record(
             # Logged once per contract: one the model keeps failing on needs its rules looked at.
             logger.warning("proposition read gave up: security=%d attempts=%d", sid, attempts)
     for sid, source_hash in needs_llm:
-        store.put(sid, Attempt(source_hash, extractor_version, NEEDS_LLM, 0, now + WEEK_SECONDS), 2 * WEEK_SECONDS)
+        store.put(sid, Attempt(source_hash, extractor_version, NEEDS_LLM, 0, now + WEEK_SECONDS, readers_version),
+                  2 * WEEK_SECONDS)
     store.clear(read)
     return gave_up, len(needs_llm)

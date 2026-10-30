@@ -16,6 +16,7 @@ from classifier.propositions.attempts import (
     wait_seconds,
 )
 from classifier.propositions.types import Kind, Proposition
+from classifier.stages import propositions as stage
 from classifier.stages.propositions import read_backlog, read_propositions
 from scripts.testing import InMemoryAttemptStore
 from tests.test_stage_propositions import AnswersEverything, btc_ladder, embed, load, mention_market
@@ -154,6 +155,23 @@ class TestBackoff:
         result, _ = read_backlog(db=stub_db, registry=stub_registry, extractor=AnswersEverything(), embed=embed,
                                  limit=10, attempts=self.store)
         assert result.read == 1
+
+
+    def test_a_reader_that_falls_back_with_the_llm_off_records_nothing(self, stub_registry, stub_db):
+        event = btc_ladder((70000,))
+        event["markets"][0]["rules_primary"] = "Reworded: the market resolves to Yes on a BRTI above 69,999.99."
+        sids = sorted(load(stub_registry, stub_db, event).values())
+        result = self.read(stub_registry, stub_db, sids, None)
+        assert (result.read, result.parked) == (0, 0)
+        assert self.store.get_many(sids) == {}
+
+    def test_parked_securities_are_looked_at_again_when_the_readers_change(self, stub_registry, stub_db, monkeypatch):
+        sids = sorted(load_multi(stub_registry, stub_db, mention_event(("AI",))).values())
+        self.read(stub_registry, stub_db, sids, None)
+        assert self.read(stub_registry, stub_db, sids, None).backing_off == 1
+        monkeypatch.setattr(stage, "READERS_VERSION", "changed")
+        result = self.read(stub_registry, stub_db, sids, None)
+        assert (result.backing_off, result.parked) == (0, 1)
 
 
 @pytest.mark.skipif(not os.environ.get("REDIS_TEST_URL"), reason="needs REDIS_TEST_URL (a throwaway Redis)")

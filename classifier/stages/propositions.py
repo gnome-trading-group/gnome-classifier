@@ -32,6 +32,7 @@ from classifier.propositions.subjects import (
     embed_subjects,
 )
 from classifier.propositions.types import EXTRACTOR_VERSION, Method
+from classifier.propositions.venue import READERS_VERSION
 from classifier.utils import bulk_create_chunked
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,8 @@ def _plan_reads(
     stored = db.get_proposition_versions(security_ids)
     due = {sid for sid, item in inputs.items() if stored.get(sid) != (item.source_hash, EXTRACTOR_VERSION)}
     if attempts is not None and due:
-        skip = waiting(attempts, {sid: inputs[sid].source_hash for sid in due}, EXTRACTOR_VERSION, llm_enabled)
+        skip = waiting(attempts, {sid: inputs[sid].source_hash for sid in due}, EXTRACTOR_VERSION, llm_enabled,
+                       READERS_VERSION)
         result.backing_off += len(skip)
         due -= skip
     if not due:
@@ -102,7 +104,8 @@ def _plan_reads(
         held = stored_firsts.get(first)
         if held is not None and held[2] == siblings[first].source_hash:
             partners[second] = (held[0], Method(held[1]))
-        elif attempts is None or not waiting(attempts, {first: siblings[first].source_hash}, EXTRACTOR_VERSION, llm_enabled):
+        elif attempts is None or not waiting(attempts, {first: siblings[first].source_hash}, EXTRACTOR_VERSION,
+                                             llm_enabled, READERS_VERSION):
             read.add(first)
     return [siblings.get(sid) or inputs[sid] for sid in sorted(read)], partners
 
@@ -126,13 +129,17 @@ def read_propositions(
     result.read, result.pending = len(extractions), len(report.failed)
     if attempts is not None:
         source_of = {i.security_id: i.source_hash for i in items}
-        unavailable, needs_llm = set(report.unavailable), set(report.needs_llm)
+        # A reader that fell back with the LLM off records nothing: the contract stays due (free to retry with code
+        # readers, and the VenueReaderFallbacks alarm reports it) so a reader fix reads it on the next pass.
+        unrecorded = set(report.unavailable) | (set(report.fell_back) if extractor is None else set())
+        needs_llm = set(report.needs_llm)
         result.gave_up, result.parked = record(
             attempts,
-            failed=[(sid, source_of[sid]) for sid in report.failed if sid not in unavailable and sid not in needs_llm],
+            failed=[(sid, source_of[sid]) for sid in report.failed if sid not in unrecorded and sid not in needs_llm],
             needs_llm=[(sid, source_of[sid]) for sid in report.failed if sid in needs_llm],
             read=sorted(extractions),
             extractor_version=EXTRACTOR_VERSION,
+            readers_version=READERS_VERSION,
         )
 
     subjects = {e.proposition.subject for e in extractions.values()}

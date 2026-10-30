@@ -23,7 +23,8 @@ class ExtractionReport:
     subject_descriptions: dict[str, str] = dataclasses.field(default_factory=dict)
     known: dict[str, KnownSubject] = dataclasses.field(default_factory=dict)
     fell_back: list[int] = dataclasses.field(default_factory=list)
-    # Of `failed`: those only the LLM can read, with it off; and those whose request no provider could take.
+    # Of `failed`: those only the LLM can read, with it off (not `fell_back` ones, which a reader should have read);
+    # and those whose request no provider could take.
     needs_llm: list[int] = dataclasses.field(default_factory=list)
     unavailable: list[int] = dataclasses.field(default_factory=list)
 
@@ -139,7 +140,8 @@ def extract_propositions(
     else:
         unread = [i.security_id for _, chunk in llm_events.values() for i in chunk]
         report.failed.extend(unread)
-        report.needs_llm.extend(unread)
+        fell_back = set(report.fell_back)
+        report.needs_llm.extend(sid for sid in unread if sid not in fell_back)
 
     for item in items:
         if is_primary_side(item):
@@ -158,6 +160,8 @@ def extract_propositions(
                 report.needs_llm.append(item.security_id)
             if partner is not None and partner.security_id in report.unavailable:
                 report.unavailable.append(item.security_id)
+            if partner is not None and partner.security_id in report.fell_back:
+                report.fell_back.append(item.security_id)
             continue
         results[item.security_id] = Extraction(read.proposition.negate(), read.method, item.source_hash)
     return results, report
