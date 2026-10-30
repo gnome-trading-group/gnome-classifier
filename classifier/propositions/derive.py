@@ -23,7 +23,7 @@ from gnomepy.registry.relations import Edge, close, reduce
 
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
 
-DERIVATION_VERSION = "d2"
+DERIVATION_VERSION = "d3"
 
 EQUIVALENT = "EQUIVALENT"
 IMPLIES = "IMPLIES"
@@ -162,6 +162,18 @@ def usable(p: Proposition) -> bool:
     return all(getattr(p, name) not in (None, "") for name in _NEEDED[p.kind])
 
 
+def _same_entity(a: Proposition, b: Proposition) -> bool:
+    """Whether two propositions on one measure are about the same entity. A measure that already names its entity
+    (wins:texas-st) settles it when only one side repeats the entity; two different entities never match, and an
+    entity on one side alone is otherwise a narrower question (one candidate confirmed vs anyone confirmed)."""
+    if a.entity == b.entity:
+        return True
+    if a.entity and b.entity:
+        return False
+    named = a.entity or b.entity
+    return (a.measure or "").endswith(f":{named}")
+
+
 def _scope_matches(a: Proposition, b: Proposition) -> bool:
     return a.scope is None or b.scope is None or a.scope == b.scope
 
@@ -204,7 +216,7 @@ def _extreme(p: Proposition) -> str:
 
 def _values(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | None:
     """(forward, backward) truth of a ⇒ b and b ⇒ a for two thresholds/ranges on the same measure."""
-    if a.measure != b.measure or not _scope_matches(a, b):
+    if a.measure != b.measure or not _same_entity(a, b) or not _scope_matches(a, b):
         return None
     if a.observation == Observation.ANY_TIME:
         # Touching a level at any time is about the window's maximum ("reaches 120k") or its minimum ("dips to 100k"),
@@ -219,7 +231,7 @@ def _values(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | None
 
 
 def _deadlines(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | None:
-    if a.measure != b.measure:
+    if a.measure != b.measure or not _same_entity(a, b) or not _scope_matches(a, b):
         return None
     # The earlier deadline's window must sit inside the later one's, so both have to start together: "by June, from
     # listing" says nothing about "by December, from July" (a March event makes the first true and the second false).

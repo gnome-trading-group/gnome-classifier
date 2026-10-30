@@ -1,3 +1,4 @@
+import dataclasses
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -308,3 +309,27 @@ class TestMinimalRows:
         rows, _ = minimal_rows(unit, derive_unit(unit))
         assert all(r.evidence["rule"] in ("value_sets", "composed") for r in rows)
         assert any(r.evidence["rule"] == "value_sets" for r in rows)
+
+
+class TestEntities:
+    def test_deadlines_for_different_candidates_are_unrelated(self):
+        mottley = by(T, measure="confirm_secretary_general", entity="mia-mottley")
+        grossi = by(T, measure="confirm_secretary_general", entity="rafael-grossi")
+        assert relation(mottley, grossi) is None
+        assert relation(mottley, by(T + timedelta(days=30), measure="confirm_secretary_general",
+                                    entity="mia-mottley"))[0] == "1=>2"
+
+    def test_the_same_measure_of_different_entities_is_unrelated(self):
+        a = threshold(GT, 40, measure="vote_share", entity="dem", observation=Observation.AT_TIME)
+        b = threshold(GT, 40, measure="vote_share", entity="rep", observation=Observation.AT_TIME)
+        assert relation(a, b) is None
+        assert relation(a, dataclasses.replace(a))[0] == EQUIVALENT
+
+    def test_an_entity_repeated_on_one_side_matches_a_measure_that_names_it(self):
+        a = threshold(GT, 6.5, measure="wins:texas-st", entity="texas-st", observation=Observation.CUMULATIVE, end=None)
+        b = threshold(GT, 6.5, measure="wins:texas-st", observation=Observation.CUMULATIVE, end=None)
+        assert relation(a, b)[0] == EQUIVALENT
+
+    def test_one_candidate_is_narrower_than_anyone(self):
+        anyone = by(T, measure="confirm_secretary_general")
+        assert relation(by(T, measure="confirm_secretary_general", entity="mia-mottley"), anyone) is None

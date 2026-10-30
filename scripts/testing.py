@@ -731,6 +731,12 @@ class StubDB:
     def subjects_without_embeddings(self, limit: int = 1000) -> list[KnownSubject]:
         return [KnownSubject(s["key"], s["description"]) for s in self._r._subjects.values() if s["embedding"] is None][:limit]
 
+    def reset_derivations(self) -> int:
+        derived = [s for s in self._r._subjects.values() if s["derived_at"] is not None]
+        for subject in derived:
+            subject["derived_at"] = None
+        return len(derived)
+
     def put_subject_embeddings(self, embeddings: dict[str, list[float]]) -> None:
         for key, vector in embeddings.items():
             self._r._subjects[key]["embedding"] = vector

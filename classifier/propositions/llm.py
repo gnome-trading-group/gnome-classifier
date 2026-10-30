@@ -49,7 +49,9 @@ day). A team's or player's season is <entity>:<league>-<season> (liverpool:epl-2
 resolution_source.
 - subject_description: one plain sentence saying what the subject is.
 - kind: THRESHOLD (a number compared with a value), RANGE (a number between two values), OCCURS_BY (something \
-happens by a deadline), WINNER (an entity wins a contest), OTHER.
+happens by a deadline), WINNER (an entity wins a contest), OTHER. A market asking which of several candidates is \
+chosen, wins or comes first (the next UN Secretary-General, a nominee, a winner) is WINNER with that entity, even \
+when it names a deadline: OCCURS_BY is for whether one thing happens at all.
 - measure: the quantity within the subject (price, total_points, team_points:<team>, margin:<team>, rt_score, \
 seats, rate, daily_views_peak). A quantity of one team, player or party is <measure>:<entity> with the entity key \
 (margin:democratic, receptions:darnell-mooney, team_points:mil). When you use a candidate subject, use its listed \
@@ -58,9 +60,11 @@ announce_ipo, make_playoffs, reach_nfc_championship, recognize_palestine): annou
 from it happening. Null for WINNER.
 - comparator: GT, GTE, LT, LTE (THRESHOLD only). Use the rules' exact wording: "above"/"more than" is GT, "at least"/ \
 "or above" is GTE.
-- value, unit; low, high, low_inclusive, high_inclusive (RANGE).
+- value, unit; low, high, low_inclusive, high_inclusive (RANGE). Copy each number exactly as the rules state it: \
+"above 7574.9999" is GT 7574.9999, never GTE 7575; do not round or shift a boundary into the next comparator.
 - observation: AT_TIME (value at one moment), ANY_TIME (reached at any point in the window, or its maximum/minimum \
-over it), CUMULATIVE (total over the window, e.g. game or season totals). Null for OCCURS_BY and WINNER.
+over it), CUMULATIVE (built up over a game, season or other window: totals, a team's or player's points, a winning \
+margin or spread). Null for OCCURS_BY and WINNER.
 - window_start, window_end: ISO 8601 UTC, the period in which the thing must happen or be measured (window_end \
 is the decisive moment or deadline). Not when the market closes or the result is announced: "a recession in 2026" \
 ends 2026-12-31 even if the data comes out in 2027. Convert local times; a date with no time in a Kalshi rule \

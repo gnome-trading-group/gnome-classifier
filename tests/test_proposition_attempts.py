@@ -15,7 +15,7 @@ from classifier.propositions.attempts import (
     RedisAttemptStore,
     wait_seconds,
 )
-from classifier.propositions.types import Kind, Proposition
+from classifier.propositions.types import EXTRACTOR_VERSION, Kind, Proposition
 from classifier.stages import propositions as stage
 from classifier.stages.propositions import read_backlog, read_propositions
 from scripts.testing import InMemoryAttemptStore
@@ -120,7 +120,7 @@ class TestBackoff:
             assert llm.asked == sids
             gave_up += result.gave_up
             assert self.store.get_many(sids)[sids[0]] == Attempt(
-                stub_registry._contract_sources[sids[0]]["source_hash"], "p1", FAILED, attempt,
+                stub_registry._contract_sources[sids[0]]["source_hash"], EXTRACTOR_VERSION, FAILED, attempt,
                 self.store.clock + wait_seconds(attempt))
             llm.asked.clear()
             self.store.clock += wait_seconds(attempt) - 1

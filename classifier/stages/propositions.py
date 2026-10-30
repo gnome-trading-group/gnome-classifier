@@ -8,12 +8,13 @@ alone (a second side is negated from its first side's stored proposition). A sec
 only the LLM can read while it is off, waits (see `attempts`) instead of being asked again every pass. A due subject re-derives only the derivation units holding a
 contract that changed since its last derivation, and each unit's relationships are replaced as one set, which makes
 redelivery and re-derivation idempotent. Only the fewest rows that rebuild a unit's relationships are stored;
-consumers rebuild the rest (gnomepy `RelationshipGraph`). Bumping DERIVATION_VERSION therefore needs every subject's derived_at
-cleared, so that all units are re-derived.
+consumers rebuild the rest (gnomepy `RelationshipGraph`). A new DERIVATION_VERSION re-derives every subject once (see
+`rederive_on_new_version`), since an incremental pass would leave rows the old rules wrote.
 """
 import dataclasses
 import logging
 from datetime import datetime, timezone
+from typing import Protocol
 
 from gnomepy.registry import RegistryClient
 
@@ -264,6 +265,27 @@ def derive_due_subjects(
             # <Name>BatchFailures alarm counts this line.
             logger.exception("subject derivation failed: subject=%d", subject_id)
     return result
+
+
+class VersionMarker(Protocol):
+    def get(self, key: str) -> str | None: ...
+
+    def set(self, key: str, value: str) -> object: ...
+
+
+DERIVATION_VERSION_KEY = "derive:version"
+
+
+def rederive_on_new_version(db: ClassifierDB, marker: VersionMarker) -> int:
+    """Marks every subject due a full derivation the first time this DERIVATION_VERSION runs; returns how many. The
+    marker is one Redis key, kept without an expiry (one key can't crowd the node); losing it only costs one extra full
+    derivation."""
+    if marker.get(DERIVATION_VERSION_KEY) == DERIVATION_VERSION:
+        return 0
+    count = db.reset_derivations()
+    marker.set(DERIVATION_VERSION_KEY, DERIVATION_VERSION)
+    logger.info("Derivation version %s: %d subjects due a full derivation", DERIVATION_VERSION, count)
+    return count
 
 
 def run_drift_check(*, db: ClassifierDB, extractor: PropositionExtractor, size: int, today: datetime | None = None) -> int:

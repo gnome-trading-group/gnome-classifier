@@ -4,11 +4,18 @@ import os
 import time
 
 import boto3
+import redis as redis_lib
 
 from classifier.constants import DEFAULT_VOYAGE_EMBEDDING_MODEL
 from classifier.propositions.attempts import RedisAttemptStore
 from classifier.propositions.llm import PropositionExtractor
-from classifier.stages.propositions import derive_due_subjects, read_backlog, read_propositions, run_drift_check
+from classifier.stages.propositions import (
+    derive_due_subjects,
+    read_backlog,
+    read_propositions,
+    rederive_on_new_version,
+    run_drift_check,
+)
 from classifier.workers.base import BaseWorker, message_body, parse_security_messages
 from classifier.workers.config import WorkerConfig, claude_client, init_db, init_registry, init_runtime_config, init_voyage
 
@@ -47,6 +54,7 @@ class RelationshipsWorker(BaseWorker):
         self._runtime_config = init_runtime_config()
         self._sns = boto3.client("sns")
         self._attempts = RedisAttemptStore(os.environ["REDIS_ENDPOINT"])
+        rederive_on_new_version(self._db, redis_lib.Redis.from_url(os.environ["REDIS_ENDPOINT"], decode_responses=True))
 
     def _embed(self, texts: list[str], kind: str) -> list[list[float]]:
         model = self._runtime_config.config.models.voyage_embedding_model or DEFAULT_VOYAGE_EMBEDDING_MODEL

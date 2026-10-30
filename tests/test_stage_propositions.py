@@ -4,10 +4,10 @@ from gnomepy.registry.relations import Edge, close
 
 from classifier.adapters import kalshi
 from classifier.propositions.derive import IMPLIES
-from classifier.propositions.types import Kind, Proposition
+from classifier.propositions.types import EXTRACTOR_VERSION, Kind, Proposition
 from classifier.stages.entities import create_entities
 from classifier.stages import propositions as stage
-from classifier.stages.propositions import derive_due_subjects, read_backlog, read_propositions
+from classifier.stages.propositions import derive_due_subjects, read_backlog, read_propositions, rederive_on_new_version
 
 RULE = ("If the simple average of the sixty seconds of CF Benchmarks' Bitcoin Real-Time Index (BRTI) before {h} PM EDT "
         "is above {v} at {h} PM EDT on Oct 29, 2026, then the market resolves to Yes.")
@@ -135,7 +135,7 @@ class TestBacklog:
         assert following == 0
         assert (result.stored, result.pending) == (6, 2)
         assert set(stub_registry._propositions) == set(ladder.values())
-        assert stub_db.securities_needing_propositions("p1", 100) == sorted(mention.values())
+        assert stub_db.securities_needing_propositions(EXTRACTOR_VERSION, 100) == sorted(mention.values())
 
     def test_the_backlog_is_walked_rather_than_reread_from_the_start(self, stub_registry, stub_db):
         mention = sorted(load(stub_registry, stub_db, mention_market()).values())
@@ -159,7 +159,7 @@ class TestBacklog:
         result, _ = read_backlog(db=stub_db, registry=stub_registry, extractor=extractor, embed=embed, limit=100)
         assert result.stored == 2
         assert extractor.asked == [sid for key, sid in mention.items() if key.endswith(":yes")]
-        assert stub_db.securities_needing_propositions("p1", 100) == []
+        assert stub_db.securities_needing_propositions(EXTRACTOR_VERSION, 100) == []
 
 
 def test_a_new_hour_rederives_only_that_hour(stub_registry, stub_db):
@@ -227,3 +227,24 @@ def test_a_subject_that_fails_to_derive_does_not_hold_up_the_rest(stub_registry,
     stub_db.get_subject_contracts = broken
     assert derive_due_subjects(db=stub_db, registry=stub_registry).subjects_derived == 1
     assert stub_db.dirty_subjects(10) == [failing]
+
+
+class DictMarker(dict):
+    """The Redis marker's get/set over a dict."""
+
+    def set(self, key, value):
+        self[key] = value
+
+
+def test_a_new_derivation_version_rederives_every_subject_once(stub_registry, stub_db):
+    sids = load(stub_registry, stub_db, btc_ladder())
+    read_propositions(sorted(sids.values()), db=stub_db, registry=stub_registry, extractor=None, embed=embed)
+    derive_due_subjects(db=stub_db, registry=stub_registry)
+    stale = (min(sids.values()), max(sids.values()))
+    stub_registry._relationships[stale] = {"relationship_type": "EQUIVALENT", "method": "derived", "flags": []}
+
+    marker = DictMarker()
+    assert rederive_on_new_version(stub_db, marker) == 1
+    assert rederive_on_new_version(stub_db, marker) == 0
+    derive_due_subjects(db=stub_db, registry=stub_registry)
+    assert stale not in stub_registry._relationships

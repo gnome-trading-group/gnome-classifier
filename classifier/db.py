@@ -621,6 +621,15 @@ class ClassifierDB:
                 )
                 return [KnownSubject(row[0], row[1], set(row[2])) for row in cur.fetchall()]
 
+    def reset_derivations(self) -> int:
+        """Marks every subject due a full derivation; returns how many."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE sm.proposition_subject SET derived_at = NULL WHERE derived_at IS NOT NULL")
+                count = cur.rowcount
+            conn.commit()
+        return count
+
     def put_subject_embeddings(self, embeddings: dict[str, list[float]]) -> None:
         """Sets subjects' embeddings by key."""
         if not embeddings:
