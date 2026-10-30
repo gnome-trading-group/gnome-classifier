@@ -379,7 +379,11 @@ def _candidate_groups(contracts: list[Contract]) -> list[list[Contract]]:
             continue
         if p.kind == Kind.THRESHOLD and p.measure.startswith("margin:"):
             keyed.setdefault(("winner",), []).append(c)
-        if p.window_end is None:
+        if p.observation == Observation.CUMULATIVE:
+            # A game's or season's total compares across window ends, missing ones included (`_same_reading`): the
+            # subject and scope fix the window, so all of a subject's totals share one group.
+            keyed.setdefault(("value", p.observation), []).append(c)
+        elif p.window_end is None:
             keyed.setdefault(("value", p.observation, None), []).append(c)
         elif p.observation == Observation.AT_TIME and p.stability != Stability.SETTLED:
             # A live snapshot only matches one taken over exactly the same window.

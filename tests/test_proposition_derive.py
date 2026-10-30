@@ -333,3 +333,13 @@ class TestEntities:
     def test_one_candidate_is_narrower_than_anyone(self):
         anyone = by(T, measure="confirm_secretary_general")
         assert relation(by(T, measure="confirm_secretary_general", entity="mia-mottley"), anyone) is None
+
+
+class TestGameTotals:
+    def test_a_total_without_a_window_end_compares_with_one_that_has_it(self):
+        kalshi = threshold(GT, 0.5, measure="total_goals", unit="goals", observation=Observation.CUMULATIVE, end=None,
+                           scope="regulation")
+        pm = threshold(GTE, 1, measure="total_goals", unit="goals", observation=Observation.CUMULATIVE,
+                       end=T, scope="regulation")
+        assert relation(kalshi, pm) == (EQUIVALENT, ())
+        assert len(derivation_units([Contract(1, "K", kalshi), Contract(2, "PMI", pm)])) == 1

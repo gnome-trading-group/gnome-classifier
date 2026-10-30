@@ -51,7 +51,8 @@ resolution_source.
 - kind: THRESHOLD (a number compared with a value), RANGE (a number between two values), OCCURS_BY (something \
 happens by a deadline), WINNER (an entity wins a contest), OTHER. A market asking which of several candidates is \
 chosen, wins or comes first (the next UN Secretary-General, a nominee, a winner) is WINNER with that entity, even \
-when it names a deadline: OCCURS_BY is for whether one thing happens at all.
+when it names a deadline: OCCURS_BY is for whether one thing happens at all. A draw or tie in a match is WINNER with \
+entity tie.
 - measure: the quantity within the subject (price, total_points, team_points:<team>, margin:<team>, rt_score, \
 seats, rate, daily_views_peak). A quantity of one team, player or party is <measure>:<entity> with the entity key \
 (margin:democratic, receptions:darnell-mooney, team_points:mil). When you use a candidate subject, use its listed \
