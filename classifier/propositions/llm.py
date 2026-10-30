@@ -15,7 +15,7 @@ from datetime import datetime
 import anthropic
 
 from classifier.propositions.inputs import ExtractionInput
-from classifier.propositions.subjects import KnownSubject
+from classifier.propositions.subjects import KnownSubject, add_known
 from classifier.propositions.types import FIELDS, Comparator, Kind, Observation, Proposition, Stability
 
 logger = logging.getLogger(__name__)
@@ -67,15 +67,17 @@ approved) gets its own key, even when one implies the other. Null for WINNER.
 "above 7574.9999" is GT 7574.9999, never GTE 7575; do not round or shift a boundary into the next comparator.
 - observation: AT_TIME (value at one moment), ANY_TIME (reached at any point in the window, or its maximum/minimum \
 over it), CUMULATIVE (built up over a game, season or other window: totals, a team's or player's points, a winning \
-margin or spread). Null for OCCURS_BY and WINNER.
+margin or spread). Null for OCCURS_BY. For WINNER: null for a contest decided once (a game, an election, a season \
+title); AT_TIME when the entity must hold the position at window_end ("the leader on December 31"); ANY_TIME when it \
+must hold it at any point by window_end ("leads Iran at some point in 2026").
 - window_start, window_end: ISO 8601 UTC, the period in which the thing must happen or be measured (window_end \
 is the decisive moment or deadline). Not when the market closes or the result is announced: "a recession in 2026" \
 ends 2026-12-31 even if the data comes out in 2027. Convert local times; a date with no time in a Kalshi rule \
 is Eastern Time ("before Jan 1, 2027" is 2027-01-01T05:00:00Z).
 - entity: who must win (WINNER), as a short lowercase key: a candidate's entity key when it names the same team, \
 player or party; otherwise a short name (clemson, democratic, republican, zohran-mamdani).
-- scope: the part of the contest when it matters: match, regulation, first_half, map:1, series, regular_season, \
-season. Null when not a sports contest (elections, awards, charts have no scope). A soccer result with a draw outcome is decided after 90 minutes plus stoppage time: \
+- scope: the part of the contest when it matters: match (the whole fixture, a single game or a best-of series), \
+regulation, first_half, map:1, playoff_series (several fixtures, as an NBA playoff series), regular_season, season. Null when not a sports contest (elections, awards, charts have no scope). A soccer result with a draw outcome is decided after 90 minutes plus stoppage time: \
 regulation.
 - stability: SETTLED if the measured value can no longer move around the observation time (a review score after \
 release, published official statistics), otherwise LIVE.
@@ -167,7 +169,14 @@ def to_proposition(entry: dict) -> tuple[Proposition, str]:
     are cleared rather than trusted, so two reads of the same contract can't differ on them."""
     unknown = frozenset(entry.get("unknown") or ())
     if entry["kind"] in (Kind.OCCURS_BY.value, Kind.WINNER.value):
-        cleared = {"observation", "comparator", "value"} | ({"measure"} if entry["kind"] == Kind.WINNER.value else set())
+        cleared = {"comparator", "value"}
+        if entry["kind"] == Kind.WINNER.value:
+            cleared.add("measure")
+            # A winner's observation says when it must hold the position; a cumulative one has no meaning.
+            if entry.get("observation") not in (Observation.AT_TIME.value, Observation.ANY_TIME.value):
+                cleared.add("observation")
+        else:
+            cleared.add("observation")
         entry = {**entry, **{f: None for f in cleared}}
         unknown = unknown - cleared
     subject = entry["subject"] if "subject" not in unknown else "unknown"
@@ -267,16 +276,38 @@ class PropositionExtractor:
     ) -> dict[int, tuple[Proposition, str] | None]:
         """{request group: (title, inputs)} -> {security_id: (proposition, subject description) or None}. A contract
         the model answered without a valid entry maps to None; one whose request no provider could take (an outage,
-        rate limit or exhausted credit) is left out, since nothing was learned about it."""
-        jobs = []
-        for group, (title, items) in groups.items():
-            for start in range(0, len(items), CHUNK_SIZE):
-                chunk = items[start:start + CHUNK_SIZE]
-                jobs.append((chunk, build_prompt(title, chunk, candidates.get(group, []))))
+        rate limit or exhausted credit) is left out, since nothing was learned about it.
 
+        A group longer than one request is read first chunk first: the subjects that chunk chose are offered to the
+        rest as candidates, so one event's contracts (36 Champions League teams) land on one subject rather than one
+        per request."""
+        first, rest = [], []
+        for group, (title, items) in groups.items():
+            chunks = [items[start:start + CHUNK_SIZE] for start in range(0, len(items), CHUNK_SIZE)]
+            first.append((group, title, chunks[0]))
+            rest.extend((group, title, chunk) for chunk in chunks[1:])
+        results = self._ask_chunks(first, candidates)
+        if rest:
+            chosen: dict[str, dict[str, KnownSubject]] = {}
+            for group, _, chunk in first:
+                for item in chunk:
+                    answer = results.get(item.security_id)
+                    if answer is not None:
+                        add_known(chosen.setdefault(group, {}), answer[0], answer[1])
+            results.update(self._ask_chunks(rest, {
+                group: list(chosen.get(group, {}).values()) + candidates.get(group, []) for group, _, _ in rest
+            }))
+        return results
+
+    def _ask_chunks(
+        self,
+        jobs: list[tuple[str, str, list[ExtractionInput]]],
+        candidates: dict[str, list[KnownSubject]],
+    ) -> dict[int, tuple[Proposition, str] | None]:
         results: dict[int, tuple[Proposition, str] | None] = {}
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            futures = {pool.submit(self._ask, prompt): chunk for chunk, prompt in jobs}
+            futures = {pool.submit(self._ask, build_prompt(title, chunk, candidates.get(group, []))): chunk
+                       for group, title, chunk in jobs}
             for future in as_completed(futures):
                 chunk = futures[future]
                 try:

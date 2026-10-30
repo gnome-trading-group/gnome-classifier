@@ -343,3 +343,26 @@ class TestGameTotals:
                        end=T, scope="regulation")
         assert relation(kalshi, pm) == (EQUIVALENT, ())
         assert len(derivation_units([Contract(1, "K", kalshi), Contract(2, "PMI", pm)])) == 1
+
+
+class TestWinnerTiming:
+    def leader(self, entity, observation, **kw):
+        return winner(entity, scope=None, observation=observation, window_end=T, **kw)
+
+    def test_holding_at_the_end_implies_holding_at_some_point(self):
+        at_end = self.leader("reza-pahlavi", Observation.AT_TIME)
+        any_time = self.leader("reza-pahlavi", Observation.ANY_TIME)
+        assert relation(at_end, any_time)[0] == "1=>2"
+        assert relation(any_time.negate(), at_end.negate())[0] == "1=>2"
+        assert relation(at_end, self.leader("reza-pahlavi", Observation.AT_TIME))[0] == EQUIVALENT
+
+    def test_different_people_can_each_hold_it_at_some_point(self):
+        a = self.leader("reza-pahlavi", Observation.ANY_TIME)
+        b = self.leader("mojtaba-khamenei", Observation.ANY_TIME, negated=True)
+        assert relation(a, b) is None
+        assert relation(self.leader("reza-pahlavi", Observation.AT_TIME),
+                        self.leader("mojtaba-khamenei", Observation.AT_TIME, negated=True))[0] == "1=>2"
+
+    def test_a_contest_decided_once_still_matches_without_timing(self):
+        assert relation(winner("navi"), winner("navi"))[0] == EQUIVALENT
+        assert relation(winner("navi"), self.leader("navi", Observation.AT_TIME)) is None

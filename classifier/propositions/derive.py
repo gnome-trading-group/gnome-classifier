@@ -23,7 +23,7 @@ from gnomepy.registry.relations import Edge, close, reduce
 
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
 
-DERIVATION_VERSION = "d3"
+DERIVATION_VERSION = "d4"
 
 EQUIVALENT = "EQUIVALENT"
 IMPLIES = "IMPLIES"
@@ -254,16 +254,51 @@ def _deadlines(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | N
     return None
 
 
+def _winner_timing(a: Proposition, b: Proposition) -> tuple[str, list[str]] | None:
+    """How two winner propositions' timings compare: "same", "a_at_end" (a holds it at the window's end, b at any time
+    in the window, so a implies b), "b_at_end", or None when they are about different times."""
+    if a.observation is None and b.observation is None:
+        # A contest decided once (a game, an election): its time is fixed by the subject.
+        return "same", []
+    if a.observation is None or b.observation is None or a.window_end is None or b.window_end is None:
+        return None
+    gap = abs(a.window_end - b.window_end)
+    if gap > DEADLINE_TOLERANCE:
+        return None
+    flags = [FLAG_DEADLINE_ZONE] if gap else []
+    if a.observation == b.observation:
+        return "same", flags
+    if a.observation == Observation.AT_TIME and b.observation == Observation.ANY_TIME:
+        return "a_at_end", flags
+    if a.observation == Observation.ANY_TIME and b.observation == Observation.AT_TIME:
+        return "b_at_end", flags
+    return None
+
+
 def _winners(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | None:
     if not _scope_matches(a, b):
         return None
+    timing = _winner_timing(a, b)
+    if timing is None:
+        return None
+    how, flags = timing
     if a.entity == b.entity:
-        return ("y", "y", []) if a.negated == b.negated else None
-    # Different entities can't both win: a win by one implies the other's loss.
+        if a.negated != b.negated:
+            return None
+        if how == "same":
+            return "y", "y", flags
+        # Holding a position at the end of a window implies having held it at some point in it; not having held it at
+        # all implies not holding it at the end.
+        a_first = (how == "a_at_end") != a.negated
+        return ("y", "n", flags) if a_first else ("n", "y", flags)
+    # Different entities can't both win a contest or hold a position at the same moment, but each can hold it at some
+    # point in a window.
+    if how != "same" or a.observation == Observation.ANY_TIME:
+        return None
     if not a.negated and b.negated:
-        return "y", "n", []
+        return "y", "n", flags
     if a.negated and not b.negated:
-        return "n", "y", []
+        return "n", "y", flags
     return None
 
 

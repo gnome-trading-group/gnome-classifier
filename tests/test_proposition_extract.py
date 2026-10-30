@@ -10,7 +10,7 @@ import pytest
 
 from classifier.propositions.extract import extract_propositions, family
 from classifier.propositions.inputs import ExtractionInput, is_primary_side
-from classifier.propositions.llm import RESPONSE_SCHEMA, PropositionExtractor, parse_answer
+from classifier.propositions.llm import RESPONSE_SCHEMA, PropositionExtractor, parse_answer, to_proposition
 from classifier.propositions.subjects import InMemorySubjectIndex, KnownSubject
 from classifier.propositions.types import Comparator, Kind, Method, Observation
 from classifier.runtime_config import Models
@@ -252,3 +252,27 @@ def test_embedding_neighbours_become_candidates():
 def test_a_side_labelled_with_a_name_is_read_even_without_side_names_in_the_source():
     source = {"venue": "HYPERLIQUID", "label": "CLE", "outcome": {"description": "This Basketball market has two sides"}}
     assert is_primary_side(item(1, 1, source, outcome="CLE", exchange="HYPERLIQUID"))
+
+
+class TestLongEvents:
+    def test_later_chunks_of_an_event_are_offered_the_subject_the_first_chose(self):
+        items = [item(i, 1, kalshi_side("yes", ticker=f"KXUCL-27-T{i}"), contract_type=ContractType.MULTI_OUTCOME)
+                 for i in range(1, 31)]
+        winner = lambda i: entry(i, subject="champions-league:2026-27", kind="WINNER", entity=f"team-{i}",
+                                 window_end=None)
+        client = fake_client([[winner(i) for i in range(1, 26)], [winner(i) for i in range(26, 31)]])
+        answers = extractor_for(client).extract({"KALSHI:KXUCL-27": ("Champions League Winner", items)}, {})
+
+        assert len(answers) == 30
+        first_prompt, second_prompt = (c.kwargs["messages"][0]["content"] for c in client.messages.create.call_args_list)
+        assert "champions-league:2026-27" not in first_prompt
+        assert "champions-league:2026-27" in second_prompt
+
+
+class TestWinnerTiming:
+    def test_a_winner_keeps_when_it_must_hold_the_position(self):
+        held, _ = to_proposition(entry(1, kind="WINNER", entity="reza-pahlavi", observation="AT_TIME"))
+        any_time, _ = to_proposition(entry(1, kind="WINNER", entity="reza-pahlavi", observation="ANY_TIME"))
+        cumulative, _ = to_proposition(entry(1, kind="WINNER", entity="reza-pahlavi", observation="CUMULATIVE"))
+        assert (held.observation, any_time.observation, cumulative.observation) == (
+            Observation.AT_TIME, Observation.ANY_TIME, None)
