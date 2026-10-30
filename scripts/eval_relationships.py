@@ -6,7 +6,9 @@ prod (2026-08-07/08) between golden securities, captured 2026-10-29. It only eve
 its recall on the newer candidate and ladder pairs is not meaningful; its precision is.
 
 With --derive it scores the new system instead: extracts propositions for every golden security (paid model calls
-unless --propositions names a saved extraction), derives relationships per subject, and scores those.
+unless --propositions names a saved extraction), derives relationships per subject, keeps the rows the classifier would
+store (the fewest that rebuild them), and scores the relation a consumer rebuilds from those rows, composed pairs
+included.
 
 Exits 1 when EQUIVALENT or IMPLIES precision is under --min-precision.
 
@@ -20,9 +22,11 @@ import sys
 from pathlib import Path
 
 import click
+from gnomepy.registry.relations import Edge, close, relationship_type
+from gnomepy.registry.types import ContractType
 
 from classifier.constants import DEFAULT_PROPOSITION_MODELS, DEFAULT_VOYAGE_EMBEDDING_MODEL
-from classifier.propositions.derive import EQUIVALENT, Contract, derive_all
+from classifier.propositions.derive import EQUIVALENT, Contract, derivation_units, derive_unit, minimal_rows
 from classifier.propositions.evaluation import load_inputs
 from classifier.propositions.extract import extract_propositions
 from classifier.propositions.llm import PropositionExtractor
@@ -109,12 +113,32 @@ def _derived_predictions(provider: str, model: str | None, saved: Path | None, s
         propositions = {sid: e.proposition for sid, e in results.items()}
         if save:
             save.write_text(json.dumps({sid: {"subject": p.subject, "fields": p.to_fields()} for sid, p in propositions.items()}))
-    contracts = [Contract(sid, inputs[by_id[sid]].exchange, p) for sid, p in propositions.items()]
+    by_event: dict[int, list] = {}
+    for item in inputs.values():
+        by_event.setdefault(item.event_id, []).append(item)
+    complements = {}
+    for items in by_event.values():
+        if len(items) == 2 and all(i.contract_type == ContractType.BINARY for i in items):
+            complements[items[0].security_id], complements[items[1].security_id] = items[1].security_id, items[0].security_id
+
+    by_subject: dict[str, list[Contract]] = {}
+    for sid, p in propositions.items():
+        if "subject" not in p.unknown:
+            by_subject.setdefault(p.subject, []).append(Contract(sid, inputs[by_id[sid]].exchange, p, complements.get(sid)))
+    stored: list[Edge] = []
+    for contracts in by_subject.values():
+        for unit in derivation_units(contracts):
+            rows, _ = minimal_rows(unit, derive_unit(unit))
+            stored += [Edge(r.security_id_a, r.security_id_b, r.relationship_type, r.flags) for r in rows]
+    relation = close(stored, complements)
+
     predictions = []
-    for d in derive_all(contracts):
-        a, b = _listing(by_id[d.security_id_a]), _listing(by_id[d.security_id_b])
-        predictions.append(Prediction(a, b, EQUIVALENT if d.relationship_type == EQUIVALENT else "IMPLIES", d.flags))
-    click.echo(f"{len(propositions)} propositions, {len(predictions)} derived relationships")
+    for x, y in sorted(relation):
+        if x > y and (y, x) in relation:
+            continue
+        kind, a, b, flags = relationship_type(relation, x, y)
+        predictions.append(Prediction(_listing(by_id[a]), _listing(by_id[b]), kind, flags))
+    click.echo(f"{len(propositions)} propositions, {len(stored)} stored rows, {len(predictions)} rebuilt relationships")
     return predictions
 
 

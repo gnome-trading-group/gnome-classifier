@@ -273,6 +273,7 @@ class PropositionExtractor:
                 try:
                     results.update(parse_answer(future.result(), chunk))
                 except Exception as e:
+                    # The PropositionExtractionFailures alarm counts this line.
                     logger.warning("Proposition request for %d contracts failed: %s", len(chunk), e)
                     results.update({i.security_id: None for i in chunk})
         return results

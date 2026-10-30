@@ -107,13 +107,25 @@ def test_entities_store_each_contracts_source(stub_registry, stub_db):
     assert one["exchange_id"] == 2 and one["source"]["venue"] == "KALSHI" and one["source_hash"]
 
 
-def test_a_security_listed_twice_stores_one_source_or_none_when_they_differ(stub_registry):
+def test_a_security_listed_twice_stores_one_source_or_none_when_they_differ(stub_registry, stub_db):
     a, b, c = _kalshi_contracts()[:3]
     same_as_a = dataclasses.replace(a, exchange_security_id=a.exchange_security_id + "-dup")
     security_id_by_key = {_listing_key(a): 1, _listing_key(same_as_a): 1, _listing_key(b): 2, _listing_key(c): 2}
     assert a.proposition_source != b.proposition_source != c.proposition_source
 
-    stored = _sync_contract_sources(stub_registry, [a, same_as_a, b, c], security_id_by_key)
+    _sync_contract_sources(stub_registry, stub_db, [a, same_as_a, b, c], security_id_by_key)
 
-    assert stored == 1
     assert set(stub_registry._contract_sources) == {1}
+
+
+def test_a_security_with_several_listings_loses_a_source_stored_earlier(stub_registry, stub_db):
+    contracts = _kalshi_contracts()
+    create_entities(stub_registry, MagicMock(), contracts, db=stub_db, canonicalize_enabled=False)
+    sid, first = next(iter(stub_registry._contract_sources.items()))
+    listing = next(l for l in stub_registry._listings if l.security_id == sid)
+    stub_registry._listings.append(dataclasses.replace(listing, listing_id=10_000_000, exchange_security_id="OTHER"))
+    one = next(c for c in contracts if (c.proposition_source or {}) == first["source"])
+
+    _sync_contract_sources(stub_registry, stub_db, [one], {_listing_key(one): sid})
+
+    assert sid not in stub_registry._contract_sources

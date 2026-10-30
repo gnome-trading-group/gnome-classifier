@@ -118,7 +118,7 @@ def create_entities_from_canonical(
         registry, unique_contracts, listing_id_by_key, spec_by_listing_id,
     )
     _sync_listing_fee_keys(registry, db, unique_contracts, listing_id_by_key)
-    _sync_contract_sources(registry, unique_contracts, security_id_by_key)
+    _sync_contract_sources(registry, db, unique_contracts, security_id_by_key)
 
     _reconcile_stale_entities(registry, contracts, entity_ctx.event_id_by_native, db)
 
@@ -392,6 +392,7 @@ def _sync_listing_fee_keys(
 
 def _sync_contract_sources(
     registry: RegistryClient,
+    db: ClassifierDB,
     contracts: list[AdapterContract],
     security_id_by_key: dict[ListingKey, SecurityId],
 ) -> int:
@@ -403,15 +404,19 @@ def _sync_contract_sources(
             by_security.setdefault(security_id, []).append(dict(
                 security_id=security_id, exchange_id=c.exchange_id, source=c.proposition_source,
                 source_hash=proposition_source_hash(c.proposition_source)))
+    several = db.securities_listed_more_than_once(list(by_security))
     pending = []
     for security_id, items in by_security.items():
-        if len({item["source_hash"] for item in items}) == 1:
+        if security_id not in several and len({item["source_hash"] for item in items}) == 1:
             pending.append(items[0])
-        else:
-            # Securities from before identity was one per listing can hold two markets (two strikes); a proposition
-            # read from either source would be wrong for the other, so the security gets none.
-            logger.warning("security %s has %d listings with different sources; not storing a source",
-                           security_id, len(items))
+            continue
+        # Securities from before identity was one per listing can hold two markets (two strikes), and their listings
+        # need not arrive in the same batch; a proposition read from either source would be wrong for the other, so
+        # the security gets none, and a null source removes any stored earlier. The MultiMarketSecurities alarm counts
+        # this line.
+        logger.warning("security %s may be several markets (several listings, or listings with different sources); "
+                       "not storing a source", security_id)
+        pending.append(dict(security_id=security_id, exchange_id=items[0]["exchange_id"], source=None, source_hash=None))
     for _, chunk in bulk_create_chunked(pending, "contract sources"):
         registry.upsert_contract_sources(chunk)
     return len(pending)

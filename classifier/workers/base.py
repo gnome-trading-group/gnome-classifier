@@ -112,6 +112,8 @@ class BaseWorker(ABC):
             try:
                 output_messages = self.process_batch(batch)
             except Exception:
+                # The <Name>BatchFailures metric filters count this and "on_idle failed": the worker keeps running, so
+                # a failure on every pass would otherwise look healthy.
                 logger.exception("process_batch failed; messages will redeliver after visibility timeout")
                 continue
             if output_messages and self._output_queue_url:

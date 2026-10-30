@@ -37,6 +37,10 @@ class AppStage extends cdk.Stage {
       identityRegressions: classifierStack.identityRegressions,
       venueReaderFallbacks: classifierStack.venueReaderFallbacks,
       propositionDrift: classifierStack.propositionDrift,
+      batchFailures: classifierStack.batchFailures,
+      relationshipsPasses: classifierStack.relationshipsPasses,
+      propositionExtractionFailures: classifierStack.propositionExtractionFailures,
+      multiMarketSecurities: classifierStack.multiMarketSecurities,
     });
   }
 }

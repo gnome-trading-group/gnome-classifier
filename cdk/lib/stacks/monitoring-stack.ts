@@ -24,6 +24,10 @@ interface Props extends cdk.StackProps {
   identityRegressions: cloudwatch.Metric;
   venueReaderFallbacks: cloudwatch.Metric;
   propositionDrift: cloudwatch.Metric;
+  batchFailures: Record<string, cloudwatch.Metric>;
+  relationshipsPasses: cloudwatch.Metric;
+  propositionExtractionFailures: cloudwatch.Metric;
+  multiMarketSecurities: cloudwatch.Metric;
 }
 
 const AT_LEAST = cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD;
@@ -44,6 +48,27 @@ function countAlarm(
         treatMissingDataOverride: cloudwatch.TreatMissingData.NOT_BREACHING,
         evaluationPeriods: hoursRunning,
         datapointsToAlarm: hoursRunning,
+        additionalDescription: description,
+      },
+    },
+  };
+}
+
+// Fires when an hourly log count stays below 1 for `hours` running, counting an hour with no lines at all: for a line
+// that is logged on every pass, silence is the failure.
+function silenceAlarm(
+  metric: cloudwatch.Metric, alarmFriendlyName: string, description: string, tier: 'Error' | 'Warning', hours: number,
+): CustomMetricWithAlarm {
+  return {
+    metric,
+    alarmFriendlyName,
+    addAlarm: {
+      [tier]: {
+        threshold: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+        treatMissingDataOverride: cloudwatch.TreatMissingData.BREACHING,
+        evaluationPeriods: hours,
+        datapointsToAlarm: hours,
         additionalDescription: description,
       },
     },
@@ -121,6 +146,14 @@ export class MonitoringStack extends cdk.Stack {
             countAlarm(metric, `${name}WorkerRestarts`, 3, `${name} worker started 3+ times in an hour`, 'Error')),
         },
         {
+          title: 'Failed batches per hour',
+          // A queue worker logs a failed batch or idle pass and keeps polling, so restarts never show it; a few are a
+          // flaky dependency, a steady stream is a pass that fails every time.
+          metrics: Object.entries(props.batchFailures).map(([name, metric]) =>
+            countAlarm(metric, `${name}BatchFailures`, 3,
+              `${name} worker failed 3+ batches, idle passes or subject derivations in an hour`, 'Error')),
+        },
+        {
           title: 'Fetch loop failures per hour',
           metrics: [countAlarm(props.fetchCycleFailures, 'FetchCycleFailures', 3,
             'Fetch-loop cycles (fetch, closure check, settle, reactivation, resolve, stale) or a venue settlement '
@@ -159,7 +192,19 @@ export class MonitoringStack extends cdk.Stack {
               'A family the venue readers handle stopped parsing: its contracts now go to the LLM', 'Warning'),
             countAlarm(props.propositionDrift, 'PropositionDrift', 1,
               'The daily re-read by Claude disagreed with a venue reader on a field', 'Warning'),
+            // A failed request leaves its contracts unread until the next pass; one now and then is a timeout.
+            countAlarm(props.propositionExtractionFailures, 'PropositionExtractionFailures', 5,
+              'Claude proposition requests failed 5+ times in an hour (provider down, out of credit, bad answers)',
+              'Error'),
+            countAlarm(props.multiMarketSecurities, 'MultiMarketSecurities', 1,
+              'A security\'s listings are different markets, so it gets no proposition until it is split', 'Warning'),
           ],
+        },
+        {
+          title: 'Relationships passes per hour',
+          // The worker logs a pass every minute it is idle and every batch, even with relationships off.
+          metrics: [silenceAlarm(props.relationshipsPasses, 'RelationshipsSilent',
+            'The relationships worker logged no pass for 2 hours: hung, or not running', 'Error', 2)],
         },
       ],
     });

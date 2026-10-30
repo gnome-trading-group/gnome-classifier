@@ -82,6 +82,8 @@ class RelationshipsWorker(BaseWorker):
                                 limit=cfg.processing.relationships_derive_limit, result=result)
             logger.info("Relationships pass: %s", result)
             self._maybe_check_drift()
+        else:
+            logger.info("Relationships pass: disabled")
 
         if created_events:
             self._publish_to_sns({
@@ -93,16 +95,19 @@ class RelationshipsWorker(BaseWorker):
 
     def on_idle(self) -> None:
         cfg = self._runtime_config.config
-        if not cfg.feature_flags.relationships_enabled:
-            return
         now = time.monotonic()
-        if now - self._last_idle_derive >= IDLE_DERIVE_INTERVAL_SECONDS:
-            self._last_idle_derive = now
-            result = self._read_backlog()
-            derive_due_subjects(db=self._db, registry=self._registry,
-                                limit=cfg.processing.relationships_derive_limit, result=result)
-            if result.read or result.subjects_derived:
-                logger.info("Idle pass: %s", result)
+        if now - self._last_idle_derive < IDLE_DERIVE_INTERVAL_SECONDS:
+            return
+        self._last_idle_derive = now
+        # Logged every idle pass, even with nothing to do or relationships off: the RelationshipsSilent alarm counts
+        # these and the batch passes, so a worker that hangs goes quiet. Keep the wording in step with its filter.
+        if not cfg.feature_flags.relationships_enabled:
+            logger.info("Relationships pass: disabled")
+            return
+        result = self._read_backlog()
+        derive_due_subjects(db=self._db, registry=self._registry,
+                            limit=cfg.processing.relationships_derive_limit, result=result)
+        logger.info("Relationships pass: %s", result)
         self._maybe_check_drift()
 
     def _maybe_check_drift(self) -> None:

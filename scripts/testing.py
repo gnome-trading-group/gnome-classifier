@@ -1,6 +1,7 @@
 import dataclasses
 import json
 import math
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
@@ -88,6 +89,8 @@ class StubRegistry(RegistryClient):
         self._clock = 0
         self._subjects: dict[str, dict] = {}
         self._propositions: dict[int, dict] = {}
+        # When each proposition last changed, standing in for sm.contract_proposition.date_modified.
+        self._proposition_modified: dict[int, int] = {}
         self._relationships: dict[tuple[int, int], dict] = {}
         self._currencies: list[Currency] = []
         self._settlement_by_event_contract: dict[int, int] = {}
@@ -331,6 +334,7 @@ class StubRegistry(RegistryClient):
             changed = before != row
             if changed:
                 self._propositions[item["security_id"]] = row
+                self._proposition_modified[item["security_id"]] = self._tick()
                 touched = {row["subject_id"]} | ({before["subject_id"]} if before else set())
                 for subject_id in touched:
                     self._subject_by_id(subject_id)["date_modified"] = self._tick()
@@ -340,6 +344,8 @@ class StubRegistry(RegistryClient):
     def reconcile_contract_relationships(self, *, security_ids, relationships, method, derivation_version,
                                          subject_id=None, derived_at=None) -> dict:
         ids = set(security_ids)
+        if any(r["security_id_a"] not in ids and r["security_id_b"] not in ids for r in relationships):
+            raise ValueError("A relationship touches no security in securityIds")
         desired = {(r["security_id_a"], r["security_id_b"]): r for r in relationships}
         stale = [k for k, v in self._relationships.items()
                  if v["method"] != "manual" and (k[0] in ids or k[1] in ids) and k not in desired]
@@ -352,14 +358,30 @@ class StubRegistry(RegistryClient):
             self._subject_by_id(subject_id)["derived_at"] = self._tick()
         return {"inserted": inserted, "updated": 0, "deleted": len(stale), "unchanged": len(desired) - inserted}
 
+    def _drop_derived_relationships(self, security_id: int):
+        for k in [k for k, v in self._relationships.items() if v["method"] != "manual" and security_id in k]:
+            del self._relationships[k]
+
     def upsert_contract_sources(self, items: list[dict]) -> list[dict]:
         if len({item["security_id"] for item in items}) != len(items):
             raise ValueError("Each security may appear once")
         results = []
         for item in items:
-            changed = self._contract_sources.get(item["security_id"], {}).get("source_hash") != item["source_hash"]
-            self._contract_sources[item["security_id"]] = dict(item)
-            results.append({"security_id": item["security_id"], "changed": changed})
+            sid = item["security_id"]
+            if item["source"] is None:
+                proposition = self._propositions.pop(sid, None)
+                source = self._contract_sources.pop(sid, None)
+                self._drop_derived_relationships(sid)
+                if proposition:
+                    self._subject_by_id(proposition["subject_id"])["date_modified"] = self._tick()
+                results.append({"security_id": sid, "changed": bool(proposition or source)})
+                continue
+            before = self._contract_sources.get(sid)
+            changed = (before or {}).get("source_hash") != item["source_hash"]
+            self._contract_sources[sid] = dict(item)
+            if changed and before:
+                self._drop_derived_relationships(sid)
+            results.append({"security_id": sid, "changed": changed})
         return results
 
     def bulk_patch_listings(self, items: list[dict]) -> list[dict]:
@@ -452,6 +474,10 @@ class StubDB:
             for l in self._r._listings
             if (l.exchange_id, l.exchange_security_id) in key_set
         }
+
+    def securities_listed_more_than_once(self, security_ids: list[int]) -> set[int]:
+        counts = Counter(l.security_id for l in self._r._listings if l.security_id in set(security_ids))
+        return {sid for sid, n in counts.items() if n > 1}
 
     def _modified_within(self, listing: Listing, max_age: timedelta) -> bool:
         modified_at = self._r._listing_modified_at.get(listing.listing_id)
@@ -638,14 +664,29 @@ class StubDB:
         due = [s for s in self._r._subjects.values() if s["derived_at"] is None or s["date_modified"] > s["derived_at"]]
         return [s["subject_id"] for s in sorted(due, key=lambda s: s["date_modified"])][:limit]
 
-    def get_subject_contracts(self, subject_id: int) -> tuple[list[Contract], datetime]:
-        key = self._r._subject_by_id(subject_id)["key"]
-        contracts = [
-            Contract(sid, self._exchange_code(self._r._contract_sources[sid]["exchange_id"]),
-                     Proposition.from_fields(key, p["fields"]))
-            for sid, p in sorted(self._r._propositions.items()) if p["subject_id"] == subject_id
-        ]
-        return contracts, datetime(2026, 1, 1, tzinfo=timezone.utc)
+    def _complement(self, security_id: int) -> int | None:
+        ec = next((c for c in self._r._event_contracts if c.security_id == security_id), None)
+        if ec is None:
+            return None
+        siblings = [c.security_id for c in self._r._event_contracts if c.event_id == ec.event_id]
+        binary = {x.security_id for x in self._r._securities if x.contract_type == ContractType.BINARY}
+        if len(siblings) != 2 or not set(siblings) <= binary:
+            return None
+        return next(sid for sid in siblings if sid != security_id)
+
+    def get_subject_contracts(self, subject_id: int) -> tuple[list[Contract], set[int], datetime]:
+        subject = self._r._subject_by_id(subject_id)
+        open_sids = {i.security_id for i in self.get_extraction_inputs(sorted(self._r._contract_sources))}
+        contracts, changed = [], set()
+        for sid, p in sorted(self._r._propositions.items()):
+            source = self._r._contract_sources.get(sid)
+            if p["subject_id"] != subject_id or sid not in open_sids or source["source_hash"] != p["source_hash"]:
+                continue
+            contracts.append(Contract(sid, self._exchange_code(source["exchange_id"]),
+                                      Proposition.from_fields(subject["key"], p["fields"]), self._complement(sid)))
+            if subject["derived_at"] is None or self._r._proposition_modified[sid] > subject["derived_at"]:
+                changed.add(sid)
+        return contracts, changed, datetime(2026, 1, 1, tzinfo=timezone.utc)
 
     def nearest_subjects(self, embedding: list[float], limit: int) -> list[KnownSubject]:
         def cos(v):

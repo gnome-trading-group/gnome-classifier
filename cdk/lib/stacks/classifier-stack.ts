@@ -38,6 +38,9 @@ export class ClassifierStack extends cdk.Stack {
   public readonly notifyService: ecs.Ec2Service;
   /** Hourly count of each worker's process starting, by worker name; more than a deploy's worth means it is crashing. */
   public readonly workerStarts: Record<string, cloudwatch.Metric> = {};
+  /** Hourly count of failed batches, idle passes and subject derivations, by queue worker name; the worker survives
+   * them and carries on. */
+  public readonly batchFailures: Record<string, cloudwatch.Metric> = {};
   /** Hourly count of failed fetch-loop cycles (fetch, resolve, stale, settle) and venues failing a settle lookup. */
   public readonly fetchCycleFailures: cloudwatch.Metric;
   /** Hourly count of stale checks skipped because a venue's feed came back empty or partial. */
@@ -52,6 +55,12 @@ export class ClassifierStack extends cdk.Stack {
   public readonly venueReaderFallbacks: cloudwatch.Metric;
   /** Hourly count of fields where the daily re-read by Claude disagreed with a venue reader. */
   public readonly propositionDrift: cloudwatch.Metric;
+  /** Hourly count of the relationships worker's passes (batch or idle, enabled or not); none means it hung. */
+  public readonly relationshipsPasses: cloudwatch.Metric;
+  /** Hourly count of Claude proposition requests that failed (provider down, out of credit, unreadable answer). */
+  public readonly propositionExtractionFailures: cloudwatch.Metric;
+  /** Hourly count of securities whose listings carry different venue sources, so none is stored for them. */
+  public readonly multiMarketSecurities: cloudwatch.Metric;
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
@@ -244,6 +253,11 @@ export class ClassifierStack extends cdk.Stack {
       workerLogGroups[id] = logGroup;
       // Every worker logs "<Id>Worker started" when its process starts.
       this.workerStarts[id] = logMetric(logGroup, `${id}WorkerStarts`, logs.FilterPattern.literal(`"${id}Worker started"`));
+      if (id !== 'Fetch') {
+        this.batchFailures[id] = logMetric(logGroup, `${id}BatchFailures`,
+          logs.FilterPattern.anyTerm('process_batch failed', 'on_idle failed', 'subject derivation failed',
+            'relationship reduction mismatch'));
+      }
 
       return new ecs.Ec2Service(this, `${id}Service`, {
         cluster,
@@ -355,6 +369,12 @@ export class ClassifierStack extends cdk.Stack {
       logs.FilterPattern.literal('"venue reader fell back"'));
     this.propositionDrift = logMetric(workerLogGroups.Relationships, 'PropositionDrift',
       logs.FilterPattern.literal('"proposition drift"'));
+    this.relationshipsPasses = logMetric(workerLogGroups.Relationships, 'RelationshipsPasses',
+      logs.FilterPattern.literal('"Relationships pass"'));
+    this.propositionExtractionFailures = logMetric(workerLogGroups.Relationships, 'PropositionExtractionFailures',
+      logs.FilterPattern.literal('"Proposition request for"'));
+    this.multiMarketSecurities = logMetric(workerLogGroups.Normalize, 'MultiMarketSecurities',
+      logs.FilterPattern.literal('"listings with different sources"'));
 
     // ── NotifyWorker ──────────────────────────────────────────────────
 

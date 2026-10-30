@@ -3,8 +3,11 @@ subjects, then derive and reconcile the relationships of every subject that is d
 person merged or unmerged it).
 
 Propositions are only re-read when a security's venue source or the extractor changed (source hash, extractor
-version), so a redelivered message costs nothing. Each subject's relationships are replaced as one set, which makes
-redelivery and re-derivation idempotent.
+version), so a redelivered message costs nothing. A due subject re-derives only the derivation units holding a
+contract that changed since its last derivation, and each unit's relationships are replaced as one set, which makes
+redelivery and re-derivation idempotent. Only the fewest rows that rebuild a unit's relationships are stored;
+consumers rebuild the rest (gnomepy `RelationshipGraph`). Bumping DERIVATION_VERSION therefore needs every subject's derived_at
+cleared, so that all units are re-derived.
 """
 import dataclasses
 import logging
@@ -13,7 +16,7 @@ from datetime import datetime, timezone
 from gnomepy.registry import RegistryClient
 
 from classifier.db import ClassifierDB
-from classifier.propositions.derive import DERIVATION_VERSION, derive
+from classifier.propositions.derive import DERIVATION_VERSION, Derived, derivation_units, derive_unit, minimal_rows
 from classifier.propositions.drift import check_drift, sample
 from classifier.propositions.extract import extract_propositions
 from classifier.propositions.llm import PropositionExtractor
@@ -31,6 +34,9 @@ logger = logging.getLogger(__name__)
 
 DERIVED_METHOD = "derived"
 DEFAULT_DERIVE_LIMIT = 200
+# Rows per reconcile request: the registry writes each row in turn inside API Gateway's 29 s, and the body has to stay
+# under Lambda's 6 MB.
+RECONCILE_CHUNK_ROWS = 2000
 DRIFT_POOL = 500
 
 
@@ -113,6 +119,68 @@ def read_backlog(
     return read_propositions(due, db=db, registry=registry, extractor=extractor, embed=embed), following
 
 
+def _chunks(security_ids: list[int], rows: list[Derived]) -> list[tuple[list[int], list[Derived]]]:
+    """Splits a unit into reconcile requests of about RECONCILE_CHUNK_ROWS rows, each carrying every row that touches
+    its securities, so each request replaces exactly its securities' rows (a row between two chunks goes in both)."""
+    touching: dict[int, list[int]] = {sid: [] for sid in security_ids}
+    for i, row in enumerate(rows):
+        touching[row.security_id_a].append(i)
+        touching[row.security_id_b].append(i)
+    out: list[tuple[list[int], list[Derived]]] = []
+    ids: list[int] = []
+    picked: set[int] = set()
+    for sid in security_ids:
+        if ids and len(picked | set(touching[sid])) > RECONCILE_CHUNK_ROWS:
+            out.append((ids, [rows[i] for i in sorted(picked)]))
+            ids, picked = [], set()
+        ids.append(sid)
+        picked.update(touching[sid])
+    if ids:
+        out.append((ids, [rows[i] for i in sorted(picked)]))
+    return out
+
+
+def _derive_subject(db: ClassifierDB, registry: RegistryClient, subject_id: int, result: PassResult):
+    contracts, changed, read_at = db.get_subject_contracts(subject_id)
+    units = derivation_units(contracts)
+    requests: list[tuple[list[int], list[Derived]]] = []
+    for unit in units:
+        ids = [c.security_id for c in unit.contracts]
+        if not changed.intersection(ids):
+            continue
+        rows, reduced = minimal_rows(unit, derive_unit(unit))
+        if not reduced:
+            # Counted by the <Name>BatchFailures alarm: the unit is stored unreduced, correct but larger.
+            logger.error("relationship reduction mismatch: subject=%d unit=%d", subject_id, ids[0])
+        requests.extend(_chunks(ids, rows))
+    # A changed contract no rule can use (a field left unknown) still loses the relationships it had.
+    in_units = {c.security_id for unit in units for c in unit.contracts}
+    unusable = sorted(changed - in_units)
+    for start in range(0, len(unusable), RECONCILE_CHUNK_ROWS):
+        requests.append((unusable[start:start + RECONCILE_CHUNK_ROWS], []))
+    requests = requests or [([], [])]
+    for i, (ids, rows) in enumerate(requests):
+        # Only the last request marks the subject derived, so a failure part way leaves it due and the next pass
+        # repeats the whole set.
+        last = i == len(requests) - 1
+        counts = registry.reconcile_contract_relationships(
+            subject_id=subject_id if last else None,
+            security_ids=ids,
+            relationships=[
+                dict(security_id_a=d.security_id_a, security_id_b=d.security_id_b, relationship_type=d.relationship_type,
+                     flags=list(d.flags), evidence=d.evidence)
+                for d in rows
+            ],
+            method=DERIVED_METHOD,
+            derivation_version=DERIVATION_VERSION,
+            derived_at=read_at.astimezone(timezone.utc).isoformat() if last else None,
+        )
+        result.inserted += counts.get("inserted", 0)
+        result.updated += counts.get("updated", 0)
+        result.deleted += counts.get("deleted", 0)
+    result.subjects_derived += 1
+
+
 def derive_due_subjects(
     *,
     db: ClassifierDB,
@@ -123,24 +191,12 @@ def derive_due_subjects(
     """Derives and reconciles up to `limit` subjects due a derivation."""
     result = result or PassResult()
     for subject_id in db.dirty_subjects(limit):
-        contracts, read_at = db.get_subject_contracts(subject_id)
-        derived = derive(contracts)
-        counts = registry.reconcile_contract_relationships(
-            subject_id=subject_id,
-            security_ids=sorted(c.security_id for c in contracts),
-            relationships=[
-                dict(security_id_a=d.security_id_a, security_id_b=d.security_id_b, relationship_type=d.relationship_type,
-                     flags=list(d.flags), evidence=d.evidence)
-                for d in derived
-            ],
-            method=DERIVED_METHOD,
-            derivation_version=DERIVATION_VERSION,
-            derived_at=read_at.astimezone(timezone.utc).isoformat(),
-        )
-        result.subjects_derived += 1
-        result.inserted += counts.get("inserted", 0)
-        result.updated += counts.get("updated", 0)
-        result.deleted += counts.get("deleted", 0)
+        try:
+            _derive_subject(db, registry, subject_id, result)
+        except Exception:
+            # One subject that can't be derived stays due and is retried, without holding up the rest. The
+            # <Name>BatchFailures alarm counts this line.
+            logger.exception("subject derivation failed: subject=%d", subject_id)
     return result
 
 

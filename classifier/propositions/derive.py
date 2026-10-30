@@ -7,15 +7,23 @@ is inside the other's, and they are equivalent when the sets are equal. By-deadl
 winners are equal on the same entity and exclude other entities, and a short list of cross-measure rules relates
 margins to winners and team totals to game totals. Anything with a field the rule needs left unknown is skipped:
 no relationship is better than a wrong one.
+
+A subject can hold thousands of contracts (every BTC strike on every venue and expiry), so contracts are first split
+into groups that no rule can relate across (snapshots at different times, deadlines on different events), and only
+pairs inside a group are compared. Groups that share a contract form one derivation unit, the set the classifier
+re-derives and replaces together.
 """
 import dataclasses
 import math
+import re
 from datetime import timedelta
 from itertools import combinations
 
+from gnomepy.registry.relations import Edge, close, reduce
+
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
 
-DERIVATION_VERSION = "d1"
+DERIVATION_VERSION = "d2"
 
 EQUIVALENT = "EQUIVALENT"
 IMPLIES = "IMPLIES"
@@ -25,8 +33,18 @@ DEADLINE_TOLERANCE = timedelta(hours=12)
 # Snapshots of a settled measure on the same day are the same reading (a review score after release).
 SETTLED_SNAPSHOT_TOLERANCE = timedelta(hours=24)
 
-_INTEGER_WORDS = ("goals", "runs", "points", "maps", "wins", "touchdowns", "tds", "receptions", "yards", "hits",
-                  "strikeouts", "rbis", "hurricanes", "seats", "games", "sets", "assists", "rebounds", "position")
+# Words in a measure that count whole things. Matched as whole words of the measure, never its unit: an index is
+# quoted in "points" but trades in fractions of one.
+_INTEGER_WORDS = frozenset({
+    "goals", "runs", "points", "maps", "wins", "touchdowns", "tds", "receptions", "yards", "hits", "strikeouts",
+    "rbis", "hurricanes", "seats", "games", "sets", "assists", "rebounds", "position",
+})
+# Sports units: a margin in them is whole, and the side with more of them wins. Not games: a tennis player can win
+# more games and lose the match (6-0 4-6 4-6).
+_DECIDING_MARGIN_UNITS = frozenset({"points", "goals", "runs", "maps", "sets", "rounds"})
+# A vote-share margin decides the vote it is counted in, which must be named on both sides: winning the popular vote
+# is not winning the electoral college.
+_VOTE_MARGIN_UNITS = frozenset({"percentage_points", "percent", "votes"})
 
 FLAG_SOURCE_DIFFERS = "RESOLUTION_SOURCE_DIFFERS"
 FLAG_SOURCE_UNKNOWN = "RESOLUTION_SOURCE_UNKNOWN"
@@ -39,6 +57,8 @@ class Contract:
     security_id: int
     venue: str
     proposition: Proposition
+    # The other security of its BINARY event (its No side, or Yes side), when the event has exactly two.
+    complement: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -67,8 +87,10 @@ _INF = math.inf
 
 
 def _is_integer(p: Proposition) -> bool:
-    text = f"{p.measure or ''} {p.unit or ''}".lower()
-    return "percent" not in text and any(w in text for w in _INTEGER_WORDS)
+    words = set(re.split(r"[^a-z0-9]+", (p.measure or "").lower()))
+    if "margin" in words:
+        return (p.unit or "").lower() in _DECIDING_MARGIN_UNITS | {"games"}
+    return "percent" not in words and bool(words & _INTEGER_WORDS)
 
 
 def _whole(interval: _Interval) -> _Interval:
@@ -88,9 +110,6 @@ def _threshold_interval(comparator: Comparator, value: float) -> _Interval:
         Comparator.LT: _Interval(-_INF, False, value, False),
         Comparator.LTE: _Interval(-_INF, False, value, True),
     }[comparator]
-
-
-
 
 
 def _complement(interval: _Interval) -> list[_Interval]:
@@ -136,10 +155,11 @@ _NEEDED = {
 
 
 def usable(p: Proposition) -> bool:
+    """Whether every field its kind's rules read is known. A field left empty counts as unknown even when extraction
+    didn't say so: a deadline question without its deadline, or two different events, would otherwise compare."""
     if p.kind not in _NEEDED or "subject" in p.unknown or _NEEDED[p.kind] & p.unknown:
         return False
-    # A deadline question must name the event that has to happen, or two different events would compare.
-    return p.kind != Kind.OCCURS_BY or bool(p.measure)
+    return all(getattr(p, name) not in (None, "") for name in _NEEDED[p.kind])
 
 
 def _scope_matches(a: Proposition, b: Proposition) -> bool:
@@ -178,10 +198,19 @@ def _same_reading(a: Proposition, b: Proposition) -> tuple[bool, list[str]]:
 
 # ── Rules ─────────────────────────────────────────────────────────────
 
+def _extreme(p: Proposition) -> str:
+    return "max" if p.comparator in (Comparator.GT, Comparator.GTE) else "min"
+
+
 def _values(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | None:
     """(forward, backward) truth of a ⇒ b and b ⇒ a for two thresholds/ranges on the same measure."""
     if a.measure != b.measure or not _scope_matches(a, b):
         return None
+    if a.observation == Observation.ANY_TIME:
+        # Touching a level at any time is about the window's maximum ("reaches 120k") or its minimum ("dips to 100k"),
+        # two different quantities: the price can do both. Only touches on the same side compare.
+        if a.kind != Kind.THRESHOLD or b.kind != Kind.THRESHOLD or _extreme(a) != _extreme(b):
+            return None
     same, flags = _same_reading(a, b)
     if not same:
         return None
@@ -192,7 +221,11 @@ def _values(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | None
 def _deadlines(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | None:
     if a.measure != b.measure:
         return None
-    if a.window_start != b.window_start and a.window_start is not None and b.window_start is not None:
+    # The earlier deadline's window must sit inside the later one's, so both have to start together: "by June, from
+    # listing" says nothing about "by December, from July" (a March event makes the first true and the second false).
+    if (a.window_start is None) != (b.window_start is None):
+        return None
+    if a.window_start is not None and abs(a.window_start - b.window_start) > DEADLINE_TOLERANCE:
         return None
     gap = b.window_end - a.window_end
     if abs(gap) <= DEADLINE_TOLERANCE:
@@ -224,6 +257,12 @@ def _winners(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | Non
 
 def _margin_implies_winner(margin: Proposition, winner: Proposition) -> bool:
     if winner.negated or margin.negated or not (margin.measure or "").startswith("margin:"):
+        return False
+    unit = (margin.unit or "").lower()
+    if unit in _VOTE_MARGIN_UNITS:
+        if margin.scope is None or margin.scope != winner.scope:
+            return False
+    elif unit not in _DECIDING_MARGIN_UNITS:
         return False
     if margin.measure.split(":", 1)[1] != winner.entity or not _scope_matches(margin, winner):
         return False
@@ -285,24 +324,143 @@ def _evidence(rule: str, a: Proposition, b: Proposition) -> dict:
     return {"rule": rule, "version": DERIVATION_VERSION, "a": pick(a), "b": pick(b)}
 
 
-def derive(contracts: list[Contract]) -> list[Derived]:
-    """All relationships among one subject's contracts, at most one per pair: EQUIVALENT (lower security first) or
+def _relate_pair(a: Contract, b: Contract) -> Derived | None:
+    found = _relate(a.proposition, b.proposition)
+    if found is None:
+        return None
+    forward, backward, flags, rule = found
+    all_flags = tuple(sorted(set(flags + _source_flags(a, b))))
+    if forward == backward == "y":
+        return Derived(a.security_id, b.security_id, EQUIVALENT, all_flags, _evidence(rule, a.proposition, b.proposition))
+    if forward == "y":
+        return Derived(a.security_id, b.security_id, IMPLIES, all_flags, _evidence(rule, a.proposition, b.proposition))
+    if backward == "y":
+        return Derived(b.security_id, a.security_id, IMPLIES, all_flags, _evidence(rule, b.proposition, a.proposition))
+    return None
+
+
+# ── Groups ────────────────────────────────────────────────────────────
+
+def _chains(contracts: list[Contract], tolerance: timedelta) -> list[list[Contract]]:
+    """Runs of contracts whose window ends are each within `tolerance` of the previous one, so any two within it share
+    a run."""
+    runs: list[list[Contract]] = []
+    for c in sorted(contracts, key=lambda c: c.proposition.window_end):
+        if runs and c.proposition.window_end - runs[-1][-1].proposition.window_end <= tolerance:
+            runs[-1].append(c)
+        else:
+            runs.append([c])
+    return runs
+
+
+def _candidate_groups(contracts: list[Contract]) -> list[list[Contract]]:
+    """Groups no rule relates across; a margin threshold sits in both its value group and the winners."""
+    keyed: dict[tuple, list[Contract]] = {}
+    chained: dict[tuple, list[Contract]] = {}
+    for c in contracts:
+        p = c.proposition
+        if p.kind == Kind.WINNER:
+            keyed.setdefault(("winner",), []).append(c)
+            continue
+        if p.kind == Kind.OCCURS_BY:
+            keyed.setdefault(("deadline", p.measure), []).append(c)
+            continue
+        if p.kind == Kind.THRESHOLD and p.measure.startswith("margin:"):
+            keyed.setdefault(("winner",), []).append(c)
+        if p.window_end is None:
+            keyed.setdefault(("value", p.observation, None), []).append(c)
+        elif p.observation == Observation.AT_TIME and p.stability != Stability.SETTLED:
+            # A live snapshot only matches one taken over exactly the same window.
+            keyed.setdefault(("value", p.observation, p.window_start, p.window_end), []).append(c)
+        else:
+            chained.setdefault((p.observation, p.stability == Stability.SETTLED), []).append(c)
+    groups = list(keyed.values())
+    for (observation, settled), members in chained.items():
+        tolerance = SETTLED_SNAPSHOT_TOLERANCE if observation == Observation.AT_TIME and settled else DEADLINE_TOLERANCE
+        groups.extend(_chains(members, tolerance))
+    return groups
+
+
+@dataclasses.dataclass(frozen=True)
+class Unit:
+    """Contracts derived and replaced together: groups joined by a contract they share."""
+    contracts: tuple[Contract, ...]
+    groups: tuple[tuple[Contract, ...], ...]
+
+
+def derivation_units(contracts: list[Contract]) -> list[Unit]:
+    usable_contracts = [c for c in contracts if usable(c.proposition)]
+    groups = _candidate_groups(usable_contracts)
+    parent = list(range(len(groups)))
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    first_group: dict[int, int] = {}
+    for i, group in enumerate(groups):
+        for c in group:
+            if c.security_id in first_group:
+                parent[root(i)] = root(first_group[c.security_id])
+            else:
+                first_group[c.security_id] = i
+    joined: dict[int, list[int]] = {}
+    for i in range(len(groups)):
+        joined.setdefault(root(i), []).append(i)
+    units = []
+    for indexes in joined.values():
+        members = {c.security_id: c for i in indexes for c in groups[i]}
+        units.append(Unit(
+            contracts=tuple(sorted(members.values(), key=lambda c: c.security_id)),
+            groups=tuple(tuple(sorted(groups[i], key=lambda c: c.security_id)) for i in indexes),
+        ))
+    return sorted(units, key=lambda u: u.contracts[0].security_id)
+
+
+def derive_unit(unit: Unit) -> list[Derived]:
+    """The relationships among a unit's contracts, at most one per pair: EQUIVALENT (lower security first) or
     IMPLIES (antecedent first)."""
     out = []
-    usable_contracts = sorted((c for c in contracts if usable(c.proposition)), key=lambda c: c.security_id)
-    for a, b in combinations(usable_contracts, 2):
-        found = _relate(a.proposition, b.proposition)
-        if found is None:
-            continue
-        forward, backward, flags, rule = found
-        all_flags = tuple(sorted(set(flags + _source_flags(a, b))))
-        if forward == backward == "y":
-            out.append(Derived(a.security_id, b.security_id, EQUIVALENT, all_flags, _evidence(rule, a.proposition, b.proposition)))
-        elif forward == "y":
-            out.append(Derived(a.security_id, b.security_id, IMPLIES, all_flags, _evidence(rule, a.proposition, b.proposition)))
-        elif backward == "y":
-            out.append(Derived(b.security_id, a.security_id, IMPLIES, all_flags, _evidence(rule, b.proposition, a.proposition)))
+    seen: set[tuple[int, int]] = set()
+    for group in unit.groups:
+        for a, b in combinations(group, 2):
+            if (a.security_id, b.security_id) in seen:
+                continue
+            seen.add((a.security_id, b.security_id))
+            derived = _relate_pair(a, b)
+            if derived is not None:
+                out.append(derived)
     return out
+
+
+def minimal_rows(unit: Unit, derived: list[Derived]) -> tuple[list[Derived], bool]:
+    """The fewest rows from which consumers rebuild everything `derived` says about the unit (gnomepy's
+    `relations.close` holds the rules: chains, contrapositives through complements, flagged rows composed once).
+    Returns the rows and whether the round trip held; when it doesn't, which would be a bug in the reduction, all of
+    `derived` comes back so nothing is lost."""
+    ids = {c.security_id for c in unit.contracts}
+    complements = {c.security_id: c.complement for c in unit.contracts if c.complement in ids}
+    relation = close([Edge(d.security_id_a, d.security_id_b, d.relationship_type, d.flags) for d in derived],
+                     complements)
+    rows = reduce(relation, complements)
+    if close(rows, complements) != relation:
+        return derived, False
+    by_pair = {(d.security_id_a, d.security_id_b, d.relationship_type): d for d in derived}
+    out = []
+    for row in rows:
+        same = by_pair.get((row.security_id_a, row.security_id_b, row.relationship_type))
+        # A kept row usually is a derived pair; one that only follows from others (the No side of a ladder step, or a
+        # pair joined through equivalents) records that it was composed.
+        evidence = same.evidence if same is not None else {"rule": "composed", "version": DERIVATION_VERSION}
+        out.append(Derived(row.security_id_a, row.security_id_b, row.relationship_type, row.flags, evidence))
+    return out, True
+
+
+def derive(contracts: list[Contract]) -> list[Derived]:
+    """All relationships among one subject's contracts."""
+    return [d for unit in derivation_units(contracts) for d in derive_unit(unit)]
 
 
 def derive_all(contracts: list[Contract]) -> list[Derived]:

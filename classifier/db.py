@@ -426,6 +426,20 @@ class ClassifierDB:
                 )
                 return [(row[0], row[1], row[2]) for row in cur.fetchall()]
 
+    def securities_listed_more_than_once(self, security_ids: list[int]) -> set[int]:
+        """Securities with several listings: left from before identity was one security per listing, and on a
+        prediction venue each listing is its own market."""
+        if not security_ids:
+            return set()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT security_id FROM sm.listing WHERE security_id = ANY(%s) GROUP BY security_id"
+                    " HAVING count(*) > 1",
+                    (list(security_ids),),
+                )
+                return {row[0] for row in cur.fetchall()}
+
     def get_event_ids_for_security(self, security_id: int) -> list[int]:
         """Returns event_ids linked to this security via event_contract."""
         with self._conn() as conn:
@@ -528,22 +542,38 @@ class ClassifierDB:
                 )
                 return [row[0] for row in cur.fetchall()]
 
-    def get_subject_contracts(self, subject_id: int) -> tuple[list[Contract], datetime]:
-        """The subject's propositions as derivation contracts, and when they were read (the derivation's as-of)."""
+    def get_subject_contracts(self, subject_id: int) -> tuple[list[Contract], set[int], datetime]:
+        """The subject's derivable contracts, the ones whose propositions changed since its last derivation (all of them
+        when it was never derived), and when they were read (the derivation's as-of). A contract is derivable while its
+        event is open and its proposition was read from its current source: resolved contracts keep the relationships
+        they have, and a proposition the classifier has not re-read since its source changed describes nothing."""
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT now()")
                 read_at = cur.fetchone()[0]
                 cur.execute(
-                    "SELECT p.security_id, x.exchange_code, s.key, p.fields FROM sm.contract_proposition p"
+                    "SELECT p.security_id, x.exchange_code, s.key, p.fields,"
+                    " (s.derived_at IS NULL OR p.date_modified > s.derived_at),"
+                    # The other security of a BINARY event with exactly two, as the registry's connected read
+                    # reports it, so consumers reverse the same rows.
+                    " (SELECT o.security_id FROM sm.event_contract o"
+                    "  JOIN sm.security so ON so.security_id = o.security_id AND so.contract_type = 7"
+                    "  WHERE o.event_id = ec.event_id AND o.security_id <> p.security_id"
+                    "  AND sec.contract_type = 7"
+                    "  AND (SELECT count(*) FROM sm.event_contract n WHERE n.event_id = ec.event_id) = 2 LIMIT 1)"
+                    " FROM sm.contract_proposition p"
+                    " JOIN sm.security sec ON sec.security_id = p.security_id"
                     " JOIN sm.proposition_subject s ON s.subject_id = p.subject_id"
-                    " JOIN sm.contract_source cs ON cs.security_id = p.security_id"
+                    " JOIN sm.contract_source cs ON cs.security_id = p.security_id AND cs.source_hash = p.source_hash"
                     " JOIN sm.exchange x ON x.exchange_id = cs.exchange_id"
+                    " JOIN sm.event_contract ec ON ec.security_id = p.security_id"
+                    " JOIN sm.event e ON e.event_id = ec.event_id AND e.resolved = false"
                     " WHERE p.subject_id = %s",
                     (subject_id,),
                 )
-                contracts = [Contract(row[0], row[1], Proposition.from_fields(row[2], row[3])) for row in cur.fetchall()]
-                return contracts, read_at
+                rows = cur.fetchall()
+                contracts = [Contract(row[0], row[1], Proposition.from_fields(row[2], row[3]), row[5]) for row in rows]
+                return contracts, {row[0] for row in rows if row[4]}, read_at
 
     def nearest_subjects(self, embedding: list[float], limit: int) -> list[KnownSubject]:
         """The canonical (unmerged) subjects nearest an embedding, with the entities and measures their stored
