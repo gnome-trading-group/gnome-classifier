@@ -317,6 +317,24 @@ export class ClassifierStack extends cdk.Stack {
     this.identityRegressions = logMetric(workerLogGroups.Normalize, 'IdentityRegressions',
       logs.FilterPattern.literal('"already in event"'));
 
+    // The Embed worker is gone. The deployed monitoring stack still imports this service's name, and this stack deploys
+    // first, so the service stays for one release with no tasks; the next release deletes it with the embeddings queues.
+    const retiredEmbedTask = new ecs.Ec2TaskDefinition(this, 'EmbedTask');
+    retiredEmbedTask.addContainer('EmbedContainer', {
+      image: ecs.ContainerImage.fromAsset(imageAsset),
+      command: ['embed'],
+      memoryLimitMiB: 512,
+    });
+    const retiredEmbedService = new ecs.Ec2Service(this, 'EmbedService', {
+      cluster,
+      taskDefinition: retiredEmbedTask,
+      desiredCount: 0,
+      minHealthyPercent: 0,
+      maxHealthyPercent: 100,
+      capacityProviderStrategies: [{ capacityProvider: workerCapacity.capacityProviderName, weight: 1 }],
+    });
+    this.exportValue(retiredEmbedService.serviceName);
+
     // ── RelationshipsWorker ───────────────────────────────────────────
 
     this.relationshipsService = createWorkerService('Relationships', 'relationships', sharedEnv, 512, (role) => {

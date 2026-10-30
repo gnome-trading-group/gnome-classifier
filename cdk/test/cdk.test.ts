@@ -19,10 +19,11 @@ test('ClassifierStack creates SQS queues, SNS topic, ECS cluster, and ElastiCach
   // 1 slack-queue subscription + 1 ASG drain hook subscription (created by CDK)
   template.resourceCountIs('AWS::SNS::Subscription', 2);
 
-  // One ECS service per queue-polling worker (normalize, relationships, notify) plus the fetch loop
+  // One ECS service per queue-polling worker (normalize, relationships, notify) plus the fetch loop, and the retired
+  // Embed service kept with no tasks while the deployed monitoring stack still imports its name
   template.resourceCountIs('AWS::ECS::Cluster', 1);
-  template.resourceCountIs('AWS::ECS::TaskDefinition', 4);
-  template.resourceCountIs('AWS::ECS::Service', 4);
+  template.resourceCountIs('AWS::ECS::TaskDefinition', 5);
+  template.resourceCountIs('AWS::ECS::Service', 5);
 
   // Redis cache
   template.resourceCountIs('AWS::ElastiCache::CacheCluster', 1);
