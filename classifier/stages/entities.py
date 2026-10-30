@@ -1,7 +1,7 @@
 import dataclasses
 import logging
 
-from classifier.adapters.types import AdapterContract
+from classifier.adapters.types import AdapterContract, proposition_source_hash
 from classifier.cache import ClassifierCache
 from classifier.client import BedrockConverseClient
 from classifier.db import ClassifierDB
@@ -118,6 +118,7 @@ def create_entities_from_canonical(
         registry, unique_contracts, listing_id_by_key, spec_by_listing_id,
     )
     _sync_listing_fee_keys(registry, db, unique_contracts, listing_id_by_key)
+    _sync_contract_sources(registry, unique_contracts, security_id_by_key)
 
     _reconcile_stale_entities(registry, contracts, entity_ctx.event_id_by_native, db)
 
@@ -386,6 +387,23 @@ def _sync_listing_fee_keys(
                for lid, (group, event) in wanted.items() if current.get(lid, (None, None)) != (group, event)]
     for _, chunk in bulk_create_chunked(pending, "listing fee keys"):
         registry.bulk_patch_listings(chunk)
+    return len(pending)
+
+
+def _sync_contract_sources(
+    registry: RegistryClient,
+    contracts: list[AdapterContract],
+    security_id_by_key: dict[ListingKey, SecurityId],
+) -> int:
+    """Stores each contract's venue source for proposition extraction; the registry skips unchanged ones by hash."""
+    pending = [
+        dict(security_id=security_id_by_key[_listing_key(c)], exchange_id=c.exchange_id,
+             source=c.proposition_source, source_hash=proposition_source_hash(c.proposition_source))
+        for c in contracts
+        if c.proposition_source and _listing_key(c) in security_id_by_key
+    ]
+    for _, chunk in bulk_create_chunked(pending, "contract sources"):
+        registry.upsert_contract_sources(chunk)
     return len(pending)
 
 

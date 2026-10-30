@@ -9,7 +9,7 @@ from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier import taxonomy
 from classifier.adapters.settlement import CLOSED, OPEN, MarketState, chunked, settled, to_price
-from classifier.adapters.types import AdapterContract
+from classifier.adapters.types import AdapterContract, pick_source_fields
 from classifier.client.http import RateLimitedSession
 from classifier.stages.fees import polymarket_intl_definition, polymarket_intl_schedules
 from classifier.types import ExchangeId
@@ -92,6 +92,31 @@ def _market_symbol_base(market: dict, condition_id: str) -> str:
     return market.get("slug") or condition_id
 
 
+_SOURCE_EVENT_FIELDS = (
+    "slug", "title", "description", "resolutionSource", "startDate", "endDate", "negRisk", "enableNegRisk",
+    "negRiskAugmented", "seriesSlug",
+)
+_SOURCE_MARKET_FIELDS = (
+    "conditionId", "slug", "question", "groupItemTitle", "groupItemThreshold", "description", "resolutionSource",
+    "startDate", "endDate", "gameStartTime", "eventStartTime", "outcomes", "negRisk", "sportsMarketType", "line",
+)
+
+
+def _with_sources(event: dict, contracts: list[AdapterContract]) -> list[AdapterContract]:
+    event_source = pick_source_fields(event, _SOURCE_EVENT_FIELDS)
+    market_by_condition = {m.get("conditionId"): m for m in event.get("markets", [])}
+    for c in contracts:
+        condition_id, _, token_id = c.exchange_security_id.partition(":")
+        c.proposition_source = {
+            "venue": "POLYMARKET_INTL",
+            "event": event_source,
+            "market": pick_source_fields(market_by_condition.get(condition_id), _SOURCE_MARKET_FIELDS),
+            "outcome": c.outcome_label,
+            "token_id": token_id,
+        }
+    return contracts
+
+
 def _is_neg_risk(event: dict) -> bool:
     # The event's own flag, not whichever of its markets are still open: deciding on those would regroup an event
     # (new identity, new contract type) as its markets closed.
@@ -148,7 +173,7 @@ class PolymarketIntlAdapter:
             except requests.exceptions.RequestException as e:
                 logger.error("Polymarket API error at cursor=%s: %s", after_cursor, e)
                 raise
-            page = [c for event in data.get("events", []) for c in self._map_event(exchange_id, event)]
+            page = [c for event in data.get("events", []) for c in _with_sources(event, self._map_event(exchange_id, event))]
             if page:
                 yield page
             after_cursor = data.get("next_cursor")

@@ -7,7 +7,7 @@ from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier import taxonomy
 from classifier.adapters.settlement import PRICE_SCALE, MarketState, settled, to_price
-from classifier.adapters.types import AdapterContract
+from classifier.adapters.types import AdapterContract, pick_source_fields
 from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
 from classifier.utils import format_security_symbol
@@ -305,6 +305,7 @@ class HyperliquidAdapter:
                 exchange_id, rendered, outcome, label, ContractType.MULTI_OUTCOME, native_id, volume,
                 exchange_security_id=_coin(outcome_id, 0),
                 security_symbol=format_security_symbol(self.symbol_prefix, str(outcome_id)),
+                question_values=question_values,
             ))
         return contracts
 
@@ -342,8 +343,19 @@ class HyperliquidAdapter:
         *,
         exchange_security_id: str,
         security_symbol: str,
+        question_values: dict[str, str] | None = None,
     ) -> AdapterContract:
         quote = outcome.get("quoteToken", "USDC")
+        source = {
+            "venue": "HYPERLIQUID",
+            "outcome": pick_source_fields(outcome, ("outcome", "name", "description", "sideSpecs", "quoteToken")),
+            "title": rendered.title,
+            "description": rendered.description,
+            "expiry": _iso(rendered.expiry),
+            "label": label,
+        }
+        if question_values:
+            source["question_values"] = question_values
         return AdapterContract(
             exchange_id=exchange_id,
             exchange_security_id=exchange_security_id,
@@ -371,4 +383,5 @@ class HyperliquidAdapter:
             security_symbol=security_symbol,
             event_volume=volume,
             fee_group=OUTCOME_FEE_GROUP,
+            proposition_source=source,
         )

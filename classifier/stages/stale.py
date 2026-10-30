@@ -129,7 +129,6 @@ def deactivate_stale_events(
             {"event_id": eid, "resolved": True, "resolved_at": now}
             for eid in resolved_event_ids
         ])
-        db.delete_embeddings(resolved_event_ids)
 
     if debug:
         for eid in resolved_event_ids:

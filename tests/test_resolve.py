@@ -173,7 +173,6 @@ def _seed_binary(registry: StubRegistry, event_id: int, first_id: int) -> tuple[
 def test_event_resolves_once_every_outcome_is_settled(registry, db):
     yes, no = _seed_binary(registry, 1, 10)
     registry.bulk_patch_event_contracts([{"event_contract_id": yes, "settlement_price": 1}])
-    db.put_embeddings({1: [0.1]})
 
     assert resolve_settled_events({1}, set(), registry, db) == ([], [])
     assert registry._events[0].resolved is False
@@ -181,7 +180,6 @@ def test_event_resolves_once_every_outcome_is_settled(registry, db):
     registry.bulk_patch_event_contracts([{"event_contract_id": no, "settlement_price": 0}])
     assert resolve_settled_events({1}, set(), registry, db) == ([1], ["Event 1"])
     assert registry._events[0].resolved is True and registry._events[0].resolved_at is not None
-    assert db.count_embeddings() == 0
 
 
 def test_just_settled_counts_before_the_database_shows_it(registry, db):

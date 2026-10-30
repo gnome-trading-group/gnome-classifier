@@ -6,8 +6,6 @@ STANDARDIZED_CATEGORIES = frozenset({
 DEFAULT_CANONICALIZE_BATCH_SIZE = 15
 DEFAULT_BULK_CREATE_BATCH_SIZE = 200
 
-DEFAULT_MIN_CONFIDENCE = 0.70
-
 DEFAULT_RESOLUTION_LOOKBACK_DAYS = 3
 # How long after a listing is deactivated the settle cycle keeps looking for its final value; disputed results can
 # take days to settle.
@@ -36,15 +34,20 @@ DEFAULT_VISIBILITY_TIMEOUT = 900
 
 # Bedrock model or inference profile id, called through the Converse API.
 DEFAULT_CANONICALIZE_MODEL = "us.amazon.nova-lite-v1:0"
-DEFAULT_SEMANTIC_JUDGMENT_MODEL = "claude-sonnet-4-6"
+# Proposition extraction reaches Claude through either provider; the service config picks one and can switch without a
+# deploy. Each provider names the same model its own way.
+PROPOSITION_PROVIDERS = ("anthropic", "bedrock")
+DEFAULT_PROPOSITION_PROVIDER = "anthropic"
+DEFAULT_PROPOSITION_MODELS = {"anthropic": "claude-haiku-5-5", "bedrock": "anthropic.claude-haiku-5-5"}
 DEFAULT_VOYAGE_EMBEDDING_MODEL = "voyage-3"
 
-DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD = 0.85
-DEFAULT_HEDGEABLE_WITH_CONFIDENCE = 0.90
-
-DEFAULT_SYNC_THRESHOLD = 10
-DEFAULT_NEIGHBOR_SEARCH_LIMIT = 60
-DEFAULT_VOYAGE_EMBED_CHUNK_SIZE = 2000
+# Subjects due a derivation that one relationships pass derives; the rest wait for the next pass.
+DEFAULT_RELATIONSHIPS_DERIVE_LIMIT = 200
+# Securities still lacking a proposition (the first run's backlog, lost messages) one pass reads.
+DEFAULT_RELATIONSHIPS_BACKLOG_LIMIT = 250
+# The drift check re-reads this many code-read contracts with Claude once a day.
+DEFAULT_DRIFT_INTERVAL_SECONDS = 86400
+DEFAULT_DRIFT_SAMPLE_SIZE = 40
 # Stale cycles run hourly, so an event must be gone from its venue's feed for a day before it is retired.
 DEFAULT_STALE_MISS_THRESHOLD = 24
 # A fetch returning fewer than this share of an exchange's tracked events is treated as an outage, not closures.

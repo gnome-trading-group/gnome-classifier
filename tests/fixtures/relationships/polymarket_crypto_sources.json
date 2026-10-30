@@ -1,0 +1,1017 @@
+{
+ "bitcoin-price-on-november-3-2026:88,000-90,000": {
+  "event": {
+   "description": "This market will resolve according to the final \"Close\" price of the Binance 1 minute candle for BTC/USDT closing at 12:00 in the ET timezone (noon) on the date specified in the title. Otherwise, this market will resolve to \"No\".\n\nThe resolution source for this market is Binance, specifically the BTC/USDT \"Close\" prices currently available at https://www.binance.com/en/trade/BTC_USDT with \"1m\" and \"Candles\" selected on the top bar.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "enableNegRisk": true,
+   "endDate": "2026-11-03T17:00:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "seriesSlug": "bitcoin-neg-risk-weekly",
+   "slug": "bitcoin-price-on-november-3-2026",
+   "startDate": "2026-10-27T16:00:16Z",
+   "title": "Bitcoin price on November 3?"
+  },
+  "market": {
+   "conditionId": "0x5fb68a46f97bf49fa95d9781aaab2f635792c749e508a7ca5c752a76421996ae",
+   "description": "This market will resolve according to the final \"Close\" price of the Binance 1 minute candle for BTC/USDT closing at 12:00 in the ET timezone (noon) on the date specified in the title. Otherwise, this market will resolve to \"No\".\n\nThe resolution source for this market is Binance, specifically the BTC/USDT \"Close\" prices currently available at https://www.binance.com/en/trade/BTC_USDT with \"1m\" and \"Candles\" selected on the top bar.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "endDate": "2026-11-03T17:00:00Z",
+   "groupItemThreshold": "9",
+   "groupItemTitle": "88,000-90,000",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the price of Bitcoin be between $88,000 and $90,000 on November 3?",
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "slug": "will-the-price-of-bitcoin-be-between-88000-90000-on-november-3-2026",
+   "startDate": "2026-10-27T16:00:16Z"
+  },
+  "outcome": "88,000-90,000",
+  "token_id": "104393730136353733509919666767575831801667882263873789511089475497924935667839",
+  "venue": "POLYMARKET_INTL"
+ },
+ "bitcoin-price-on-november-3-2026:<72,000": {
+  "event": {
+   "description": "This market will resolve according to the final \"Close\" price of the Binance 1 minute candle for BTC/USDT closing at 12:00 in the ET timezone (noon) on the date specified in the title. Otherwise, this market will resolve to \"No\".\n\nThe resolution source for this market is Binance, specifically the BTC/USDT \"Close\" prices currently available at https://www.binance.com/en/trade/BTC_USDT with \"1m\" and \"Candles\" selected on the top bar.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "enableNegRisk": true,
+   "endDate": "2026-11-03T17:00:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "seriesSlug": "bitcoin-neg-risk-weekly",
+   "slug": "bitcoin-price-on-november-3-2026",
+   "startDate": "2026-10-27T16:00:16Z",
+   "title": "Bitcoin price on November 3?"
+  },
+  "market": {
+   "conditionId": "0xa197088e8aeba75c6bd89340a3d0a15be91f8fb722e2c1e73598df88db1bfc48",
+   "description": "This market will resolve according to the final \"Close\" price of the Binance 1 minute candle for BTC/USDT closing at 12:00 in the ET timezone (noon) on the date specified in the title. Otherwise, this market will resolve to \"No\".\n\nThe resolution source for this market is Binance, specifically the BTC/USDT \"Close\" prices currently available at https://www.binance.com/en/trade/BTC_USDT with \"1m\" and \"Candles\" selected on the top bar.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "endDate": "2026-11-03T17:00:00Z",
+   "groupItemThreshold": "0",
+   "groupItemTitle": "<72,000",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the price of Bitcoin be less than $72,000 on November 3?",
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "slug": "will-the-price-of-bitcoin-be-less-than-72000-on-november-3-2026",
+   "startDate": "2026-10-27T16:00:16Z"
+  },
+  "outcome": "<72,000",
+  "token_id": "15516646841637246597305591329197264983737791645927892300968649837551287301319",
+  "venue": "POLYMARKET_INTL"
+ },
+ "bitcoin-price-on-november-3-2026:>90,000": {
+  "event": {
+   "description": "This market will resolve according to the final \"Close\" price of the Binance 1 minute candle for BTC/USDT closing at 12:00 in the ET timezone (noon) on the date specified in the title. Otherwise, this market will resolve to \"No\".\n\nThe resolution source for this market is Binance, specifically the BTC/USDT \"Close\" prices currently available at https://www.binance.com/en/trade/BTC_USDT with \"1m\" and \"Candles\" selected on the top bar.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "enableNegRisk": true,
+   "endDate": "2026-11-03T17:00:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "seriesSlug": "bitcoin-neg-risk-weekly",
+   "slug": "bitcoin-price-on-november-3-2026",
+   "startDate": "2026-10-27T16:00:16Z",
+   "title": "Bitcoin price on November 3?"
+  },
+  "market": {
+   "conditionId": "0x3e4307df92340e98fd6ccd6bc0c6f2601e88144d911330933bbc95539ff56b79",
+   "description": "This market will resolve according to the final \"Close\" price of the Binance 1 minute candle for BTC/USDT closing at 12:00 in the ET timezone (noon) on the date specified in the title. Otherwise, this market will resolve to \"No\".\n\nThe resolution source for this market is Binance, specifically the BTC/USDT \"Close\" prices currently available at https://www.binance.com/en/trade/BTC_USDT with \"1m\" and \"Candles\" selected on the top bar.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "endDate": "2026-11-03T17:00:00Z",
+   "groupItemThreshold": "10",
+   "groupItemTitle": ">90,000",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the price of Bitcoin be greater than $90,000 on November 3?",
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "slug": "will-the-price-of-bitcoin-be-greater-than-90000-on-november-3-2026",
+   "startDate": "2026-10-27T16:00:16Z"
+  },
+  "outcome": ">90,000",
+  "token_id": "103302835843418024076056013881778610943141093476881964860720802405027255946824",
+  "venue": "POLYMARKET_INTL"
+ },
+ "bitcoin-up-or-down-october-29-2026-7pm-et:Down": {
+  "event": {
+   "description": "This market will resolve to \"Up\" if the close price is greater than or equal to the open price for the BTC/USDT 1 hour candle that begins on the time and date specified in the title. Otherwise, this market will resolve to \"Down\".\n\nThe resolution source for this market is information from Binance, specifically the BTC/USDT pair (https://www.binance.com/en/trade/BTC_USDT). The close \u00ab C \u00bb and open \u00ab O \u00bb displayed at the top of the graph for the relevant \"1H\" candle will be used once the data for that candle is finalized.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "enableNegRisk": false,
+   "endDate": "2026-10-30T00:00:00Z",
+   "negRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "seriesSlug": "btc-up-or-down-hourly",
+   "slug": "bitcoin-up-or-down-october-29-2026-7pm-et",
+   "startDate": "2026-10-27T23:00:07Z",
+   "title": "Bitcoin Up or Down - October 29, 7PM ET"
+  },
+  "market": {
+   "conditionId": "0x228396007b42179b9b7e6f2f757bb69ebb9994032da8227e9ddece3059994bec",
+   "description": "This market will resolve to \"Up\" if the close price is greater than or equal to the open price for the BTC/USDT 1 hour candle that begins on the time and date specified in the title. Otherwise, this market will resolve to \"Down\".\n\nThe resolution source for this market is information from Binance, specifically the BTC/USDT pair (https://www.binance.com/en/trade/BTC_USDT). The close \u00ab C \u00bb and open \u00ab O \u00bb displayed at the top of the graph for the relevant \"1H\" candle will be used once the data for that candle is finalized.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "endDate": "2026-10-30T00:00:00Z",
+   "eventStartTime": "2026-10-29T23:00:00Z",
+   "negRisk": false,
+   "outcomes": "[\"Up\", \"Down\"]",
+   "question": "Bitcoin Up or Down - October 29, 7PM ET",
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "slug": "bitcoin-up-or-down-october-29-2026-7pm-et",
+   "startDate": "2026-10-27T23:00:07Z"
+  },
+  "outcome": "Down",
+  "token_id": "79862852192726943486602594456254648545813837936524753155822274108766628126986",
+  "venue": "POLYMARKET_INTL"
+ },
+ "bitcoin-up-or-down-october-29-2026-7pm-et:Up": {
+  "event": {
+   "description": "This market will resolve to \"Up\" if the close price is greater than or equal to the open price for the BTC/USDT 1 hour candle that begins on the time and date specified in the title. Otherwise, this market will resolve to \"Down\".\n\nThe resolution source for this market is information from Binance, specifically the BTC/USDT pair (https://www.binance.com/en/trade/BTC_USDT). The close \u00ab C \u00bb and open \u00ab O \u00bb displayed at the top of the graph for the relevant \"1H\" candle will be used once the data for that candle is finalized.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "enableNegRisk": false,
+   "endDate": "2026-10-30T00:00:00Z",
+   "negRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "seriesSlug": "btc-up-or-down-hourly",
+   "slug": "bitcoin-up-or-down-october-29-2026-7pm-et",
+   "startDate": "2026-10-27T23:00:07Z",
+   "title": "Bitcoin Up or Down - October 29, 7PM ET"
+  },
+  "market": {
+   "conditionId": "0x228396007b42179b9b7e6f2f757bb69ebb9994032da8227e9ddece3059994bec",
+   "description": "This market will resolve to \"Up\" if the close price is greater than or equal to the open price for the BTC/USDT 1 hour candle that begins on the time and date specified in the title. Otherwise, this market will resolve to \"Down\".\n\nThe resolution source for this market is information from Binance, specifically the BTC/USDT pair (https://www.binance.com/en/trade/BTC_USDT). The close \u00ab C \u00bb and open \u00ab O \u00bb displayed at the top of the graph for the relevant \"1H\" candle will be used once the data for that candle is finalized.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "endDate": "2026-10-30T00:00:00Z",
+   "eventStartTime": "2026-10-29T23:00:00Z",
+   "negRisk": false,
+   "outcomes": "[\"Up\", \"Down\"]",
+   "question": "Bitcoin Up or Down - October 29, 7PM ET",
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "slug": "bitcoin-up-or-down-october-29-2026-7pm-et",
+   "startDate": "2026-10-27T23:00:07Z"
+  },
+  "outcome": "Up",
+  "token_id": "88297868423457197032954026651460543936133001916722936434331158763539861037452",
+  "venue": "POLYMARKET_INTL"
+ },
+ "bitcoin-up-or-down-on-october-30-2026:Down": {
+  "event": {
+   "description": "This market will resolve to \"Up\" if the \"Close\" price for the Binance 1 minute candle for BTC/USDT Oct 29 '26 12:00 in the ET timezone (noon) is lower than the final \"Close\" price for the Oct 30 '26 12:00 ET candle.\n\nThis market will resolve to \"Down\" if the \"Close\" price for the Binance 1 minute candle for BTC/USDT Oct 29 '26 12:00 in the ET timezone (noon) is higher than the final \"Close\" price for the Oct 30 '26 12:00 ET candle.\n\nIf the final \"Close\" price for both of these candles is exactly equal on Binance, this market will resolve 50-50.\n\nThe resolution source for this market is Binance, specifically the BTC/USDT \"Close\" prices currently available at https://www.binance.com/en/trade/BTC_USDT with \"1m\" and \"Candles\" selected on the top bar.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "enableNegRisk": false,
+   "endDate": "2026-10-30T16:00:00Z",
+   "negRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "seriesSlug": "btc-up-or-down-daily",
+   "slug": "bitcoin-up-or-down-on-october-30-2026",
+   "startDate": "2026-10-28T16:07:08Z",
+   "title": "Bitcoin Up or Down on October 30?"
+  },
+  "market": {
+   "conditionId": "0xa7527bb1daf9bd907cfcda79698d21b1f8a1e553b86d0aeb44413c20a21cd184",
+   "description": "This market will resolve to \"Up\" if the \"Close\" price for the Binance 1 minute candle for BTC/USDT Oct 29 '26 12:00 in the ET timezone (noon) is lower than the final \"Close\" price for the Oct 30 '26 12:00 ET candle.\n\nThis market will resolve to \"Down\" if the \"Close\" price for the Binance 1 minute candle for BTC/USDT Oct 29 '26 12:00 in the ET timezone (noon) is higher than the final \"Close\" price for the Oct 30 '26 12:00 ET candle.\n\nIf the final \"Close\" price for both of these candles is exactly equal on Binance, this market will resolve 50-50.\n\nThe resolution source for this market is Binance, specifically the BTC/USDT \"Close\" prices currently available at https://www.binance.com/en/trade/BTC_USDT with \"1m\" and \"Candles\" selected on the top bar.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "endDate": "2026-10-30T16:00:00Z",
+   "eventStartTime": "2026-10-29T16:00:00Z",
+   "negRisk": false,
+   "outcomes": "[\"Up\", \"Down\"]",
+   "question": "Bitcoin Up or Down on October 30?",
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "slug": "bitcoin-up-or-down-on-october-30-2026",
+   "startDate": "2026-10-28T16:07:08Z"
+  },
+  "outcome": "Down",
+  "token_id": "56063077557865292264921114143877177912371523542950221049117903882553454347583",
+  "venue": "POLYMARKET_INTL"
+ },
+ "bitcoin-up-or-down-on-october-30-2026:Up": {
+  "event": {
+   "description": "This market will resolve to \"Up\" if the \"Close\" price for the Binance 1 minute candle for BTC/USDT Oct 29 '26 12:00 in the ET timezone (noon) is lower than the final \"Close\" price for the Oct 30 '26 12:00 ET candle.\n\nThis market will resolve to \"Down\" if the \"Close\" price for the Binance 1 minute candle for BTC/USDT Oct 29 '26 12:00 in the ET timezone (noon) is higher than the final \"Close\" price for the Oct 30 '26 12:00 ET candle.\n\nIf the final \"Close\" price for both of these candles is exactly equal on Binance, this market will resolve 50-50.\n\nThe resolution source for this market is Binance, specifically the BTC/USDT \"Close\" prices currently available at https://www.binance.com/en/trade/BTC_USDT with \"1m\" and \"Candles\" selected on the top bar.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "enableNegRisk": false,
+   "endDate": "2026-10-30T16:00:00Z",
+   "negRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "seriesSlug": "btc-up-or-down-daily",
+   "slug": "bitcoin-up-or-down-on-october-30-2026",
+   "startDate": "2026-10-28T16:07:08Z",
+   "title": "Bitcoin Up or Down on October 30?"
+  },
+  "market": {
+   "conditionId": "0xa7527bb1daf9bd907cfcda79698d21b1f8a1e553b86d0aeb44413c20a21cd184",
+   "description": "This market will resolve to \"Up\" if the \"Close\" price for the Binance 1 minute candle for BTC/USDT Oct 29 '26 12:00 in the ET timezone (noon) is lower than the final \"Close\" price for the Oct 30 '26 12:00 ET candle.\n\nThis market will resolve to \"Down\" if the \"Close\" price for the Binance 1 minute candle for BTC/USDT Oct 29 '26 12:00 in the ET timezone (noon) is higher than the final \"Close\" price for the Oct 30 '26 12:00 ET candle.\n\nIf the final \"Close\" price for both of these candles is exactly equal on Binance, this market will resolve 50-50.\n\nThe resolution source for this market is Binance, specifically the BTC/USDT \"Close\" prices currently available at https://www.binance.com/en/trade/BTC_USDT with \"1m\" and \"Candles\" selected on the top bar.\n\nPlease note that this market is about the price according to Binance BTC/USDT, not according to other exchanges or trading pairs.",
+   "endDate": "2026-10-30T16:00:00Z",
+   "eventStartTime": "2026-10-29T16:00:00Z",
+   "negRisk": false,
+   "outcomes": "[\"Up\", \"Down\"]",
+   "question": "Bitcoin Up or Down on October 30?",
+   "resolutionSource": "https://www.binance.com/en/trade/BTC_USDT",
+   "slug": "bitcoin-up-or-down-on-october-30-2026",
+   "startDate": "2026-10-28T16:07:08Z"
+  },
+  "outcome": "Up",
+  "token_id": "70321667611424376607396979249319546019720694081667242892976331960050191212358",
+  "venue": "POLYMARKET_INTL"
+ },
+ "cpc-btc-150k-12-31-2026": {
+  "event": {
+   "category": "crypto",
+   "description": "When will Bitcoin hit $150k?",
+   "endDate": "2027-01-01T05:00:00Z",
+   "seriesSlug": "btc",
+   "slug": "btc-150k",
+   "startDate": "2026-07-08T19:45:00Z",
+   "ticker": "btc-150k",
+   "title": "When will Bitcoin hit $150k?"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Yes if the price of Bitcoin is above $149,999.99 at any point before 12:00 AM ET on January 1, 2027.\n\nOutcome sourced from CF Benchmarks' Bitcoin Real-Time Index.\n\nThe market settles based on the CF Bitcoin Real-Time Index (BRTI) using a trimmed mean calculation over any sixty second period, excluding the top 20% and bottom 20% of values. If this trimmed mean crosses the threshold at any point, the market settles to Yes. Otherwise, the market settles to No.",
+   "endDate": "2027-01-15T04:00:00Z",
+   "gameStartTime": "2026-07-08T19:45:00Z",
+   "marketType": "futures",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "When will Bitcoin hit $150k?",
+   "slug": "cpc-btc-150k-12-31-2026",
+   "sportsMarketType": "futures",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE",
+   "startDate": "2026-07-10T15:56:07Z",
+   "title": "Before January 2027"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpc-btc-150k-12-31-2026",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpc-btc-150k-12-31-2026",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpc-btc-above-hr-2026-10-30-0000z-78200": {
+  "event": {
+   "category": "crypto",
+   "description": "BTC Price at 8:00PM ET on Thu, Oct 29",
+   "endDate": "2026-10-30T00:00:00Z",
+   "seriesSlug": "btc-strike-hourly",
+   "slug": "btc-above-hr-2026-10-30-0000z",
+   "startDate": "2026-10-29T23:00:00Z",
+   "ticker": "btc-above-hr-2026-10-30-0000z",
+   "title": "BTC Price at 8:00PM ET on Thu, Oct 29"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Yes if the price of Bitcoin is at or above $78,200 at 8:00PM ET on Oct 29, 2026. Otherwise, this market will settle to No. Outcome sourced from CF Benchmarks' Bitcoin Real-Time Index (BRTI), available at https://www.cfbenchmarks.com/data/indices/BRTI. The settlement value is determined as follows: in the last minute before 8:00PM ET on Oct 29, 2026, 60 BRTI prices are collected. The official and final value is the simple average of these prices, rounded to the nearest 2 decimal places. The market settles to Yes if the settlement value is greater than or equal to $78,200. A settlement value exactly equal to $78,200 settles to Yes. Please note that this market is about the price according to CF Benchmarks' BRTI, not according to other sources or spot markets.",
+   "endDate": "2026-10-30T00:30:00Z",
+   "gameStartTime": "2026-10-29T23:00:00Z",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "BTC Price at 8:00PM ET on Thu, Oct 29",
+   "slug": "cpc-btc-above-hr-2026-10-30-0000z-78200",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_UNSPECIFIED",
+   "startDate": "2026-10-29T20:01:07Z",
+   "title": "$78,200 or above"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpc-btc-above-hr-2026-10-30-0000z-78200",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpc-btc-above-hr-2026-10-30-0000z-78200",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpc-btc-above-yr-12-31-2026-200k": {
+  "event": {
+   "category": "crypto",
+   "description": "Will Bitcoin be above ___ in 2026?",
+   "endDate": "2027-01-01T05:00:00Z",
+   "seriesSlug": "btc",
+   "slug": "btc-above-yr-12-31-2026",
+   "startDate": "2026-07-21T16:56:00Z",
+   "ticker": "btc-above-yr-12-31-2026",
+   "title": "Will Bitcoin be above ___ in 2026?"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Yes if the price of Bitcoin is above the price specified in the title at any point after the creation of this market and before 12:00 AM ET on January 1, 2027. Otherwise, this market will settle to No.\n\nOutcome sourced from CF Benchmarks' Bitcoin Real-Time Index.\n\nThe market settles based on the CF Bitcoin Real-Time Index (BRTI) using a trimmed mean calculation over any sixty second period, excluding the top 20% and bottom 20% of values. If this trimmed mean exceeds the price specified in the title at any point during the measurement period, the market settles to Yes.",
+   "endDate": "2027-01-15T04:00:00Z",
+   "gameStartTime": "2026-07-21T16:56:00Z",
+   "marketType": "futures",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "Will Bitcoin be above ___ in 2026?",
+   "slug": "cpc-btc-above-yr-12-31-2026-200k",
+   "sportsMarketType": "futures",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE",
+   "startDate": "2026-07-21T17:34:15Z",
+   "title": "$200,000"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpc-btc-above-yr-12-31-2026-200k",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpc-btc-above-yr-12-31-2026-200k",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpc-btc-hit-h-w-2026-10-30-100000": {
+  "event": {
+   "category": "crypto",
+   "description": "How high will BTC get by 5:00PM ET on Fri, Oct 30?",
+   "endDate": "2026-10-30T21:00:00Z",
+   "seriesSlug": "btc-hit-weekly",
+   "slug": "btc-hit-h-w-2026-10-30",
+   "startDate": "2026-10-23T21:00:00Z",
+   "ticker": "btc-hit-h-w-2026-10-30",
+   "title": "How high will BTC get by 5:00PM ET on Fri, Oct 30?"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Yes if the price of Bitcoin is at or above $100,000 at any point from the later of this market's listing and 5:00PM ET on Oct 23, 2026 until 5:00PM ET on Oct 30, 2026. Otherwise, this market will settle to No. Outcome sourced from CF Benchmarks' Bitcoin Real-Time Index (BRTI), available at https://www.cfbenchmarks.com/data/indices/BRTI. The market settles based on the CF Benchmarks Bitcoin Real-Time Index (BRTI) using a trimmed mean calculation over any sixty second period, excluding the top 20% and bottom 20% of values: the BRTI prices published during the sixty seconds are collected, the highest 20% and lowest 20% of those values are removed, and the remaining values are averaged, rounded to the nearest 2 decimal places. If this trimmed mean is at or above $100,000 at any point during the measurement window, the market settles to Yes, and may settle early at that time. Please note that this market is about the price according to CF Benchmarks' BRTI, not according to other sources or spot markets.",
+   "endDate": "2026-10-30T21:30:00Z",
+   "gameStartTime": "2026-10-23T21:00:00Z",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "How high will BTC get by 5:00PM ET on Fri, Oct 30?",
+   "slug": "cpc-btc-hit-h-w-2026-10-30-100000",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_UNSPECIFIED",
+   "startDate": "2026-10-23T22:00:20Z",
+   "title": "Reaches $100,000"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpc-btc-hit-h-w-2026-10-30-100000",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpc-btc-hit-h-w-2026-10-30-100000",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpc-btc-hit-l-m-2026-10-77500": {
+  "event": {
+   "category": "crypto",
+   "description": "How low will BTC get in October?",
+   "endDate": "2026-11-01T04:00:00Z",
+   "seriesSlug": "btc-hit-monthly",
+   "slug": "btc-hit-l-m-2026-10",
+   "startDate": "2026-10-01T04:00:00Z",
+   "ticker": "btc-hit-l-m-2026-10",
+   "title": "How low will BTC get in October?"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Yes if the price of Bitcoin is at or below $77,500 at any point from 12:00AM ET on Oct 1, 2026 until 12:00AM ET on Nov 1, 2026. Otherwise, this market will settle to No. Outcome sourced from CF Benchmarks' Bitcoin Real-Time Index (BRTI), available at https://www.cfbenchmarks.com/data/indices/BRTI. The market settles based on the CF Benchmarks Bitcoin Real-Time Index (BRTI) using a trimmed mean calculation over any sixty second period, excluding the top 20% and bottom 20% of values: the BRTI prices published during the sixty seconds are collected, the highest 20% and lowest 20% of those values are removed, and the remaining values are averaged, rounded to the nearest 2 decimal places. If this trimmed mean is at or below $77,500 at any point during the measurement window, the market settles to Yes, and may settle early at that time. Values outside this market's window are not considered. Please note that this market is about the price according to CF Benchmarks' BRTI, not according to other sources or spot markets.",
+   "endDate": "2026-11-01T04:30:00Z",
+   "gameStartTime": "2026-10-01T04:00:00Z",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "How low will BTC get in October?",
+   "slug": "cpc-btc-hit-l-m-2026-10-77500",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_UNSPECIFIED",
+   "startDate": "2026-10-05T20:30:29Z",
+   "title": "Dips to $77,500"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpc-btc-hit-l-m-2026-10-77500",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpc-btc-hit-l-m-2026-10-77500",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpc-btc-hitprice-high-yr-12-31-2026-90k": {
+  "event": {
+   "category": "crypto",
+   "description": "How high will Bitcoin get this year?",
+   "endDate": "2027-01-01T05:00:00Z",
+   "seriesSlug": "btc",
+   "slug": "btc-hitprice-high-yr-12-31-2026",
+   "startDate": "2026-07-08T20:04:00Z",
+   "ticker": "btc-hitprice-high-yr-12-31-2026",
+   "title": "How high will Bitcoin get this year?"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Yes if the price of Bitcoin is above $89,999.99 at any point from the creation of this market until 12:00 AM ET on January 1, 2027.\n\nOutcome sourced from CF Benchmarks' Bitcoin Real-Time Index.\n\nThe market settles based on the CF Bitcoin Real-Time Index (BRTI) using a trimmed mean calculation over any sixty second period, excluding the top 20% and bottom 20% of values. If this trimmed mean crosses the threshold at any point, the market settles to Yes. Otherwise, the market settles to No.",
+   "endDate": "2027-01-15T04:00:00Z",
+   "gameStartTime": "2026-07-08T20:04:00Z",
+   "marketType": "futures",
+   "outcomes": "[\"No\",\"Yes\"]",
+   "question": "How high will Bitcoin get this year?",
+   "slug": "cpc-btc-hitprice-high-yr-12-31-2026-90k",
+   "sportsMarketType": "futures",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE",
+   "startDate": "2026-09-01T22:06:45Z",
+   "title": "Above $89,999.99"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpc-btc-hitprice-high-yr-12-31-2026-90k",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpc-btc-hitprice-high-yr-12-31-2026-90k",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpc-btc-pricerange-yr-12-31-2026-82500": {
+  "event": {
+   "category": "crypto",
+   "description": "Bitcoin price at the end of 2026?",
+   "endDate": "2027-01-01T05:00:00Z",
+   "seriesSlug": "btc",
+   "slug": "btc-pricerange-yr-12-31-2026",
+   "startDate": "2026-07-13T17:48:00Z",
+   "ticker": "btc-pricerange-yr-12-31-2026",
+   "title": "Bitcoin price at the end of 2026?"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Yes if the price of Bitcoin is between 80,000 to 84,999.99 at 12:00 AM ET on January 1, 2027. Only one outcome in this market will resolve to Yes.\n\nOutcome sourced from CF Benchmarks' Bitcoin Real-Time Index.\n\nThe market settles based on the CF Bitcoin Real-Time Index (BRTI) using a trimmed mean calculation over the sixty second period ending at 12:00 AM ET on January 1, 2027, excluding the top 20% and bottom 20% of values.",
+   "endDate": "2027-01-15T04:00:00Z",
+   "gameStartTime": "2026-07-13T17:48:00Z",
+   "marketType": "futures",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "Bitcoin price at the end of 2026?",
+   "slug": "cpc-btc-pricerange-yr-12-31-2026-82500",
+   "sportsMarketType": "futures",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE",
+   "startDate": "2026-07-21T15:30:34Z",
+   "title": "80,000 to 84,999.99"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpc-btc-pricerange-yr-12-31-2026-82500",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpc-btc-pricerange-yr-12-31-2026-82500",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpc-btc-pricerange-yr-12-31-2026-above-150k": {
+  "event": {
+   "category": "crypto",
+   "description": "Bitcoin price at the end of 2026?",
+   "endDate": "2027-01-01T05:00:00Z",
+   "seriesSlug": "btc",
+   "slug": "btc-pricerange-yr-12-31-2026",
+   "startDate": "2026-07-13T17:48:00Z",
+   "ticker": "btc-pricerange-yr-12-31-2026",
+   "title": "Bitcoin price at the end of 2026?"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Yes if the price of Bitcoin is 150,000 or above at 12:00 AM ET on January 1, 2027. Only one outcome in this market will resolve to Yes.\n\nOutcome sourced from CF Benchmarks' Bitcoin Real-Time Index.\n\nThe market settles based on the CF Bitcoin Real-Time Index (BRTI) using a trimmed mean calculation over the sixty second period ending at 12:00 AM ET on January 1, 2027, excluding the top 20% and bottom 20% of values.",
+   "endDate": "2027-01-15T04:00:00Z",
+   "gameStartTime": "2026-07-13T17:48:00Z",
+   "marketType": "futures",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "Bitcoin price at the end of 2026?",
+   "slug": "cpc-btc-pricerange-yr-12-31-2026-above-150k",
+   "sportsMarketType": "futures",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE",
+   "startDate": "2026-07-21T15:30:11Z",
+   "title": "150,000 or above"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpc-btc-pricerange-yr-12-31-2026-above-150k",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpc-btc-pricerange-yr-12-31-2026-above-150k",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpc-btc-pricerange-yr-12-31-2026-below-20k": {
+  "event": {
+   "category": "crypto",
+   "description": "Bitcoin price at the end of 2026?",
+   "endDate": "2027-01-01T05:00:00Z",
+   "seriesSlug": "btc",
+   "slug": "btc-pricerange-yr-12-31-2026",
+   "startDate": "2026-07-13T17:48:00Z",
+   "ticker": "btc-pricerange-yr-12-31-2026",
+   "title": "Bitcoin price at the end of 2026?"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Yes if the price of Bitcoin is 19,999.99 or below at 12:00 AM ET on January 1, 2027. Only one outcome in this market will resolve to Yes.\n\nOutcome sourced from CF Benchmarks' Bitcoin Real-Time Index.\n\nThe market settles based on the CF Bitcoin Real-Time Index (BRTI) using a trimmed mean calculation over the sixty second period ending at 12:00 AM ET on January 1, 2027, excluding the top 20% and bottom 20% of values.",
+   "endDate": "2027-01-15T04:00:00Z",
+   "gameStartTime": "2026-07-13T17:48:00Z",
+   "marketType": "futures",
+   "outcomes": "[\"No\",\"Yes\"]",
+   "question": "Bitcoin price at the end of 2026?",
+   "slug": "cpc-btc-pricerange-yr-12-31-2026-below-20k",
+   "sportsMarketType": "futures",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE",
+   "startDate": "2026-07-21T15:30:50Z",
+   "title": "19,999.99 or below"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpc-btc-pricerange-yr-12-31-2026-below-20k",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpc-btc-pricerange-yr-12-31-2026-below-20k",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpc-btc-range-hr-2026-10-30-0000z-78700": {
+  "event": {
+   "category": "crypto",
+   "description": "BTC Price Range at 8:00PM ET on Thu, Oct 29",
+   "endDate": "2026-10-30T00:00:00Z",
+   "seriesSlug": "btc-range-hourly",
+   "slug": "btc-range-hr-2026-10-30-0000z",
+   "startDate": "2026-10-29T23:00:00Z",
+   "ticker": "btc-range-hr-2026-10-30-0000z",
+   "title": "BTC Price Range at 8:00PM ET on Thu, Oct 29"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Yes if the price of Bitcoin is between $78,700 and $78,799.99, inclusive of both bounds at 8:00PM ET on Oct 29, 2026. Otherwise, this market will settle to No. Only one outcome in this event will settle to Yes. Outcome sourced from CF Benchmarks' Bitcoin Real-Time Index (BRTI), available at https://www.cfbenchmarks.com/data/indices/BRTI. The settlement value is determined as follows: in the last minute before 8:00PM ET on Oct 29, 2026, 60 BRTI prices are collected. The official and final value is the simple average of these prices, rounded to the nearest 2 decimal places. Please note that this market is about the price according to CF Benchmarks' BRTI, not according to other sources or spot markets.",
+   "endDate": "2026-10-30T00:30:00Z",
+   "gameStartTime": "2026-10-29T23:00:00Z",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "BTC Price Range at 8:00PM ET on Thu, Oct 29",
+   "slug": "cpc-btc-range-hr-2026-10-30-0000z-78700",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_UNSPECIFIED",
+   "startDate": "2026-10-29T20:01:13Z",
+   "title": "$78,700 to $78,799.99"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpc-btc-range-hr-2026-10-30-0000z-78700",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpc-btc-range-hr-2026-10-30-0000z-78700",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpc-btc-updown-15m-2026-10-29-2315z": {
+  "event": {
+   "category": "crypto",
+   "description": "BTC Up or Down 15m",
+   "endDate": "2026-10-29T23:30:00Z",
+   "seriesSlug": "btc-updown-15m",
+   "slug": "btc-updown-15m-2026-10-29-2315z",
+   "startDate": "2026-10-29T23:15:00Z",
+   "ticker": "btc-updown-15m-2026-10-29-2315z",
+   "title": "BTC Up or Down 15m"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Up if the Bitcoin price at 7:30PM ET on Oct 29, 2026 is greater than or equal to the price at 7:15PM ET on Oct 29, 2026. Otherwise, this market will settle to Down. Outcome sourced from CF Benchmarks' Bitcoin Real-Time Index (BRTI), available at https://www.cfbenchmarks.com/data/indices/BRTI. The price at the beginning and at the end of the time range is determined the same way: in the last minute before each of those two times, 60 BRTI prices are collected. The official value for that time is the simple average of these prices, rounded to the nearest 2 decimal places. Please note that this market is about the price according to CF Benchmarks' BRTI, not according to other sources or spot markets.",
+   "endDate": "2026-10-30T00:00:00Z",
+   "gameStartTime": "2026-10-29T23:15:00Z",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "BTC Up or Down 15m",
+   "slug": "cpc-btc-updown-15m-2026-10-29-2315z",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_UNSPECIFIED",
+   "startDate": "2026-10-29T12:15:52Z",
+   "subtitle": "Oct 29, 7:15PM - 7:30PM",
+   "title": "BTC Up or Down 15m"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpc-btc-updown-15m-2026-10-29-2315z",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpc-btc-updown-15m-2026-10-29-2315z",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpc-btc-updown-1h-2026-10-29-2300z": {
+  "event": {
+   "category": "crypto",
+   "description": "BTC Up or Down Hourly",
+   "endDate": "2026-10-30T00:00:00Z",
+   "seriesSlug": "btc-updown-1h",
+   "slug": "btc-updown-1h-2026-10-29-2300z",
+   "startDate": "2026-10-29T23:00:00Z",
+   "ticker": "btc-updown-1h-2026-10-29-2300z",
+   "title": "BTC Up or Down Hourly"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Up if the Bitcoin price at 8:00PM ET on Oct 29, 2026 is greater than or equal to the price at 7:00PM ET on Oct 29, 2026. Otherwise, this market will settle to Down. Outcome sourced from CF Benchmarks' Bitcoin Real-Time Index (BRTI), available at https://www.cfbenchmarks.com/data/indices/BRTI. The price at the beginning and at the end of the time range is determined the same way: in the last minute before each of those two times, 60 BRTI prices are collected. The official value for that time is the simple average of these prices, rounded to the nearest 2 decimal places. Please note that this market is about the price according to CF Benchmarks' BRTI, not according to other sources or spot markets.",
+   "endDate": "2026-10-30T00:30:00Z",
+   "gameStartTime": "2026-10-29T23:00:00Z",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "BTC Up or Down Hourly",
+   "slug": "cpc-btc-updown-1h-2026-10-29-2300z",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_UNSPECIFIED",
+   "startDate": "2026-10-28T23:00:32Z",
+   "subtitle": "Oct 29, 7:00PM - 8:00PM",
+   "title": "BTC Up or Down Hourly"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpc-btc-updown-1h-2026-10-29-2300z",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpc-btc-updown-1h-2026-10-29-2300z",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpc-btc-updown-5m-2026-10-29-2320z": {
+  "event": {
+   "category": "crypto",
+   "description": "BTC Up or Down 5m",
+   "endDate": "2026-10-29T23:25:00Z",
+   "seriesSlug": "btc-updown-5m",
+   "slug": "btc-updown-5m-2026-10-29-2320z",
+   "startDate": "2026-10-29T23:20:00Z",
+   "ticker": "btc-updown-5m-2026-10-29-2320z",
+   "title": "BTC Up or Down 5m"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Up if the Bitcoin price at 7:25PM ET on Oct 29, 2026 is greater than or equal to the price at 7:20PM ET on Oct 29, 2026. Otherwise, this market will settle to Down. Outcome sourced from CF Benchmarks' Bitcoin Real-Time Index (BRTI), available at https://www.cfbenchmarks.com/data/indices/BRTI. The price at the beginning and at the end of the time range is determined the same way: in the last minute before each of those two times, 60 BRTI prices are collected. The official value for that time is the simple average of these prices, rounded to the nearest 2 decimal places. Please note that this market is about the price according to CF Benchmarks' BRTI, not according to other sources or spot markets.",
+   "endDate": "2026-10-29T23:55:00Z",
+   "gameStartTime": "2026-10-29T23:20:00Z",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "BTC Up or Down 5m",
+   "slug": "cpc-btc-updown-5m-2026-10-29-2320z",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_UNSPECIFIED",
+   "startDate": "2026-10-29T12:15:29Z",
+   "subtitle": "Oct 29, 7:20PM - 7:25PM",
+   "title": "BTC Up or Down 5m"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpc-btc-updown-5m-2026-10-29-2320z",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpc-btc-updown-5m-2026-10-29-2320z",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpceth-eth-updown-1d-2026-10-29-2100z": {
+  "event": {
+   "category": "crypto",
+   "description": "ETH Up or Down Daily",
+   "endDate": "2026-10-30T21:00:00Z",
+   "seriesSlug": "eth-updown-1d",
+   "slug": "eth-updown-1d-2026-10-29-2100z",
+   "startDate": "2026-10-29T21:00:00Z",
+   "ticker": "eth-updown-1d-2026-10-29-2100z",
+   "title": "ETH Up or Down Daily"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Up if the Ethereum price at 5:00PM ET on Oct 30, 2026 is greater than or equal to the price at 5:00PM ET on Oct 29, 2026. Otherwise, this market will settle to Down. Outcome sourced from CF Benchmarks' Ether-Dollar Real-Time Index (ETHUSD_RTI), available at https://www.cfbenchmarks.com/data/indices/ETHUSD_RTI. The price at the beginning and at the end of the time range is determined the same way: in the last minute before each of those two times, 60 ETHUSD_RTI prices are collected. The official value for that time is the simple average of these prices, rounded to the nearest 2 decimal places. Please note that this market is about the price according to CF Benchmarks' ETHUSD_RTI, not according to other sources or spot markets.",
+   "endDate": "2026-10-30T21:30:00Z",
+   "gameStartTime": "2026-10-29T21:00:00Z",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "ETH Up or Down Daily",
+   "slug": "cpceth-eth-updown-1d-2026-10-29-2100z",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_UNSPECIFIED",
+   "startDate": "2026-10-28T20:05:24Z",
+   "subtitle": "Oct 29, 5:00PM - Oct 30, 5:00PM",
+   "title": "ETH Up or Down Daily"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpceth-eth-updown-1d-2026-10-29-2100z",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpceth-eth-updown-1d-2026-10-29-2100z",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "cpcxrp-xrp-range-wk-2026-10-30-1p2": {
+  "event": {
+   "category": "crypto",
+   "description": "XRP Price Range at 5:00PM ET on Fri, Oct 30",
+   "endDate": "2026-10-30T21:00:00Z",
+   "seriesSlug": "xrp-range-weekly",
+   "slug": "xrp-range-wk-2026-10-30",
+   "startDate": "2026-10-23T22:12:07Z",
+   "ticker": "xrp-range-wk-2026-10-30",
+   "title": "XRP Price Range at 5:00PM ET on Fri, Oct 30"
+  },
+  "leg": "long",
+  "market": {
+   "description": "This market will settle to Yes if the price of XRP is between $1.20000 and $1.24999, inclusive of both bounds at 5:00PM ET on Oct 30, 2026. Otherwise, this market will settle to No. Only one outcome in this event will settle to Yes. Outcome sourced from CF Benchmarks' XRP-Dollar Real-Time Index (XRPUSD_RTI), available at https://www.cfbenchmarks.com/data/indices/XRPUSD_RTI. The settlement value is determined as follows: in the last minute before 5:00PM ET on Oct 30, 2026, 60 XRPUSD_RTI prices are collected. The official and final value is the simple average of these prices, rounded to the nearest 5 decimal places. Please note that this market is about the price according to CF Benchmarks' XRPUSD_RTI, not according to other sources or spot markets.",
+   "endDate": "2026-10-30T21:30:00Z",
+   "gameStartTime": "2026-10-23T22:12:07Z",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "XRP Price Range at 5:00PM ET on Fri, Oct 30",
+   "slug": "cpcxrp-xrp-range-wk-2026-10-30-1p2",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_UNSPECIFIED",
+   "startDate": "2026-10-23T22:12:52Z",
+   "title": "$1.20000 to $1.24999"
+  },
+  "sides": [
+   {
+    "description": "Yes",
+    "identifier": "cpcxrp-xrp-range-wk-2026-10-30-1p2",
+    "long": true,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "description": "No",
+    "identifier": "cpcxrp-xrp-range-wk-2026-10-30-1p2",
+    "long": false,
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US"
+ },
+ "eth-updown-4h-1793304000:Down": {
+  "event": {
+   "description": "This market will resolve to \"Up\" if the time-weighted average price (TWAP) of Ethereum, generated by Chainlink, of the time range specified in the title is greater than or equal to the price at the beginning of that range. Otherwise, it will resolve to \"Down\".\nThe resolution source for this market is information from Chainlink, specifically the ETH/USD TWAP data stream available at https://data.chain.link/streams/eth-usd-twap-60s-streams.\nPlease note that this market is about the price according to the TWAP Chainlink data stream for the asset pair ETH/USD, not according to any other sources or spot markets.",
+   "enableNegRisk": false,
+   "endDate": "2026-10-30T00:00:00Z",
+   "negRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://data.chain.link/streams/eth-usd-twap-60s-streams",
+   "seriesSlug": "eth-up-or-down-4h",
+   "slug": "eth-updown-4h-1793304000",
+   "startDate": "2026-10-28T20:08:51.336767Z",
+   "title": "Ethereum Up or Down - October 29, 4:00PM-8:00PM ET"
+  },
+  "market": {
+   "conditionId": "0xb6911530a9821cc6032db6f0f7a70ee6036eef30a3dcd4e591e322f46d0a5889",
+   "description": "This market will resolve to \"Up\" if the time-weighted average price (TWAP) of Ethereum, generated by Chainlink, of the time range specified in the title is greater than or equal to the price at the beginning of that range. Otherwise, it will resolve to \"Down\".\nThe resolution source for this market is information from Chainlink, specifically the ETH/USD TWAP data stream available at https://data.chain.link/streams/eth-usd-twap-60s-streams.\nPlease note that this market is about the price according to the TWAP Chainlink data stream for the asset pair ETH/USD, not according to any other sources or spot markets.",
+   "endDate": "2026-10-30T00:00:00Z",
+   "eventStartTime": "2026-10-29T20:00:00Z",
+   "groupItemThreshold": "0",
+   "negRisk": false,
+   "outcomes": "[\"Up\", \"Down\"]",
+   "question": "Ethereum Up or Down - October 29, 4:00PM-8:00PM ET",
+   "resolutionSource": "https://data.chain.link/streams/eth-usd-twap-60s-streams",
+   "slug": "eth-updown-4h-1793304000",
+   "startDate": "2026-10-28T20:08:51.336767Z"
+  },
+  "outcome": "Down",
+  "token_id": "44338586620593171063486524625519112087955683826404745317485248105660018137930",
+  "venue": "POLYMARKET_INTL"
+ },
+ "eth-updown-4h-1793304000:Up": {
+  "event": {
+   "description": "This market will resolve to \"Up\" if the time-weighted average price (TWAP) of Ethereum, generated by Chainlink, of the time range specified in the title is greater than or equal to the price at the beginning of that range. Otherwise, it will resolve to \"Down\".\nThe resolution source for this market is information from Chainlink, specifically the ETH/USD TWAP data stream available at https://data.chain.link/streams/eth-usd-twap-60s-streams.\nPlease note that this market is about the price according to the TWAP Chainlink data stream for the asset pair ETH/USD, not according to any other sources or spot markets.",
+   "enableNegRisk": false,
+   "endDate": "2026-10-30T00:00:00Z",
+   "negRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://data.chain.link/streams/eth-usd-twap-60s-streams",
+   "seriesSlug": "eth-up-or-down-4h",
+   "slug": "eth-updown-4h-1793304000",
+   "startDate": "2026-10-28T20:08:51.336767Z",
+   "title": "Ethereum Up or Down - October 29, 4:00PM-8:00PM ET"
+  },
+  "market": {
+   "conditionId": "0xb6911530a9821cc6032db6f0f7a70ee6036eef30a3dcd4e591e322f46d0a5889",
+   "description": "This market will resolve to \"Up\" if the time-weighted average price (TWAP) of Ethereum, generated by Chainlink, of the time range specified in the title is greater than or equal to the price at the beginning of that range. Otherwise, it will resolve to \"Down\".\nThe resolution source for this market is information from Chainlink, specifically the ETH/USD TWAP data stream available at https://data.chain.link/streams/eth-usd-twap-60s-streams.\nPlease note that this market is about the price according to the TWAP Chainlink data stream for the asset pair ETH/USD, not according to any other sources or spot markets.",
+   "endDate": "2026-10-30T00:00:00Z",
+   "eventStartTime": "2026-10-29T20:00:00Z",
+   "groupItemThreshold": "0",
+   "negRisk": false,
+   "outcomes": "[\"Up\", \"Down\"]",
+   "question": "Ethereum Up or Down - October 29, 4:00PM-8:00PM ET",
+   "resolutionSource": "https://data.chain.link/streams/eth-usd-twap-60s-streams",
+   "slug": "eth-updown-4h-1793304000",
+   "startDate": "2026-10-28T20:08:51.336767Z"
+  },
+  "outcome": "Up",
+  "token_id": "80100236625459787309808315092808940527561607714030769909848421166500580502987",
+  "venue": "POLYMARKET_INTL"
+ },
+ "meta-up-or-down-on-october-29-2026:Down": {
+  "event": {
+   "description": "This market will resolve to \"Up\" if the Close price for Meta Platforms, Inc. (META) on October 29, 2026 is higher than the Close price for Meta Platforms, Inc. (META) on the most recent prior trading day.\n\nThis market will resolve to \"Down\" if the Close price for Meta Platforms, Inc. (META) on October 29, 2026 is lower than the Close price for Meta Platforms, Inc. (META) on the most recent prior trading day.\n\nE.g., ordinarily, a market on Monday would refer to the previous Friday for its most recent closing price, unless that Friday were a market holiday, in which case it would refer to Thursday, or the next most recent trading day.\n\nIf the two specified closing prices are exactly equal, this market will resolve 50-50. Closing prices will be used exactly as published by Pyth, without rounding.\n\nIf Meta Platforms, Inc. (META) does not trade at all during the regular session, the market will resolve 50-50.\n\nFor a standard full trading session, the closing price refers to the Pyth \"Close\" value of the 1-minute candle corresponding to the final minute of regular trading hours on the primary exchange.\n\nIf either of the relevant days has no valid Pyth Close value for the 1-minute candle corresponding to the end of regular trading hours on the primary exchange, the market will use the last valid Pyth price achieved during the regular trading hours of the primary exchange as the effective closing price. If no valid Pyth price exists for that trading day due to a system outage, data failure, or other technical disruption, the official closing price published by the primary exchange on which the listed security trades will be used to determine the closing price for that day.\n\nOnly prices achieved during the regular trading hours of the primary exchange on which the listed security trades (typically 9:30 AM \u2013 4:00 PM ET) will be considered.\n\nIn the event of a stock split, reverse stock split, or similar corporate action affecting the listed security during the listed time frame, this market will resolve based on split-adjusted prices as displayed on Pyth.\n\nThe resolution source for this market will be Pyth, specifically the \"Close\" values for the relevant 1-minute candle available at https://pythdata.app/explore/Equity.US.META%2FUSD. Historical 1-minute candles may be accessed by appending a Unix timestamp (seconds) to the Pyth chart URL using the \"t=\" parameter. Any timestamp within the listed market time frame may be used to view the relevant candle data (e.g., https://pythdata.app/explore/Equity.US.META%2FUSD?t=1773432000).",
+   "enableNegRisk": false,
+   "endDate": "2026-10-29T20:00:00Z",
+   "negRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://pythdata.app/explore/Equity.US.META%2FUSD",
+   "seriesSlug": "meta-daily-up-down",
+   "slug": "meta-up-or-down-on-october-29-2026",
+   "startDate": "2026-10-28T12:00:34Z",
+   "title": "Meta (META) Up or Down on October 29?"
+  },
+  "market": {
+   "conditionId": "0x437a7425045c0576b5fb2425b59815c2af82048e697b0bac80cdec1a13e8f9b8",
+   "description": "This market will resolve to \"Up\" if the Close price for Meta Platforms, Inc. (META) on October 29, 2026 is higher than the Close price for Meta Platforms, Inc. (META) on the most recent prior trading day.\n\nThis market will resolve to \"Down\" if the Close price for Meta Platforms, Inc. (META) on October 29, 2026 is lower than the Close price for Meta Platforms, Inc. (META) on the most recent prior trading day.\n\nE.g., ordinarily, a market on Monday would refer to the previous Friday for its most recent closing price, unless that Friday were a market holiday, in which case it would refer to Thursday, or the next most recent trading day.\n\nIf the two specified closing prices are exactly equal, this market will resolve 50-50. Closing prices will be used exactly as published by Pyth, without rounding.\n\nIf Meta Platforms, Inc. (META) does not trade at all during the regular session, the market will resolve 50-50.\n\nFor a standard full trading session, the closing price refers to the Pyth \"Close\" value of the 1-minute candle corresponding to the final minute of regular trading hours on the primary exchange.\n\nIf either of the relevant days has no valid Pyth Close value for the 1-minute candle corresponding to the end of regular trading hours on the primary exchange, the market will use the last valid Pyth price achieved during the regular trading hours of the primary exchange as the effective closing price. If no valid Pyth price exists for that trading day due to a system outage, data failure, or other technical disruption, the official closing price published by the primary exchange on which the listed security trades will be used to determine the closing price for that day.\n\nOnly prices achieved during the regular trading hours of the primary exchange on which the listed security trades (typically 9:30 AM \u2013 4:00 PM ET) will be considered.\n\nIn the event of a stock split, reverse stock split, or similar corporate action affecting the listed security during the listed time frame, this market will resolve based on split-adjusted prices as displayed on Pyth.\n\nThe resolution source for this market will be Pyth, specifically the \"Close\" values for the relevant 1-minute candle available at https://pythdata.app/explore/Equity.US.META%2FUSD. Historical 1-minute candles may be accessed by appending a Unix timestamp (seconds) to the Pyth chart URL using the \"t=\" parameter. Any timestamp within the listed market time frame may be used to view the relevant candle data (e.g., https://pythdata.app/explore/Equity.US.META%2FUSD?t=1773432000).",
+   "endDate": "2026-10-29T20:00:00Z",
+   "eventStartTime": "2026-10-29T13:30:00Z",
+   "negRisk": false,
+   "outcomes": "[\"Up\", \"Down\"]",
+   "question": "Meta (META) Up or Down on October 29?",
+   "resolutionSource": "https://pythdata.app/explore/Equity.US.META%2FUSD",
+   "slug": "meta-up-or-down-on-october-29-2026",
+   "startDate": "2026-10-28T12:00:34Z"
+  },
+  "outcome": "Down",
+  "token_id": "87837865824286151199781307570170848635939057369223483175526445455383027170063",
+  "venue": "POLYMARKET_INTL"
+ },
+ "meta-up-or-down-on-october-29-2026:Up": {
+  "event": {
+   "description": "This market will resolve to \"Up\" if the Close price for Meta Platforms, Inc. (META) on October 29, 2026 is higher than the Close price for Meta Platforms, Inc. (META) on the most recent prior trading day.\n\nThis market will resolve to \"Down\" if the Close price for Meta Platforms, Inc. (META) on October 29, 2026 is lower than the Close price for Meta Platforms, Inc. (META) on the most recent prior trading day.\n\nE.g., ordinarily, a market on Monday would refer to the previous Friday for its most recent closing price, unless that Friday were a market holiday, in which case it would refer to Thursday, or the next most recent trading day.\n\nIf the two specified closing prices are exactly equal, this market will resolve 50-50. Closing prices will be used exactly as published by Pyth, without rounding.\n\nIf Meta Platforms, Inc. (META) does not trade at all during the regular session, the market will resolve 50-50.\n\nFor a standard full trading session, the closing price refers to the Pyth \"Close\" value of the 1-minute candle corresponding to the final minute of regular trading hours on the primary exchange.\n\nIf either of the relevant days has no valid Pyth Close value for the 1-minute candle corresponding to the end of regular trading hours on the primary exchange, the market will use the last valid Pyth price achieved during the regular trading hours of the primary exchange as the effective closing price. If no valid Pyth price exists for that trading day due to a system outage, data failure, or other technical disruption, the official closing price published by the primary exchange on which the listed security trades will be used to determine the closing price for that day.\n\nOnly prices achieved during the regular trading hours of the primary exchange on which the listed security trades (typically 9:30 AM \u2013 4:00 PM ET) will be considered.\n\nIn the event of a stock split, reverse stock split, or similar corporate action affecting the listed security during the listed time frame, this market will resolve based on split-adjusted prices as displayed on Pyth.\n\nThe resolution source for this market will be Pyth, specifically the \"Close\" values for the relevant 1-minute candle available at https://pythdata.app/explore/Equity.US.META%2FUSD. Historical 1-minute candles may be accessed by appending a Unix timestamp (seconds) to the Pyth chart URL using the \"t=\" parameter. Any timestamp within the listed market time frame may be used to view the relevant candle data (e.g., https://pythdata.app/explore/Equity.US.META%2FUSD?t=1773432000).",
+   "enableNegRisk": false,
+   "endDate": "2026-10-29T20:00:00Z",
+   "negRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://pythdata.app/explore/Equity.US.META%2FUSD",
+   "seriesSlug": "meta-daily-up-down",
+   "slug": "meta-up-or-down-on-october-29-2026",
+   "startDate": "2026-10-28T12:00:34Z",
+   "title": "Meta (META) Up or Down on October 29?"
+  },
+  "market": {
+   "conditionId": "0x437a7425045c0576b5fb2425b59815c2af82048e697b0bac80cdec1a13e8f9b8",
+   "description": "This market will resolve to \"Up\" if the Close price for Meta Platforms, Inc. (META) on October 29, 2026 is higher than the Close price for Meta Platforms, Inc. (META) on the most recent prior trading day.\n\nThis market will resolve to \"Down\" if the Close price for Meta Platforms, Inc. (META) on October 29, 2026 is lower than the Close price for Meta Platforms, Inc. (META) on the most recent prior trading day.\n\nE.g., ordinarily, a market on Monday would refer to the previous Friday for its most recent closing price, unless that Friday were a market holiday, in which case it would refer to Thursday, or the next most recent trading day.\n\nIf the two specified closing prices are exactly equal, this market will resolve 50-50. Closing prices will be used exactly as published by Pyth, without rounding.\n\nIf Meta Platforms, Inc. (META) does not trade at all during the regular session, the market will resolve 50-50.\n\nFor a standard full trading session, the closing price refers to the Pyth \"Close\" value of the 1-minute candle corresponding to the final minute of regular trading hours on the primary exchange.\n\nIf either of the relevant days has no valid Pyth Close value for the 1-minute candle corresponding to the end of regular trading hours on the primary exchange, the market will use the last valid Pyth price achieved during the regular trading hours of the primary exchange as the effective closing price. If no valid Pyth price exists for that trading day due to a system outage, data failure, or other technical disruption, the official closing price published by the primary exchange on which the listed security trades will be used to determine the closing price for that day.\n\nOnly prices achieved during the regular trading hours of the primary exchange on which the listed security trades (typically 9:30 AM \u2013 4:00 PM ET) will be considered.\n\nIn the event of a stock split, reverse stock split, or similar corporate action affecting the listed security during the listed time frame, this market will resolve based on split-adjusted prices as displayed on Pyth.\n\nThe resolution source for this market will be Pyth, specifically the \"Close\" values for the relevant 1-minute candle available at https://pythdata.app/explore/Equity.US.META%2FUSD. Historical 1-minute candles may be accessed by appending a Unix timestamp (seconds) to the Pyth chart URL using the \"t=\" parameter. Any timestamp within the listed market time frame may be used to view the relevant candle data (e.g., https://pythdata.app/explore/Equity.US.META%2FUSD?t=1773432000).",
+   "endDate": "2026-10-29T20:00:00Z",
+   "eventStartTime": "2026-10-29T13:30:00Z",
+   "negRisk": false,
+   "outcomes": "[\"Up\", \"Down\"]",
+   "question": "Meta (META) Up or Down on October 29?",
+   "resolutionSource": "https://pythdata.app/explore/Equity.US.META%2FUSD",
+   "slug": "meta-up-or-down-on-october-29-2026",
+   "startDate": "2026-10-28T12:00:34Z"
+  },
+  "outcome": "Up",
+  "token_id": "23807828458217550359382688898921569763946052958610019010061775055021596217492",
+  "venue": "POLYMARKET_INTL"
+ },
+ "sol-updown-15m-1785941100:Down": {
+  "event": {
+   "description": "This market will resolve to \"Up\" if the Solana price at the end of the time range specified in the title is greater than or equal to the price at the beginning of that range. Otherwise, it will resolve to \"Down\".\nThe resolution source for this market is information from Chainlink, specifically the SOL/USD data stream available at https://data.chain.link/streams/sol-usd.\nPlease note that this market is about the price according to Chainlink data stream SOL/USD, not according to other sources or spot markets.",
+   "enableNegRisk": false,
+   "endDate": "2026-08-05T15:00:00Z",
+   "negRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://data.chain.link/streams/sol-usd",
+   "seriesSlug": "sol-up-or-down-15m",
+   "slug": "sol-updown-15m-1785941100",
+   "startDate": "2026-08-04T14:53:00.769902Z",
+   "title": "Solana Up or Down - August 5, 10:45AM-11:00AM ET"
+  },
+  "market": {
+   "conditionId": "0x2e9c2f3598332269a93ba394e3e002800f641f7d3e8cae6f34336154d7c122c0",
+   "description": "This market will resolve to \"Up\" if the Solana price at the end of the time range specified in the title is greater than or equal to the price at the beginning of that range. Otherwise, it will resolve to \"Down\".\nThe resolution source for this market is information from Chainlink, specifically the SOL/USD data stream available at https://data.chain.link/streams/sol-usd.\nPlease note that this market is about the price according to Chainlink data stream SOL/USD, not according to other sources or spot markets.",
+   "endDate": "2026-08-05T15:00:00Z",
+   "eventStartTime": "2026-08-05T14:45:00Z",
+   "groupItemThreshold": "0",
+   "negRisk": false,
+   "outcomes": "[\"Up\", \"Down\"]",
+   "question": "Solana Up or Down - August 5, 10:45AM-11:00AM ET",
+   "resolutionSource": "https://data.chain.link/streams/sol-usd",
+   "slug": "sol-updown-15m-1785941100",
+   "startDate": "2026-08-04T14:53:00.769902Z"
+  },
+  "outcome": "Down",
+  "token_id": "80475084872732158638233497686940243393008934004472558583519912395292497086369",
+  "venue": "POLYMARKET_INTL"
+ },
+ "sol-updown-15m-1785941100:Up": {
+  "event": {
+   "description": "This market will resolve to \"Up\" if the Solana price at the end of the time range specified in the title is greater than or equal to the price at the beginning of that range. Otherwise, it will resolve to \"Down\".\nThe resolution source for this market is information from Chainlink, specifically the SOL/USD data stream available at https://data.chain.link/streams/sol-usd.\nPlease note that this market is about the price according to Chainlink data stream SOL/USD, not according to other sources or spot markets.",
+   "enableNegRisk": false,
+   "endDate": "2026-08-05T15:00:00Z",
+   "negRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://data.chain.link/streams/sol-usd",
+   "seriesSlug": "sol-up-or-down-15m",
+   "slug": "sol-updown-15m-1785941100",
+   "startDate": "2026-08-04T14:53:00.769902Z",
+   "title": "Solana Up or Down - August 5, 10:45AM-11:00AM ET"
+  },
+  "market": {
+   "conditionId": "0x2e9c2f3598332269a93ba394e3e002800f641f7d3e8cae6f34336154d7c122c0",
+   "description": "This market will resolve to \"Up\" if the Solana price at the end of the time range specified in the title is greater than or equal to the price at the beginning of that range. Otherwise, it will resolve to \"Down\".\nThe resolution source for this market is information from Chainlink, specifically the SOL/USD data stream available at https://data.chain.link/streams/sol-usd.\nPlease note that this market is about the price according to Chainlink data stream SOL/USD, not according to other sources or spot markets.",
+   "endDate": "2026-08-05T15:00:00Z",
+   "eventStartTime": "2026-08-05T14:45:00Z",
+   "groupItemThreshold": "0",
+   "negRisk": false,
+   "outcomes": "[\"Up\", \"Down\"]",
+   "question": "Solana Up or Down - August 5, 10:45AM-11:00AM ET",
+   "resolutionSource": "https://data.chain.link/streams/sol-usd",
+   "slug": "sol-updown-15m-1785941100",
+   "startDate": "2026-08-04T14:53:00.769902Z"
+  },
+  "outcome": "Up",
+  "token_id": "42395379317838771443994913781957119343594604346122360828392579077212777926189",
+  "venue": "POLYMARKET_INTL"
+ },
+ "xrp-price-on-october-30-2026:<0.90": {
+  "event": {
+   "description": "This market will resolve according to the final \"Close\" price of the Binance 1 minute candle for XRP/USDT closing at 12:00 in the ET timezone (noon) on the date specified in the title. Otherwise, this market will resolve to \"No\".\n\nThe resolution source for this market is Binance, specifically the XRP/USDT \"Close\" prices currently available at https://www.binance.com/en/trade/XRP_USDT with \"1m\" and \"Candles\" selected on the top bar.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nPlease note that this market is about the price according to Binance XRP/USDT, not according to other exchanges or trading pairs.",
+   "enableNegRisk": true,
+   "endDate": "2026-10-30T16:00:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://www.binance.com/en/trade/XRP_USDT",
+   "seriesSlug": "xrp-neg-risk-weekly",
+   "slug": "xrp-price-on-october-30-2026",
+   "startDate": "2026-10-23T16:00:34Z",
+   "title": "XRP price on October 30?"
+  },
+  "market": {
+   "conditionId": "0x866e24300e0549f4f542b05a92f91acb48366a09dea64db5976e8dfa926246b0",
+   "description": "This market will resolve according to the final \"Close\" price of the Binance 1 minute candle for XRP/USDT closing at 12:00 in the ET timezone (noon) on the date specified in the title. Otherwise, this market will resolve to \"No\".\n\nThe resolution source for this market is Binance, specifically the XRP/USDT \"Close\" prices currently available at https://www.binance.com/en/trade/XRP_USDT with \"1m\" and \"Candles\" selected on the top bar.\n\nIf the reported value falls exactly between two brackets, then this market will resolve to the higher range bracket.\n\nPlease note that this market is about the price according to Binance XRP/USDT, not according to other exchanges or trading pairs.",
+   "endDate": "2026-10-30T16:00:00Z",
+   "groupItemThreshold": "0",
+   "groupItemTitle": "<0.90",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the price of XRP be less than $0.90 on October 30?",
+   "resolutionSource": "https://www.binance.com/en/trade/XRP_USDT",
+   "slug": "will-the-price-of-xrp-be-less-than-0pt90-on-october-30-2026",
+   "startDate": "2026-10-23T16:00:34Z"
+  },
+  "outcome": "<0.90",
+  "token_id": "11694387392243743213702458146493935531059859736544966683845585940200865108804",
+  "venue": "POLYMARKET_INTL"
+ }
+}

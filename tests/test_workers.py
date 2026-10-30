@@ -8,13 +8,12 @@ import pytest
 from moto import mock_aws
 
 from classifier.adapters.types import AdapterContract
-from classifier.client import BatchVoyageClient
 from classifier.runtime_config import ClassifierConfig, FeatureFlags
 from classifier.workers.config import WorkerConfig
-from classifier.workers.embed import EmbedWorker
 from classifier.workers.normalize import NormalizeWorker
 from classifier.workers.notify import NotifyWorker
 from classifier.workers.relationships import RelationshipsWorker
+from classifier.workers.base import _COMPRESS_ABOVE_BYTES, encode_body, message_body
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 from scripts.testing import StubDB, StubRegistry
 
@@ -93,20 +92,14 @@ def _patch_normalize_setup(worker, stub_registry, stub_db, mock_converse, sns_cl
     worker._setup = types.MethodType(_setup, worker)
 
 
-def _patch_embed_setup(worker, mock_voyage_client, stub_db):
+def _patch_relationships_setup(worker, stub_registry, stub_db, sns_client, relationships_enabled=False, llm_enabled=False):
     def _setup(self):
         self._runtime_config = _make_mock_runtime_config()
-        self._voyage_client = BatchVoyageClient(client=mock_voyage_client)
-        self._db = stub_db
-    worker._setup = types.MethodType(_setup, worker)
-
-
-def _patch_relationships_setup(worker, stub_registry, stub_db, mock_anthropic, mock_voyage_client, sns_client):
-    def _setup(self):
-        self._runtime_config = _make_mock_runtime_config()
+        self._runtime_config.config.feature_flags.relationships_enabled = relationships_enabled
+        self._runtime_config.config.feature_flags.proposition_llm_enabled = llm_enabled
         self._registry = stub_registry
-        self._batch_client = mock_anthropic
-        self._cache = _make_no_op_cache()
+        self._voyage = MagicMock()
+        self._voyage.embed.side_effect = lambda texts, model, input_type: [[1.0, 0.0] for _ in texts]
         self._db = stub_db
         self._sns = sns_client
     worker._setup = types.MethodType(_setup, worker)
@@ -189,126 +182,88 @@ class TestNormalizeWorker:
         assert _drain_queue(moto_env["sqs"], moto_env["slack_queue"]) == []
 
 
-class TestEmbedWorker:
-    def test_produces_embeddings_queue_messages(self, moto_env, stub_registry, stub_db, mock_voyage):
-        stub_registry.bulk_create_events([{"title": "BTC question", "exchange_id": 1, "native_event_id": "evt-1"}])
-        event_id = stub_registry._events[0].event_id
-        stub_registry.bulk_create_securities([{"symbol": "SYM", "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
-        sec_id = stub_registry._securities[0].security_id
-        stub_registry.bulk_create_event_contracts([{"event_id": event_id, "security_id": sec_id, "outcome_label": "Yes"}])
-
-        config = WorkerConfig()
-        worker = EmbedWorker(config)
-        _patch_embed_setup(worker, mock_voyage, stub_db)
-        worker._setup()
-
-        messages = [_sqs_msg({"type": "new_security", "security_id": sec_id, "security_symbol": "SYM"})]
-        output = worker.process_batch(messages)
-
-        assert len(output) > 0
-        for msg in output:
-            assert msg["type"] == "security"
-            assert msg["security_id"] == sec_id
-            assert msg["security_symbol"] == "SYM"
-
-    def test_preserves_created_event_info(self, moto_env, stub_registry, stub_db, mock_voyage):
-        stub_registry.bulk_create_events([{"title": "BTC question", "exchange_id": 1, "native_event_id": "evt-1"}])
-        event_id = stub_registry._events[0].event_id
-        stub_registry.bulk_create_securities([{"symbol": "SYM", "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
-        sec_id = stub_registry._securities[0].security_id
-        stub_registry.bulk_create_event_contracts([{"event_id": event_id, "security_id": sec_id, "outcome_label": "Yes"}])
-
-        config = WorkerConfig()
-        worker = EmbedWorker(config)
-        _patch_embed_setup(worker, mock_voyage, stub_db)
-        worker._setup()
-
-        messages = [_sqs_msg({
-            "type": "new_security", "security_id": sec_id, "security_symbol": "SYM",
-            "created_event_id": event_id, "created_event_name": "BTC question",
-        })]
-        output = worker.process_batch(messages)
-
-        assert len(output) > 0
-        event_msgs = [m for m in output if m["security_id"] == sec_id]
-        assert len(event_msgs) == 1
-        assert event_msgs[0].get("created_event_id") == event_id
-        assert event_msgs[0].get("created_event_name") == "BTC question"
-
-    def test_empty_batch_returns_empty(self, moto_env, stub_registry, stub_db, mock_voyage):
-        config = WorkerConfig()
-        worker = EmbedWorker(config)
-        _patch_embed_setup(worker, mock_voyage, stub_db)
-        worker._setup()
-
-        assert worker.process_batch([]) == []
-
-
 class TestRelationshipsWorker:
-    def test_publishes_new_events_to_sns(self, moto_env, stub_registry, stub_db, mock_anthropic, mock_voyage):
+    def _worker(self, stub_registry, stub_db, relationships_enabled=False, llm_enabled=False):
+        sns_client = boto3.client("sns", region_name="us-east-1")
+        worker = RelationshipsWorker(WorkerConfig())
+        _patch_relationships_setup(worker, stub_registry, stub_db, sns_client, relationships_enabled, llm_enabled)
+        worker._setup()
+        return worker
+
+    def _event_with_two_sides(self, stub_registry):
         stub_registry.bulk_create_events([{"title": "BTC event", "exchange_id": 1, "native_event_id": "evt-1"}])
         event_id = stub_registry._events[0].event_id
         for sym in ("SYM-YES", "SYM-NO"):
             stub_registry.bulk_create_securities([{"symbol": sym, "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
-        sid_yes = stub_registry._securities[0].security_id
-        sid_no = stub_registry._securities[1].security_id
-        for sid, label in [(sid_yes, "Yes"), (sid_no, "No")]:
+        sids = [s.security_id for s in stub_registry._securities[:2]]
+        for sid, label in zip(sids, ("Yes", "No")):
             stub_registry.bulk_create_event_contracts([{"event_id": event_id, "security_id": sid, "outcome_label": label}])
+        return event_id, sids
 
-        stub_db.put_embeddings({sid_yes: [0.1] * 10, sid_no: [0.2] * 10})
-
-        sns_client = boto3.client("sns", region_name="us-east-1")
-        config = WorkerConfig()
-        worker = RelationshipsWorker(config)
-        _patch_relationships_setup(worker, stub_registry, stub_db, mock_anthropic, mock_voyage, sns_client)
-        worker._setup()
-
+    def test_publishes_new_events_to_sns(self, moto_env, stub_registry, stub_db):
+        event_id, (sid_yes, sid_no) = self._event_with_two_sides(stub_registry)
+        worker = self._worker(stub_registry, stub_db)
         messages = [
-            _sqs_msg({"type": "security", "security_id": sid_yes, "security_symbol": "SYM-YES", "created_event_id": event_id, "created_event_name": "BTC event"}),
-            _sqs_msg({"type": "security", "security_id": sid_no, "security_symbol": "SYM-NO", "created_event_id": event_id, "created_event_name": "BTC event"}),
+            _sqs_msg({"type": "security", "security_id": sid, "security_symbol": sym, "created_event_id": event_id,
+                      "created_event_name": "BTC event"})
+            for sid, sym in ((sid_yes, "SYM-YES"), (sid_no, "SYM-NO"))
         ]
-        output = worker.process_batch(messages)
+        assert worker.process_batch(messages) == []
 
-        assert output == []
+        payloads = [json.loads(json.loads(m["Body"])["Message"]) for m in _drain_queue(moto_env["sqs"], moto_env["slack_queue"])]
+        new_events = next(p for p in payloads if p["type"] == "new_events")
+        assert event_id in new_events["created_event_ids"] and "BTC event" in new_events["created_event_names"]
 
-        delivered = _drain_queue(moto_env["sqs"], moto_env["slack_queue"])
-        payloads = [json.loads(json.loads(m["Body"])["Message"]) for m in delivered]
-        types_seen = {p["type"] for p in payloads}
-        assert "new_events" in types_seen
-        new_events_payload = next(p for p in payloads if p["type"] == "new_events")
-        assert event_id in new_events_payload["created_event_ids"]
-        assert "BTC event" in new_events_payload["created_event_names"]
+    def test_no_new_events_no_sns_publish(self, moto_env, stub_registry, stub_db):
+        _, (sid_yes, _) = self._event_with_two_sides(stub_registry)
+        worker = self._worker(stub_registry, stub_db)
+        assert worker.process_batch([_sqs_msg({"type": "security", "security_id": sid_yes, "security_symbol": "SYM-YES"})]) == []
+        assert _drain_queue(moto_env["sqs"], moto_env["slack_queue"]) == []
 
-    def test_no_new_events_no_sns_publish(self, moto_env, stub_registry, stub_db, mock_anthropic, mock_voyage):
-        stub_registry.bulk_create_events([{"title": "BTC event", "exchange_id": 1, "native_event_id": "evt-1"}])
-        event_id = stub_registry._events[0].event_id
-        stub_registry.bulk_create_securities([{"symbol": "SYM-YES", "type": 4, "contract_type": 7, "asset_class": 5, "inverse": False, "quanto": False}])
-        sid_yes = stub_registry._securities[0].security_id
-        stub_registry.bulk_create_event_contracts([{"event_id": event_id, "security_id": sid_yes, "outcome_label": "Yes"}])
+    def test_no_securities_returns_empty(self, moto_env, stub_registry, stub_db):
+        assert self._worker(stub_registry, stub_db).process_batch([]) == []
 
-        sns_client = boto3.client("sns", region_name="us-east-1")
-        config = WorkerConfig()
-        worker = RelationshipsWorker(config)
-        _patch_relationships_setup(worker, stub_registry, stub_db, mock_anthropic, mock_voyage, sns_client)
-        worker._setup()
+    def test_reads_nothing_while_the_flag_is_off(self, moto_env, stub_registry, stub_db):
+        _, (sid_yes, _) = self._event_with_two_sides(stub_registry)
+        worker = self._worker(stub_registry, stub_db)
+        with patch("classifier.workers.relationships.read_propositions") as read:
+            worker.process_batch([_sqs_msg({"type": "security", "security_id": sid_yes, "security_symbol": "SYM-YES"})])
+            worker.on_idle()
+        read.assert_not_called()
 
-        # No created_event_id in message — existing event got a new security
-        messages = [_sqs_msg({"type": "security", "security_id": sid_yes, "security_symbol": "SYM-YES"})]
-        output = worker.process_batch(messages)
+    def test_with_the_llm_off_it_reads_by_code_only_and_skips_the_drift_check(self, moto_env, stub_registry, stub_db):
+        _, (sid_yes, _) = self._event_with_two_sides(stub_registry)
+        worker = self._worker(stub_registry, stub_db, relationships_enabled=True)
+        with patch("classifier.workers.relationships.read_propositions") as read, \
+                patch("classifier.workers.relationships.derive_due_subjects") as derive, \
+                patch("classifier.workers.relationships.run_drift_check") as drift:
+            worker.process_batch([_sqs_msg({"type": "security", "security_id": sid_yes, "security_symbol": "SYM-YES"})])
+            worker.on_idle()
+        assert read.call_args.kwargs["extractor"] is None
+        assert derive.called
+        drift.assert_not_called()
 
-        assert output == []
-        delivered = _drain_queue(moto_env["sqs"], moto_env["slack_queue"])
-        assert len(delivered) == 0
+    def test_with_the_llm_on_it_reads_derives_and_checks_drift_once_a_day(self, moto_env, stub_registry, stub_db):
+        _, (sid_yes, _) = self._event_with_two_sides(stub_registry)
+        worker = self._worker(stub_registry, stub_db, relationships_enabled=True, llm_enabled=True)
+        with patch("classifier.workers.relationships.read_propositions") as read, \
+                patch("classifier.workers.relationships.derive_due_subjects") as derive, \
+                patch("classifier.workers.relationships.run_drift_check") as drift:
+            msg = _sqs_msg({"type": "security", "security_id": sid_yes, "security_symbol": "SYM-YES"})
+            worker.process_batch([msg])
+            worker.process_batch([msg])
+        assert read.call_args.args[0] == [sid_yes]
+        assert read.call_args.kwargs["extractor"] is not None
+        assert derive.call_count == 2
+        assert drift.call_count == 1
 
-    def test_no_securities_returns_empty(self, moto_env, stub_registry, stub_db, mock_anthropic, mock_voyage):
-        sns_client = boto3.client("sns", region_name="us-east-1")
-        config = WorkerConfig()
-        worker = RelationshipsWorker(config)
-        _patch_relationships_setup(worker, stub_registry, stub_db, mock_anthropic, mock_voyage, sns_client)
-        worker._setup()
-
-        assert worker.process_batch([]) == []
-
+    def test_idle_derives_subjects_that_came_due(self, moto_env, stub_registry, stub_db):
+        worker = self._worker(stub_registry, stub_db, relationships_enabled=True)
+        with patch("classifier.workers.relationships.derive_due_subjects") as derive, \
+                patch("classifier.workers.relationships.run_drift_check"):
+            worker.on_idle()
+            worker.on_idle()
+        assert derive.call_count == 1
 
 class TestNotifyWorker:
     def test_aggregates_and_calls_slack(self, moto_env):
@@ -379,59 +334,33 @@ class TestNotifyWorker:
 
 
 class TestPipelineMessageCompat:
-    def test_normalize_output_feeds_embed(self, moto_env, stub_registry, stub_db, mock_converse, mock_voyage):
-        """Verify that messages NormalizeWorker produces are valid input for EmbedWorker."""
+    def test_normalize_output_feeds_relationships(self, moto_env, stub_registry, stub_db, mock_converse):
+        """Messages NormalizeWorker produces are the relationships worker's input, created-event info included."""
         sns_client = boto3.client("sns", region_name="us-east-1")
-
         config = WorkerConfig()
         normalize = NormalizeWorker(config)
         _patch_normalize_setup(normalize, stub_registry, stub_db, mock_converse, sns_client)
         normalize._setup()
 
-        contract = _make_adapter_contract()
         norm_output = normalize.process_batch([
-            _sqs_msg({"type": "new", "contracts": [dataclasses.asdict(contract)]})
+            _sqs_msg({"type": "new", "contracts": [dataclasses.asdict(_make_adapter_contract(event_title="Will BTC hit $100k?"))]})
         ])
+        assert norm_output and all("security_id" in m for m in norm_output)
+        assert any("created_event_id" in m for m in norm_output)
 
-        assert len(norm_output) > 0
+        relationships = RelationshipsWorker(config)
+        _patch_relationships_setup(relationships, stub_registry, stub_db, sns_client)
+        relationships._setup()
+        relationships.process_batch([_sqs_msg(m) for m in norm_output])
 
-        embed = EmbedWorker(config)
-        _patch_embed_setup(embed, mock_voyage, stub_db)
-        embed._setup()
+        payloads = [json.loads(json.loads(m["Body"])["Message"]) for m in _drain_queue(moto_env["sqs"], moto_env["slack_queue"])]
+        assert any(p["type"] == "new_events" for p in payloads)
 
-        embed_input = [_sqs_msg(msg) for msg in norm_output]
-        embed_output = embed.process_batch(embed_input)
-
-        assert len(embed_output) > 0
-        for msg in embed_output:
-            assert msg["type"] == "security"
-            assert "security_id" in msg
-
-    def test_created_event_info_flows_normalize_to_embed(self, moto_env, stub_registry, stub_db, mock_converse, mock_voyage):
-        """Verify created_event_id/created_event_name flows from NormalizeWorker through EmbedWorker."""
-        sns_client = boto3.client("sns", region_name="us-east-1")
-
-        config = WorkerConfig()
-        normalize = NormalizeWorker(config)
-        _patch_normalize_setup(normalize, stub_registry, stub_db, mock_converse, sns_client)
-        normalize._setup()
-
-        contract = _make_adapter_contract(event_title="Will BTC hit $100k?")
-        norm_output = normalize.process_batch([
-            _sqs_msg({"type": "new", "contracts": [dataclasses.asdict(contract)]})
-        ])
-
-        # At least one output message should carry event info
-        event_msgs = [m for m in norm_output if "created_event_id" in m]
-        assert len(event_msgs) > 0
-
-        embed = EmbedWorker(config)
-        _patch_embed_setup(embed, mock_voyage, stub_db)
-        embed._setup()
-
-        embed_input = [_sqs_msg(msg) for msg in norm_output]
-        embed_output = embed.process_batch(embed_input)
-
-        # Event info should be preserved through EmbedWorker
-        embed_event_msgs = [m for m in embed_output if "created_event_id" in m]
-        assert len(embed_event_msgs) > 0
+def test_large_bodies_travel_gzipped_and_read_back_whole():
+    small = {"type": "new", "contracts": [{"a": 1}]}
+    large = {"type": "new", "contracts": [{"rules": "x" * 1000, "i": i} for i in range(400)]}
+    assert encode_body(small) == json.dumps(small)
+    encoded = encode_body(large)
+    assert len(encoded) < _COMPRESS_ABOVE_BYTES < len(json.dumps(large))
+    assert message_body({"Body": encoded}) == large
+    assert message_body({"Body": json.dumps(small)}) == small

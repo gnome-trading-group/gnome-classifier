@@ -9,7 +9,7 @@ from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier import taxonomy
 from classifier.adapters.settlement import CLOSED, OPEN, MarketState, chunked, settled, to_price
-from classifier.adapters.types import AdapterContract
+from classifier.adapters.types import AdapterContract, pick_source_fields
 from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
 from classifier.utils import format_security_symbol
@@ -99,6 +99,33 @@ def _sport_slug(event: dict) -> str | None:
     return None
 
 
+
+_SOURCE_EVENT_FIELDS = ("slug", "ticker", "title", "description", "category", "seriesSlug", "startDate", "endDate")
+_SOURCE_MARKET_FIELDS = (
+    "slug", "title", "subtitle", "question", "description", "outcomes", "marketType", "sportsMarketType",
+    "sportsMarketTypeV2", "line", "startDate", "endDate", "gameStartTime", "resolutionSource",
+)
+
+_SOURCE_SIDE_FIELDS = ("description", "long", "identifier", "marketSideType")
+
+
+def _with_sources(event: dict, contracts: list[AdapterContract]) -> list[AdapterContract]:
+    event_source = pick_source_fields(event, _SOURCE_EVENT_FIELDS)
+    market_by_slug = {m.get("slug"): m for m in event.get("markets") or []}
+    for c in contracts:
+        slug, _, leg = c.exchange_security_id.partition(":")
+        c.proposition_source = {
+            "venue": "POLYMARKET_US",
+            "event": event_source,
+            "market": pick_source_fields(market_by_slug.get(slug), _SOURCE_MARKET_FIELDS),
+            # A side's price moves every fetch; only what it is stays in the source.
+            "sides": [pick_source_fields(side, _SOURCE_SIDE_FIELDS)
+                      for side in (market_by_slug.get(slug) or {}).get("marketSides") or []],
+            "leg": leg,
+        }
+    return contracts
+
+
 class PolymarketUsAdapter:
     exchange_code = "POLYMARKET_US"
     symbol_prefix = "PM_US"
@@ -112,7 +139,7 @@ class PolymarketUsAdapter:
     def fetch(self, exchange_id: ExchangeId):
         volume_by_slug = self._fetch_volume_buckets()
         for events in self._active_events():
-            page = [c for event in events for c in self._map_event(exchange_id, event, volume_by_slug)]
+            page = [c for event in events for c in _with_sources(event, self._map_event(exchange_id, event, volume_by_slug))]
             if page:
                 yield page
 

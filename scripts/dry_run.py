@@ -16,18 +16,8 @@ Subcommands run progressively deeper pipeline stages:
       --verbose shows every created entity in detail.
       --no-canonicalize skips Bedrock and uses the exchange category with no tags (no AWS credentials required).
 
-  dry-run classify [ADAPTER] [-n N] [--no-canonicalize] [--structural-only] [--skip-judgment] [--no-cache]
-      Full pipeline: fetch + entities + relationship classification.
-      --structural-only skips all semantic work (no embeddings, no Claude calls).
-      --skip-judgment runs embedding search but skips Claude judgment calls.
-      Requires AWS credentials with Bedrock access (unless --no-canonicalize), ANTHROPIC_API_KEY for
-      judgment calls, and VOYAGE_API_KEY for embeddings.
-
-  dry-run reclassify [--with-semantic] [--no-cache]
-      Re-run relationship classification on ALL existing events in the DB.
-      Structural + rule-based only by default. --with-semantic adds Claude judgment.
-      Requires DATABASE_URL, REGISTRY_API_URL, REGISTRY_API_KEY (and ANTHROPIC_API_KEY
-      with --with-semantic).
+Propositions and relationships are scored offline by `poetry run eval-propositions` and
+`poetry run eval-relationships --derive` instead of a dry run.
 
 Common options (on every subcommand):
   --debug          Enable debug logging
@@ -43,9 +33,7 @@ import os
 from collections import Counter
 from datetime import timedelta
 
-import anthropic
 import click
-import voyageai
 
 from classifier.adapters import ADAPTERS
 from classifier.cache import RedisClassifierCache
@@ -56,17 +44,16 @@ from classifier.constants import (
     DEFAULT_SETTLEMENT_LOOKBACK_DAYS,
 )
 from classifier.db import ClassifierDB
-from classifier.pipeline import PipelineResult, create_entities_and_embed, fetch_exchanges, run_full_pipeline_sync
-from classifier.client import BatchAnthropicClient, BatchVoyageClient, BedrockConverseClient, bedrock_runtime_client
+from classifier.stages.entities import create_entities
+from classifier.client import BedrockConverseClient, bedrock_runtime_client
 from classifier.stages.canonicalize import canonicalize_events
-from classifier.stages.classify import classify_semantic_sync, prepare_semantic_batch, run_classification_sync
-from classifier.stages.fetch import diff_contracts, fetch_all, fetch_resolved_outcomes
+from classifier.stages.fetch import diff_contracts, fetch_all, fetch_exchanges, fetch_resolved_outcomes
 from classifier.stages.resolve import deactivate_closed_listings
 from classifier.stages.settle import record_settlements
 from classifier.stages.stale import deactivate_stale_events
 from classifier.types import CanonicalizeInput
 from gnomepy.registry import RegistryClient
-from scripts.testing import FakeConverseClient, StubDB, StubRegistry, no_op_anthropic_client, no_op_voyage_client
+from scripts.testing import FakeConverseClient, StubDB, StubRegistry
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -84,14 +71,8 @@ def _build_cache(no_cache: bool):
 
 def _build_clients(*, no_canonicalize: bool, no_cache: bool):
     canon_client = FakeConverseClient() if no_canonicalize else BedrockConverseClient(client=bedrock_runtime_client())
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    batch_client = BatchAnthropicClient(client=anthropic.Anthropic(api_key=api_key) if api_key else no_op_anthropic_client())
 
-    voyage_key = os.environ.get("VOYAGE_API_KEY")
-    raw_voyage = voyageai.Client(api_key=voyage_key) if voyage_key else no_op_voyage_client()
-    voyage_client = BatchVoyageClient(client=raw_voyage)
-
-    return canon_client, batch_client, voyage_client, _build_cache(no_cache)
+    return canon_client, _build_cache(no_cache)
 
 
 def _fetch_contracts(adapter: str | None, max_contracts: int | None):
@@ -311,14 +292,14 @@ def canonicalize(ctx, adapter: str | None, max_contracts: int | None, no_cache: 
 @click.pass_context
 def entities(ctx, adapter: str | None, max_contracts: int | None, no_canonicalize: bool, no_cache: bool, verbose: bool):
     """Fetch + create entities (events, securities, listings). Prints summary counts."""
-    canon_client, _, voyage_client, cache = _build_clients(no_canonicalize=no_canonicalize, no_cache=no_cache)
+    canon_client, cache = _build_clients(no_canonicalize=no_canonicalize, no_cache=no_cache)
     registry, db, contracts, exchange_by_code = _fetch_contracts(adapter, max_contracts)
     if not contracts:
         print("No contracts returned.")
         return
 
     print(f"\nRunning entity creation ({len(contracts)} contracts)...", flush=True)
-    entity_result = create_entities_and_embed(registry, canon_client, contracts, voyage_client=voyage_client, cache=cache, db=db, debug=ctx.obj.get("debug", False))
+    entity_result = create_entities(registry, canon_client, contracts, cache=cache, db=db, debug=ctx.obj.get("debug", False))
 
     print(f"\n{'='*70}")
     print("ENTITY CREATION SUMMARY")
@@ -331,70 +312,6 @@ def entities(ctx, adapter: str | None, max_contracts: int | None, no_canonicaliz
         _display_entities_verbose(registry)
 
     output = {**registry.get_dry_run_data(), "summary": entity_result.counts}
-    with open(ctx.obj["output_path"], "w") as f:
-        json.dump(output, f, indent=2)
-    print(f"\nFull output written to {ctx.obj['output_path']}")
-
-
-@main.command()
-@click.argument("adapter", required=False, default=None)
-@click.option("-n", "max_contracts", type=int, default=None, help="Limit to first N contracts")
-@click.option("--no-canonicalize", is_flag=True, help="Skip Bedrock categorization — use exchange category, no tags")
-@click.option("--structural-only", is_flag=True, help="Skip all semantic work — only structural + rule-based relationships")
-@click.option("--skip-judgment", is_flag=True, help="Run embedding search but skip Claude judgment calls")
-@click.option("--no-cache", is_flag=True, help="Ignore the Redis cache even if REDIS_URL is set")
-@click.pass_context
-def classify(ctx, adapter: str | None, max_contracts: int | None, no_canonicalize: bool, structural_only: bool, skip_judgment: bool, no_cache: bool):
-    """Full pipeline: fetch + entities + relationship classification."""
-    canon_client, batch_client, voyage_client, cache = _build_clients(
-        no_canonicalize=no_canonicalize, no_cache=no_cache,
-    )
-    registry, db, contracts, exchange_by_code = _fetch_contracts(adapter, max_contracts)
-    if not contracts:
-        print("No contracts returned.")
-        return
-
-    print(f"\nRunning entity creation ({len(contracts)} contracts)...", flush=True)
-    print("Running relationship classification...", flush=True)
-
-    debug = ctx.obj.get("debug", False)
-    if skip_judgment and not structural_only:
-        # Embedding search only — run entity creation + structural, then show candidate count
-        result: PipelineResult = run_full_pipeline_sync(
-            registry, canon_client, batch_client, contracts,
-            voyage_client=voyage_client, cache=cache, db=db,
-            skip_semantic=True, debug=debug,
-        )
-        if result.classification:
-            api_requests, _, _ = prepare_semantic_batch(
-                result.entity_result.new_security_ids, cache=cache, db=db, debug=debug,
-            )
-            if api_requests:
-                logger.info("skip_judgment: would call Claude for %d pairs", len(api_requests))
-    else:
-        result = run_full_pipeline_sync(
-            registry, canon_client, batch_client, contracts,
-            voyage_client=voyage_client, cache=cache, db=db,
-            skip_semantic=structural_only, debug=debug,
-        )
-
-    entity_result = result.entity_result
-    classification = result.classification
-
-    relationship_result = {
-        "relationships_written": classification.relationships_written if classification else 0,
-        "relationships_skipped_low_confidence": classification.relationships_skipped_low_confidence if classification else 0,
-    }
-
-    summary = {**entity_result.counts, **relationship_result, "new_security_symbols": entity_result.new_security_symbols}
-
-    print(f"\n{'='*70}")
-    print("SUMMARY")
-    print(f"{'='*70}")
-    for k, v in summary.items():
-        print(f"  {k}: {v}")
-
-    output = {**registry.get_dry_run_data(), "summary": summary}
     with open(ctx.obj["output_path"], "w") as f:
         json.dump(output, f, indent=2)
     print(f"\nFull output written to {ctx.obj['output_path']}")
@@ -572,81 +489,3 @@ def stale(ctx, adapter: str | None, events: str | None):
         print(f"\n  Total events that would accumulate miss counts: {total_missing}")
 
 
-@main.command()
-@click.option("--with-semantic", is_flag=True, help="Also run semantic (embedding search + Claude judgment) in addition to structural")
-@click.option("--count-only", is_flag=True, help="Count how many Claude calls would be made across all existing events — no writes, no API calls")
-@click.option("--no-cache", is_flag=True, help="Ignore cache even if REDIS_URL is set")
-@click.pass_context
-def reclassify(ctx, with_semantic: bool, count_only: bool, no_cache: bool):
-    """Re-run relationship classification on ALL existing events.
-
-    Structural + rule-based only by default (no Claude calls). Use --with-semantic
-    to also run the embedding search + judgment pass. Use --count-only to just
-    count how many Claude calls the semantic pass would make without executing them.
-
-    Requires DATABASE_URL, REGISTRY_API_URL, and REGISTRY_API_KEY env vars.
-    Requires ANTHROPIC_API_KEY when --with-semantic is set (not needed for --count-only).
-    """
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        raise click.ClickException("DATABASE_URL is required for reclassify")
-
-    if count_only:
-        db = ClassifierDB(dsn=database_url)
-        cache = _build_cache(no_cache)
-        print("\nSearching for semantic candidates across all existing events...", flush=True)
-        api_requests, _, cached_results = prepare_semantic_batch(
-            new_security_ids=[], db=db, cache=cache,
-        )
-        total = len(api_requests) + len(cached_results)
-        print(f"\n{'='*70}")
-        print("SEMANTIC CANDIDATE COUNT")
-        print(f"{'='*70}")
-        print(f"  {'pairs pending Claude':<30}: {len(api_requests)}")
-        print(f"  {'pairs already cached':<30}: {len(cached_results)}")
-        print(f"  {'total candidate pairs':<30}: {total}")
-        return
-
-    registry_url = os.environ.get("REGISTRY_API_URL")
-    registry_key = os.environ.get("REGISTRY_API_KEY")
-    if not registry_url or not registry_key:
-        raise click.ClickException("REGISTRY_API_URL and REGISTRY_API_KEY are required for reclassify")
-
-    if with_semantic:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise click.ClickException("ANTHROPIC_API_KEY is required with --with-semantic")
-        batch_client = BatchAnthropicClient(client=anthropic.Anthropic(api_key=api_key))
-    else:
-        batch_client = BatchAnthropicClient(client=no_op_anthropic_client())
-
-    registry = RegistryClient(base_url=registry_url, api_key=registry_key)
-    db = ClassifierDB(dsn=database_url)
-    cache = _build_cache(no_cache)
-
-    mode = "structural + rule-based + semantic" if with_semantic else "structural + rule-based only"
-    print(f"\nReclassifying all existing events ({mode})...", flush=True)
-
-    classification = run_classification_sync(
-        registry, batch_client, new_security_ids=[],
-        cache=cache, db=db, skip_semantic=not with_semantic,
-        debug=ctx.obj.get("debug", False),
-    )
-    print(f"  Structural: {classification.structural.get('relationships_written', 0)} written")
-    if classification.semantic:
-        print(f"  Semantic: {classification.semantic.get('relationships_written', 0)} written")
-
-    result = {
-        "relationships_written": classification.relationships_written,
-        "relationships_skipped_low_confidence": classification.relationships_skipped_low_confidence,
-    }
-
-    print(f"\n{'='*70}")
-    print("RECLASSIFY SUMMARY")
-    print(f"{'='*70}")
-    for k, v in result.items():
-        print(f"  {k:<30}: {v}")
-
-    with open(ctx.obj["output_path"], "w") as f:
-        json.dump(result, f, indent=2)
-    print(f"\nFull output written to {ctx.obj['output_path']}")

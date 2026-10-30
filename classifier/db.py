@@ -1,13 +1,18 @@
 import logging
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import psycopg2
 import psycopg2.extras
 import psycopg2.pool
 from pgvector.psycopg2 import register_vector
 
-from gnomepy.registry.types import ContractRelationship, Currency, Event, EventContract, Listing, Security
+from gnomepy.registry.types import ContractType, Currency, Event, EventContract, Listing, Security
+
+from classifier.propositions.derive import Contract
+from classifier.propositions.inputs import ExtractionInput
+from classifier.propositions.subjects import KnownSubject
+from classifier.propositions.types import Proposition
 
 logger = logging.getLogger(__name__)
 
@@ -282,29 +287,6 @@ class ClassifierDB:
                     for row in cur.fetchall()
                 ]
 
-    def get_event_contracts_for_securities(self, security_ids: list[int]) -> list[EventContract]:
-        if not security_ids:
-            return []
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT ec.event_contract_id, ec.event_id, ec.security_id, ec.outcome_label, ec.date_created"
-                    " FROM sm.event_contract ec"
-                    " WHERE ec.event_id IN ("
-                    "   SELECT DISTINCT ec2.event_id FROM sm.event_contract ec2"
-                    "   WHERE ec2.security_id = ANY(%s)"
-                    " )",
-                    (security_ids,),
-                )
-                return [
-                    EventContract(
-                        event_contract_id=row[0], event_id=row[1],
-                        security_id=row[2], outcome_label=row[3],
-                        date_created=str(row[4]),
-                    )
-                    for row in cur.fetchall()
-                ]
-
     def get_event_ids_for_securities(self, security_ids: list[int]) -> set[int]:
         """Returns event_ids linked to these securities via event_contract."""
         if not security_ids:
@@ -337,56 +319,6 @@ class ClassifierDB:
                         event_contract_id=row[0], event_id=row[1],
                         security_id=row[2], outcome_label=row[3],
                         date_created=str(row[4]),
-                    )
-                    for row in cur.fetchall()
-                ]
-
-    def get_events_for_ids(self, event_ids: list[int]) -> list[Event]:
-        """Returns Event objects for the given event_ids."""
-        if not event_ids:
-            return []
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT event_id, title, description, category,"
-                    " tags, resolved, resolved_at, expiry, date_modified, date_created,"
-                    " exchange_id, native_event_id, native_url"
-                    " FROM sm.event WHERE event_id = ANY(%s)",
-                    (event_ids,),
-                )
-                return [
-                    Event(
-                        event_id=row[0], title=row[1], description=row[2],
-                        category=row[3], tags=row[4],
-                        resolved=row[5], resolved_at=str(row[6]) if row[6] else None,
-                        expiry=str(row[7]) if row[7] else None,
-                        date_modified=str(row[8]), date_created=str(row[9]),
-                        exchange_id=row[10], native_event_id=row[11], native_url=row[12],
-                    )
-                    for row in cur.fetchall()
-                ]
-
-    def get_tradeable_securities(self) -> list[Security]:
-        """Returns active non-event-contract securities (spot, perp, etc.) for hedgeable pair matching."""
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT security_id, symbol, type, contract_type, asset_class,"
-                    " base_currency_id, quote_currency_id, settle_currency_id,"
-                    " inverse, is_quanto, expiry, strike_price, active,"
-                    " underlying_security_id, description, date_modified, date_created"
-                    " FROM sm.security WHERE active = true AND type != 'EVENT_CONTRACT'"
-                )
-                return [
-                    Security(
-                        security_id=row[0], symbol=row[1], type=row[2],
-                        contract_type=row[3], asset_class=row[4],
-                        base_currency_id=row[5], quote_currency_id=row[6],
-                        settle_currency_id=row[7], inverse=row[8], is_quanto=row[9],
-                        expiry=str(row[10]) if row[10] else None,
-                        strike_price=row[11], active=row[12],
-                        underlying_security_id=row[13], description=row[14],
-                        date_modified=str(row[15]), date_created=str(row[16]),
                     )
                     for row in cur.fetchall()
                 ]
@@ -443,33 +375,6 @@ class ClassifierDB:
                     Currency(
                         currency_id=row[0], symbol=row[1], name=row[2],
                         decimals=row[3], date_modified=str(row[4]), date_created=str(row[5]),
-                    )
-                    for row in cur.fetchall()
-                ]
-
-    def get_hedge_keywords(self) -> list[tuple[int, str]]:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT security_id, keyword FROM sm.hedge_keyword")
-                return [(row[0], row[1]) for row in cur.fetchall()]
-
-    def get_contract_relationships_for_securities(self, security_ids: list[int]) -> list[ContractRelationship]:
-        if not security_ids:
-            return []
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT relationship_id, security_id_a, security_id_b,"
-                    " relationship_type, confidence, method, date_created"
-                    " FROM sm.contract_relationship"
-                    " WHERE security_id_a = ANY(%s) OR security_id_b = ANY(%s)",
-                    (security_ids, security_ids),
-                )
-                return [
-                    ContractRelationship(
-                        relationship_id=row[0], security_id_a=row[1], security_id_b=row[2],
-                        relationship_type=row[3], confidence=float(row[4]), method=row[5],
-                        date_created=str(row[6]),
                     )
                     for row in cur.fetchall()
                 ]
@@ -543,109 +448,137 @@ class ClassifierDB:
                 )
                 return cur.fetchone()[0]
 
-    def find_all_neighbor_pairs(
-        self, threshold: float, event_ids: list[int] | None, neighbor_limit: int = 50
-    ) -> list[tuple[int, int, float]]:
-        """Returns [(event_id_a, event_id_b, similarity)] for unresolved pairs above threshold.
+    @staticmethod
+    def _input(row) -> ExtractionInput:
+        return ExtractionInput(
+            security_id=row[0], exchange=row[1], event_id=row[2], contract_type=ContractType(row[3]), event_title=row[4],
+            outcome_label=row[5], description=row[6], expiry=row[7].isoformat() if row[7] else None, source=row[8],
+            source_hash=row[9],
+        )
 
-        Uses LATERAL KNN lookup per target event to leverage the HNSW index.
-        event_id_a < event_id_b always. Pass event_ids=None to scan all events (no array filter).
-        """
-        if event_ids is not None and not event_ids:
+    def get_extraction_inputs(self, security_ids: list[int]) -> list[ExtractionInput]:
+        """Inputs for the securities that have a stored venue source and an open event."""
+        if not security_ids:
             return []
-        # +1 for self-match exclusion; ef_search must be at least the LATERAL LIMIT
-        # so the HNSW index explores enough candidates before the WHERE filter applies
-        lateral_limit = neighbor_limit + 1
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SET LOCAL hnsw.ef_search = %s", (lateral_limit,))
-                if event_ids is None:
-                    cur.execute(
-                        "SELECT DISTINCT"
-                        " LEAST(e1.event_id, sub.event_id) AS eid_a,"
-                        " GREATEST(e1.event_id, sub.event_id) AS eid_b,"
-                        " sub.sim"
-                        " FROM sm.event e1"
-                        " JOIN sm.event_embedding ee1 ON ee1.event_id = e1.event_id"
-                        " CROSS JOIN LATERAL ("
-                        "   SELECT ee2.event_id, 1 - (ee1.embedding <=> ee2.embedding) AS sim"
-                        "   FROM sm.event_embedding ee2"
-                        "   JOIN sm.event e2 ON e2.event_id = ee2.event_id AND e2.resolved = false"
-                        "   ORDER BY ee1.embedding <=> ee2.embedding"
-                        "   LIMIT %s"
-                        " ) sub"
-                        " WHERE e1.resolved = false"
-                        " AND sub.event_id != e1.event_id"
-                        " AND sub.sim >= %s",
-                        (lateral_limit, threshold),
-                    )
-                else:
-                    cur.execute(
-                        "SELECT DISTINCT"
-                        " LEAST(e1.event_id, sub.event_id) AS eid_a,"
-                        " GREATEST(e1.event_id, sub.event_id) AS eid_b,"
-                        " sub.sim"
-                        " FROM sm.event e1"
-                        " JOIN sm.event_embedding ee1 ON ee1.event_id = e1.event_id"
-                        " CROSS JOIN LATERAL ("
-                        "   SELECT ee2.event_id, 1 - (ee1.embedding <=> ee2.embedding) AS sim"
-                        "   FROM sm.event_embedding ee2"
-                        "   JOIN sm.event e2 ON e2.event_id = ee2.event_id AND e2.resolved = false"
-                        "   ORDER BY ee1.embedding <=> ee2.embedding"
-                        "   LIMIT %s"
-                        " ) sub"
-                        " WHERE e1.resolved = false"
-                        " AND sub.event_id != e1.event_id"
-                        " AND e1.event_id = ANY(%s)"
-                        " AND sub.sim >= %s",
-                        (lateral_limit, event_ids, threshold),
-                    )
-                return [(row[0], row[1], row[2]) for row in cur.fetchall()]
+                cur.execute(self._INPUT_COLUMNS + " WHERE cs.security_id = ANY(%s) AND e.resolved = false",
+                            (list(security_ids),))
+                return [self._input(row) for row in cur.fetchall()]
 
-    def delete_embeddings(self, event_ids: list[int]) -> None:
-        if not event_ids:
-            return
+    def sample_extraction_inputs(self, limit: int) -> list[ExtractionInput]:
+        """A random sample of open securities' inputs, for the drift check."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(self._INPUT_COLUMNS + " WHERE e.resolved = false ORDER BY random() LIMIT %s", (limit,))
+                return [self._input(row) for row in cur.fetchall()]
+
+    def securities_needing_propositions(self, extractor_version: str, limit: int, after: int = 0) -> list[int]:
+        """Open securities after `after` with a venue source and no proposition read from that source by this extractor
+        version: the first run's backlog, any security whose message never reached the worker, and those only the LLM
+        can read while it is off."""
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "DELETE FROM sm.event_embedding WHERE event_id = ANY(%s)",
-                    (list(event_ids),),
+                    "SELECT cs.security_id FROM sm.contract_source cs"
+                    " JOIN sm.event_contract ec ON ec.security_id = cs.security_id"
+                    " JOIN sm.event e ON e.event_id = ec.event_id AND e.resolved = false"
+                    " LEFT JOIN sm.contract_proposition p ON p.security_id = cs.security_id"
+                    " WHERE cs.security_id > %s"
+                    " AND (p.security_id IS NULL OR p.source_hash <> cs.source_hash OR p.extractor_version <> %s)"
+                    " ORDER BY cs.security_id LIMIT %s",
+                    (after, extractor_version, limit),
                 )
-            conn.commit()
+                return [row[0] for row in cur.fetchall()]
 
-    def put_embeddings(self, embeddings: dict[int, list[float]]) -> None:
-        """Upsert embeddings into sm.event_embedding."""
+    def get_proposition_versions(self, security_ids: list[int]) -> dict[int, tuple[str, str]]:
+        """{security_id: (source_hash, extractor_version)} of stored propositions."""
+        if not security_ids:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT security_id, source_hash, extractor_version FROM sm.contract_proposition"
+                    " WHERE security_id = ANY(%s)",
+                    (list(security_ids),),
+                )
+                return {row[0]: (row[1], row[2]) for row in cur.fetchall()}
+
+    def dirty_subjects(self, limit: int) -> list[int]:
+        """Canonical subjects due a derivation: never derived, or changed since."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT s.subject_id FROM sm.proposition_subject s"
+                    " LEFT JOIN sm.proposition_subject_alias a ON a.alias_subject_id = s.subject_id"
+                    " WHERE a.alias_subject_id IS NULL AND (s.derived_at IS NULL OR s.date_modified > s.derived_at)"
+                    " ORDER BY s.date_modified LIMIT %s",
+                    (limit,),
+                )
+                return [row[0] for row in cur.fetchall()]
+
+    def get_subject_contracts(self, subject_id: int) -> tuple[list[Contract], datetime]:
+        """The subject's propositions as derivation contracts, and when they were read (the derivation's as-of)."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT now()")
+                read_at = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT p.security_id, x.exchange_code, s.key, p.fields FROM sm.contract_proposition p"
+                    " JOIN sm.proposition_subject s ON s.subject_id = p.subject_id"
+                    " JOIN sm.contract_source cs ON cs.security_id = p.security_id"
+                    " JOIN sm.exchange x ON x.exchange_id = cs.exchange_id"
+                    " WHERE p.subject_id = %s",
+                    (subject_id,),
+                )
+                contracts = [Contract(row[0], row[1], Proposition.from_fields(row[2], row[3])) for row in cur.fetchall()]
+                return contracts, read_at
+
+    def nearest_subjects(self, embedding: list[float], limit: int) -> list[KnownSubject]:
+        """The canonical (unmerged) subjects nearest an embedding, with the entities and measures their stored
+        propositions use."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT s.key, s.description,"
+                    " COALESCE(array_agg(DISTINCT p.fields->>'entity') FILTER (WHERE p.fields->>'entity' IS NOT NULL), '{}'),"
+                    " COALESCE(array_agg(DISTINCT p.fields->>'measure') FILTER (WHERE p.fields->>'measure' IS NOT NULL), '{}')"
+                    " FROM (SELECT ns.subject_id, ns.key, ns.description, ns.embedding <=> %s::vector AS distance"
+                    "       FROM sm.proposition_subject ns"
+                    "       LEFT JOIN sm.proposition_subject_alias a ON a.alias_subject_id = ns.subject_id"
+                    "       WHERE ns.embedding IS NOT NULL AND a.alias_subject_id IS NULL"
+                    "       ORDER BY ns.embedding <=> %s::vector LIMIT %s) s"
+                    " LEFT JOIN sm.contract_proposition p ON p.subject_id = s.subject_id"
+                    " GROUP BY s.key, s.description, s.distance ORDER BY s.distance",
+                    (embedding, embedding, limit),
+                )
+                return [KnownSubject(row[0], row[1], set(row[2]), set(row[3])) for row in cur.fetchall()]
+
+    def subjects_without_embeddings(self, limit: int = 1000) -> list[KnownSubject]:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT s.key, s.description,"
+                    " COALESCE(array_agg(DISTINCT p.fields->>'entity') FILTER (WHERE p.fields->>'entity' IS NOT NULL), '{}')"
+                    " FROM sm.proposition_subject s LEFT JOIN sm.contract_proposition p ON p.subject_id = s.subject_id"
+                    " WHERE s.embedding IS NULL GROUP BY s.subject_id ORDER BY s.subject_id LIMIT %s",
+                    (limit,),
+                )
+                return [KnownSubject(row[0], row[1], set(row[2])) for row in cur.fetchall()]
+
+    def put_subject_embeddings(self, embeddings: dict[str, list[float]]) -> None:
+        """Sets subjects' embeddings by key."""
         if not embeddings:
             return
         with self._conn() as conn:
             with conn.cursor() as cur:
                 psycopg2.extras.execute_values(
                     cur,
-                    "INSERT INTO sm.event_embedding (event_id, embedding) VALUES %s"
-                    " ON CONFLICT (event_id) DO UPDATE SET embedding = EXCLUDED.embedding",
-                    [(eid, emb) for eid, emb in embeddings.items()],
+                    "UPDATE sm.proposition_subject s SET embedding = v.embedding::vector"
+                    " FROM (VALUES %s) AS v(key, embedding) WHERE s.key = v.key",
+                    [(key, emb) for key, emb in embeddings.items()],
                 )
             conn.commit()
-
-    def get_events_without_embeddings(self) -> list[Event]:
-        """Returns unresolved events that have no embedding row — minimal fields only."""
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT e.event_id, e.title, e.description"
-                    " FROM sm.event e"
-                    " LEFT JOIN sm.event_embedding ee ON ee.event_id = e.event_id"
-                    " WHERE e.resolved = false AND ee.event_id IS NULL"
-                )
-                return [
-                    Event(
-                        event_id=row[0], title=row[1], description=row[2],
-                        category=None, tags=None,
-                        resolved=False, resolved_at=None, expiry=None,
-                        date_modified="", date_created="",
-                    )
-                    for row in cur.fetchall()
-                ]
 
     def get_security_ids_for_events(self, event_ids: list[int]) -> set[int]:
         """Returns security_ids linked to the given events via event_contract."""

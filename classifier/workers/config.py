@@ -1,4 +1,5 @@
 import dataclasses
+import functools
 import json
 import logging
 import os
@@ -9,7 +10,7 @@ import boto3
 import voyageai
 
 from classifier.cache import RedisClassifierCache
-from classifier.client import BatchAnthropicClient, BatchVoyageClient, BedrockConverseClient, bedrock_runtime_client
+from classifier.client import BatchVoyageClient, BedrockConverseClient, bedrock_runtime_client
 
 from classifier.db import ClassifierDB
 from classifier.runtime_config import RuntimeConfig
@@ -49,9 +50,14 @@ def init_registry() -> RegistryClient:
     return RegistryClient(base_url=base_url, api_key=registry_api_key)
 
 
-def init_anthropic() -> BatchAnthropicClient:
-    api_key = fetch_secret(os.environ["ANTHROPIC_API_KEY_SECRET"])
-    return BatchAnthropicClient(client=anthropic.Anthropic(api_key=api_key))
+@functools.cache
+def claude_client(provider: str) -> anthropic.Anthropic | anthropic.AnthropicBedrockMantle:
+    """The Claude client for a provider named in the service config."""
+    if provider == "anthropic":
+        return anthropic.Anthropic(api_key=fetch_secret(os.environ["ANTHROPIC_API_KEY_SECRET"]))
+    if provider == "bedrock":
+        return anthropic.AnthropicBedrockMantle(aws_region=os.environ.get("AWS_REGION", "us-east-1"))
+    raise ValueError(f"No Claude client for provider {provider!r}")
 
 
 def init_bedrock() -> BedrockConverseClient:
@@ -71,16 +77,10 @@ def init_db() -> ClassifierDB:
     return ClassifierDB(dsn=build_dsn())
 
 
-def init_clients() -> tuple:
-    """Return (registry, batch_client, voyage_client, cache, db)."""
-    return init_registry(), init_anthropic(), init_voyage(), init_cache(), init_db()
-
-
 @dataclasses.dataclass
 class WorkerConfig:
     contracts_queue_url: str = dataclasses.field(default_factory=lambda: os.environ.get("CONTRACTS_QUEUE_URL", ""))
     entities_queue_url: str = dataclasses.field(default_factory=lambda: os.environ.get("ENTITIES_QUEUE_URL", ""))
-    embeddings_queue_url: str = dataclasses.field(default_factory=lambda: os.environ.get("EMBEDDINGS_QUEUE_URL", ""))
     notifications_topic_arn: str = dataclasses.field(default_factory=lambda: os.environ.get("NOTIFICATIONS_TOPIC_ARN", ""))
     slack_queue_url: str = dataclasses.field(default_factory=lambda: os.environ.get("SLACK_QUEUE_URL", ""))
 

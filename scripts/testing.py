@@ -4,13 +4,16 @@ import math
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
-import anthropic
 
 from classifier.cache.base import ClassifierCache
 from classifier.client import BedrockConverseClient, ConverseResult
+from classifier.propositions.derive import Contract
+from classifier.propositions.inputs import ExtractionInput
+from classifier.propositions.subjects import KnownSubject
+from classifier.propositions.types import Proposition
 from gnomepy.registry import RegistryClient
 from gnomepy.registry.types import (
-    ContractRelationship,
+    ContractType,
     Currency,
     Event,
     EventContract,
@@ -26,7 +29,6 @@ class MemoryClassifierCache(ClassifierCache):
 
     def __init__(self):
         self._canon: dict[str, dict] = {}
-        self._judge: dict[str, tuple[list, bool]] = {}
 
     def get_canonicalization(self, model: str, exchange_id: int, native_id: str) -> dict | None:
         return self._canon.get(self._canon_hash(model, exchange_id, native_id))
@@ -40,60 +42,6 @@ class MemoryClassifierCache(ClassifierCache):
 
     def put_canonicalization(self, model: str, exchange_id: int, native_id: str, result: dict) -> None:
         self._canon[self._canon_hash(model, exchange_id, native_id)] = result
-
-    def get_judgment(self, model: str, title_a: str, labels_a: list[str], title_b: str, labels_b: list[str]) -> tuple[list, bool] | None:
-        stored = self._judge.get(self._judge_hash(model, title_a, labels_a, title_b, labels_b))
-        if stored is None:
-            return None
-        return stored["items"], stored["first_title"] == title_a
-
-    def get_judgment_bulk(
-        self,
-        model: str,
-        keys: list[tuple[str, list[str], str, list[str]]],
-    ) -> dict[int, tuple[list, bool]]:
-        out: dict[int, tuple[list, bool]] = {}
-        for i, (title_a, labels_a, title_b, labels_b) in enumerate(keys):
-            stored = self._judge.get(self._judge_hash(model, title_a, labels_a, title_b, labels_b))
-            if stored is not None:
-                out[i] = (stored["items"], stored["first_title"] == title_a)
-        return out
-
-    def put_judgment(self, model: str, title_a: str, labels_a: list[str], title_b: str, labels_b: list[str], items: list, a_is_first: bool) -> None:
-        self._judge[self._judge_hash(model, title_a, labels_a, title_b, labels_b)] = {
-            "first_title": title_a if a_is_first else title_b,
-            "items": items,
-        }
-
-
-def no_op_anthropic_client() -> anthropic.Anthropic:
-    """Mock Anthropic client that echoes raw event titles with category=OTHER, tags=[]."""
-    def _fake_create(*args, **kwargs):
-        messages = kwargs.get("messages", args[1] if len(args) > 1 else [])
-        content = messages[0].get("content", "") if messages else ""
-        titles = []
-        for line in content.splitlines():
-            if line.startswith("[") and "] Title: " in line:
-                title = line.split("] Title: ", 1)[1].split(" | ")[0].strip()
-                titles.append({"title": title, "category": "OTHER", "tags": []})
-            elif line.startswith("Exchange-provided title:"):
-                title = line.split(":", 1)[1].strip()
-                titles.append({"title": title, "category": "OTHER", "tags": []})
-        if not titles:
-            text = json.dumps([])
-        elif len(titles) == 1:
-            text = json.dumps(titles[0])
-        else:
-            text = json.dumps(titles)
-        mock_content = MagicMock()
-        mock_content.text = text
-        mock_response = MagicMock()
-        mock_response.content = [mock_content]
-        return mock_response
-
-    client = MagicMock(spec=anthropic.Anthropic)
-    client.messages.create.side_effect = _fake_create
-    return client
 
 
 class FakeConverseClient(BedrockConverseClient):
@@ -120,15 +68,6 @@ class FakeConverseClient(BedrockConverseClient):
         return ConverseResult(text=json.dumps(single if single is not None else items), input_tokens=0, output_tokens=0)
 
 
-def no_op_voyage_client():
-    """Mock Voyage client that returns zero embeddings."""
-    client = MagicMock()
-    result = MagicMock()
-    result.embeddings = []
-    client.embed.return_value = result
-    return client
-
-
 class StubRegistry(RegistryClient):
     """In-memory registry that simulates empty DB state. All writes are stored locally."""
 
@@ -143,9 +82,14 @@ class StubRegistry(RegistryClient):
         self._fee_keys_by_listing: dict[int, tuple[str | None, str | None]] = {}
         self._fee_schedules: list[dict] = []
         self._event_contracts: list[EventContract] = []
-        self._contract_relationships: list[ContractRelationship] = []
+        self._contract_sources: dict[int, dict] = {}
+        # Proposition state as the registry keeps it; `_clock` stands in for now() so "changed since derived" is
+        # ordered without real time.
+        self._clock = 0
+        self._subjects: dict[str, dict] = {}
+        self._propositions: dict[int, dict] = {}
+        self._relationships: dict[tuple[int, int], dict] = {}
         self._currencies: list[Currency] = []
-        self._hedge_keywords: list[tuple[int, str]] = []
         self._settlement_by_event_contract: dict[int, int] = {}
         # When each listing was last written, standing in for sm.listing.date_modified; unset reads as just now.
         self._listing_modified_at: dict[int, datetime] = {}
@@ -181,9 +125,6 @@ class StubRegistry(RegistryClient):
 
     def get_event_contracts(self) -> list[EventContract]:
         return list(self._event_contracts)
-
-    def get_contract_relationships(self) -> list[ContractRelationship]:
-        return list(self._contract_relationships)
 
     def bulk_create_events(self, items: list[dict]) -> list[dict]:
         results = []
@@ -302,23 +243,6 @@ class StubRegistry(RegistryClient):
             results.append(row)
         return results
 
-    def bulk_create_contract_relationships(self, items: list[dict]) -> list[dict]:
-        results = []
-        for item in items:
-            rel_id = self._alloc_id()
-            d = {
-                "relationship_id": rel_id,
-                "security_id_a": item["security_id_a"],
-                "security_id_b": item["security_id_b"],
-                "relationship_type": item["relationship_type"],
-                "confidence": item["confidence"],
-                "method": item["method"],
-                "date_created": "",
-            }
-            self._contract_relationships.append(ContractRelationship(**d))
-            results.append(d)
-        return results
-
     def patch_event_contract(self, event_contract_id: int, **kwargs) -> dict:
         for i, ec in enumerate(self._event_contracts):
             if ec.event_contract_id == event_contract_id:
@@ -378,6 +302,64 @@ class StubRegistry(RegistryClient):
             self._settlement_by_event_contract.setdefault(item["event_contract_id"], item["settlement_price"])
         return [dict(item) for item in items]
 
+    def _tick(self) -> int:
+        self._clock += 1
+        return self._clock
+
+    def _subject_by_id(self, subject_id: int) -> dict:
+        return next(s for s in self._subjects.values() if s["subject_id"] == subject_id)
+
+    def create_proposition_subjects(self, items: list[dict]) -> list[dict]:
+        rows = []
+        for item in items:
+            subject = self._subjects.get(item["key"])
+            if subject is None:
+                subject = self._subjects[item["key"]] = {
+                    "subject_id": self._alloc_id(), "key": item["key"], "description": item.get("description") or "",
+                    "date_modified": self._tick(), "derived_at": None, "embedding": None,
+                }
+            elif item.get("description"):
+                subject["description"] = item["description"]
+            rows.append({k: subject[k] for k in ("subject_id", "key", "description")})
+        return rows
+
+    def upsert_contract_propositions(self, items: list[dict]) -> list[dict]:
+        results = []
+        for item in items:
+            before = self._propositions.get(item["security_id"])
+            row = {**item, "subject_id": item["extracted_subject_id"]}
+            changed = before != row
+            if changed:
+                self._propositions[item["security_id"]] = row
+                touched = {row["subject_id"]} | ({before["subject_id"]} if before else set())
+                for subject_id in touched:
+                    self._subject_by_id(subject_id)["date_modified"] = self._tick()
+            results.append({"security_id": item["security_id"], "subject_id": row["subject_id"], "changed": changed})
+        return results
+
+    def reconcile_contract_relationships(self, *, security_ids, relationships, method, derivation_version,
+                                         subject_id=None, derived_at=None) -> dict:
+        ids = set(security_ids)
+        desired = {(r["security_id_a"], r["security_id_b"]): r for r in relationships}
+        stale = [k for k, v in self._relationships.items()
+                 if v["method"] != "manual" and (k[0] in ids or k[1] in ids) and k not in desired]
+        for k in stale:
+            del self._relationships[k]
+        inserted = sum(1 for k in desired if k not in self._relationships)
+        for k, r in desired.items():
+            self._relationships[k] = {**r, "method": method, "derivation_version": derivation_version}
+        if subject_id is not None:
+            self._subject_by_id(subject_id)["derived_at"] = self._tick()
+        return {"inserted": inserted, "updated": 0, "deleted": len(stale), "unchanged": len(desired) - inserted}
+
+    def upsert_contract_sources(self, items: list[dict]) -> list[dict]:
+        results = []
+        for item in items:
+            changed = self._contract_sources.get(item["security_id"], {}).get("source_hash") != item["source_hash"]
+            self._contract_sources[item["security_id"]] = dict(item)
+            results.append({"security_id": item["security_id"], "changed": changed})
+        return results
+
     def bulk_patch_listings(self, items: list[dict]) -> list[dict]:
         results = []
         for item in items:
@@ -413,7 +395,6 @@ class StubRegistry(RegistryClient):
             "securities": [dataclasses.asdict(s) for s in self._securities],
             "listings": [dataclasses.asdict(l) for l in self._listings],
             "event_contracts": [dataclasses.asdict(ec) for ec in self._event_contracts],
-            "relationships": [dataclasses.asdict(r) for r in self._contract_relationships],
         }
 
 
@@ -426,7 +407,6 @@ class StubDB:
 
     def __init__(self, registry: StubRegistry):
         self._r = registry
-        self._embeddings: dict[int, list[float]] = {}
 
     def get_exchange_event(self, exchange_id: int, native_id: str) -> int | None:
         for ev in self._r._events:
@@ -551,11 +531,6 @@ class StubDB:
         resolved_ids = {ev.event_id for ev in self._r._events if ev.resolved}
         return [ec for ec in self._r._event_contracts if ec.event_id not in resolved_ids]
 
-    def get_event_contracts_for_securities(self, security_ids: list[int]) -> list[EventContract]:
-        sid_set = set(security_ids)
-        event_ids = {ec.event_id for ec in self._r._event_contracts if ec.security_id in sid_set}
-        return [ec for ec in self._r._event_contracts if ec.event_id in event_ids]
-
     def get_all_securities(self) -> list[Security]:
         return [s for s in self._r._securities if s.active]
 
@@ -595,14 +570,6 @@ class StubDB:
             if ec.event_id in id_set and ec.event_id not in resolved_ids
         ]
 
-    def get_events_for_ids(self, event_ids: list[int]) -> list:
-        id_set = set(event_ids)
-        return [ev for ev in self._r._events if ev.event_id in id_set]
-
-    def get_tradeable_securities(self) -> list:
-        from gnomepy.registry.types import SecurityType
-        return [s for s in self._r._securities if s.active and s.type != SecurityType.EVENT_CONTRACT]
-
     def get_active_listings_by_exchange_security(
         self, exchange_id: int, exchange_security_ids: list[str],
     ) -> list[tuple[int, int, str]]:
@@ -627,58 +594,72 @@ class StubDB:
     def get_all_currencies(self) -> list[Currency]:
         return self._r.get_currency()
 
-    def get_contract_relationships_for_securities(self, security_ids: list[int]) -> list[ContractRelationship]:
-        sid_set = set(security_ids)
-        return [
-            r for r in self._r._contract_relationships
-            if r.security_id_a in sid_set or r.security_id_b in sid_set
-        ]
-
-    def find_all_neighbor_pairs(
-        self, threshold: float, event_ids: list[int] | None, neighbor_limit: int = 50
-    ) -> list[tuple[int, int, float]]:
-        resolved_ids = {ev.event_id for ev in self._r._events if ev.resolved}
-        all_eids = [eid for eid in self._embeddings if eid not in resolved_ids]
-        targets = all_eids if event_ids is None else [eid for eid in event_ids if eid in self._embeddings and eid not in resolved_ids]
-        pair_set: dict[tuple[int, int], float] = {}
-        for target_eid in targets:
-            if target_eid not in self._embeddings or target_eid in resolved_ids:
-                continue
-            emb_t = self._embeddings[target_eid]
-            neighbors = []
-            for eid in all_eids:
-                if eid == target_eid:
-                    continue
-                emb = self._embeddings[eid]
-                dot = sum(x * y for x, y in zip(emb_t, emb))
-                denom = math.sqrt(sum(x * x for x in emb_t)) * math.sqrt(sum(x * x for x in emb))
-                sim = dot / denom if denom else 0.0
-                neighbors.append((eid, sim))
-            neighbors.sort(key=lambda x: -x[1])
-            for eid, sim in neighbors[:neighbor_limit]:
-                if sim < threshold:
-                    continue
-                pair = (min(target_eid, eid), max(target_eid, eid))
-                if pair not in pair_set or sim > pair_set[pair]:
-                    pair_set[pair] = sim
-        return [(a, b, sim) for (a, b), sim in pair_set.items()]
-
-    def count_embeddings(self) -> int:
-        return len(self._embeddings)
-
-    def delete_embeddings(self, event_ids: list[int]) -> None:
-        for eid in event_ids:
-            self._embeddings.pop(eid, None)
-
-    def put_embeddings(self, embeddings: dict[int, list[float]]) -> None:
-        self._embeddings.update(embeddings)
-
-    def get_events_without_embeddings(self) -> list[Event]:
-        return [ev for ev in self._r._events if not ev.resolved and ev.event_id not in self._embeddings]
-
     def get_security_ids_for_events(self, event_ids: list[int]) -> set[int]:
         id_set = set(event_ids)
         return {ec.security_id for ec in self._r._event_contracts if ec.event_id in id_set}
+
+    def _exchange_code(self, exchange_id: int) -> str:
+        return next(e.exchange_code for e in self._r.get_exchange() if e.exchange_id == exchange_id)
+
+    def get_extraction_inputs(self, security_ids: list[int]) -> list[ExtractionInput]:
+        out = []
+        for sid in security_ids:
+            stored = self._r._contract_sources.get(sid)
+            ec = next((c for c in self._r._event_contracts if c.security_id == sid), None)
+            event = next((e for e in self._r._events if ec and e.event_id == ec.event_id), None)
+            security = next((x for x in self._r._securities if x.security_id == sid), None)
+            if stored is None or event is None or event.resolved or security is None:
+                continue
+            out.append(ExtractionInput(
+                security_id=sid, exchange=self._exchange_code(stored["exchange_id"]), event_id=event.event_id,
+                contract_type=ContractType(security.contract_type), event_title=event.title,
+                outcome_label=ec.outcome_label, description=event.description, expiry=event.expiry,
+                source=stored["source"], source_hash=stored["source_hash"],
+            ))
+        return out
+
+    def sample_extraction_inputs(self, limit: int) -> list[ExtractionInput]:
+        return self.get_extraction_inputs(sorted(self._r._contract_sources))[:limit]
+
+    def securities_needing_propositions(self, extractor_version: str, limit: int, after: int = 0) -> list[int]:
+        open_sids = {i.security_id for i in self.get_extraction_inputs(sorted(self._r._contract_sources))}
+        due = [sid for sid in sorted(open_sids)
+               if sid > after and ((p := self._r._propositions.get(sid)) is None
+               or (p["source_hash"], p["extractor_version"]) != (self._r._contract_sources[sid]["source_hash"], extractor_version))]
+        return due[:limit]
+
+    def get_proposition_versions(self, security_ids: list[int]) -> dict[int, tuple[str, str]]:
+        return {sid: (p["source_hash"], p["extractor_version"]) for sid, p in self._r._propositions.items()
+                if sid in set(security_ids)}
+
+    def dirty_subjects(self, limit: int) -> list[int]:
+        due = [s for s in self._r._subjects.values() if s["derived_at"] is None or s["date_modified"] > s["derived_at"]]
+        return [s["subject_id"] for s in sorted(due, key=lambda s: s["date_modified"])][:limit]
+
+    def get_subject_contracts(self, subject_id: int) -> tuple[list[Contract], datetime]:
+        key = self._r._subject_by_id(subject_id)["key"]
+        contracts = [
+            Contract(sid, self._exchange_code(self._r._contract_sources[sid]["exchange_id"]),
+                     Proposition.from_fields(key, p["fields"]))
+            for sid, p in sorted(self._r._propositions.items()) if p["subject_id"] == subject_id
+        ]
+        return contracts, datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    def nearest_subjects(self, embedding: list[float], limit: int) -> list[KnownSubject]:
+        def cos(v):
+            dot = sum(a * b for a, b in zip(v, embedding))
+            norm = math.sqrt(sum(a * a for a in v)) * math.sqrt(sum(b * b for b in embedding))
+            return dot / norm if norm else 0.0
+        stored = [s for s in self._r._subjects.values() if s["embedding"] is not None]
+        ranked = sorted(stored, key=lambda s: -cos(s["embedding"]))[:limit]
+        return [KnownSubject(s["key"], s["description"]) for s in ranked]
+
+    def subjects_without_embeddings(self, limit: int = 1000) -> list[KnownSubject]:
+        return [KnownSubject(s["key"], s["description"]) for s in self._r._subjects.values() if s["embedding"] is None][:limit]
+
+    def put_subject_embeddings(self, embeddings: dict[str, list[float]]) -> None:
+        for key, vector in embeddings.items():
+            self._r._subjects[key]["embedding"] = vector
 
     def get_active_exchange_native_ids(self) -> dict[int, set[str]]:
         result: dict[int, set[str]] = {}
@@ -686,6 +667,3 @@ class StubDB:
             if not ev.resolved and ev.native_event_id is not None:
                 result.setdefault(ev.exchange_id, set()).add(ev.native_event_id)
         return result
-
-    def get_hedge_keywords(self) -> list[tuple[int, str]]:
-        return list(self._r._hedge_keywords)

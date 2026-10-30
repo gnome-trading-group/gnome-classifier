@@ -1,6 +1,6 @@
 # gnome-classifier
 
-A prediction market contract classifier that ingests contracts from multiple exchanges (Polymarket International, Polymarket US, Kalshi, Hyperliquid), writes them into the security master as events, securities and listings, generates semantic embeddings, and discovers relationships between contracts.
+A prediction market contract classifier that ingests contracts from multiple exchanges (Polymarket International, Polymarket US, Kalshi, Hyperliquid), writes them into the security master as events, securities and listings, reads what each contract asks (a proposition), and derives relationships between contracts.
 
 ---
 
@@ -27,15 +27,14 @@ Each prediction market exchange has its own schema, naming conventions and contr
 **Identity model:**
 - One `sm.event` per native exchange event, keyed by `(exchange_id, native_event_id)`. Events are never merged across or within exchanges, and the event title is the exchange's title as the adapter reports it.
 - One `sm.security` per listing, keyed by its listing `(exchange_id, exchange_security_id)`. Symbols never decide identity.
-- Links between events (the same question on two exchanges, or related questions on one) come only from the semantic relationship judge.
+- Links between events (the same question on two exchanges, or related questions on one) come only from relationships derived from propositions (and manual ones).
 
 **What it produces:**
 - `sm.event` rows (exchange title, category, tags, native exchange/event ID and URL)
 - `sm.security` rows, one per outcome contract (e.g. `KX-KXWTI15M-26AUG240015-15-YES`)
 - `sm.listing` / `sm.listing_spec` rows mapping each security to its exchange identifiers and trading parameters
 - `sm.event_contract` rows linking events to their outcome securities
-- `sm.contract_relationship` rows (equivalence, implication, mutual exclusion, hedgeability)
-- Vector embeddings in `sm.event_embedding` for similarity search
+- `sm.contract_relationship` rows (equivalence, implication), derived from `sm.contract_proposition`
 
 ---
 
@@ -58,17 +57,10 @@ Each prediction market exchange has its own schema, naming conventions and contr
                                      │
                               entities-queue (SQS)
                                      │
-                            ┌────────▼────────┐
-                            │   EmbedWorker   │ ──► Voyage AI API
-                            │    (ECS/EC2)    │ ──► PostgreSQL (sm.event_embedding)
-                            └────────┬────────┘
-                                     │
-                             embeddings-queue (SQS)
-                                     │
                          ┌───────────▼───────────┐
-                         │  RelationshipsWorker  │ ◄── Redis (judgment cache)
-                         │       (ECS/EC2)       │ ──► Claude API (sonnet)
-                         │                       │ ──► Registry API (sm.contract_relationship)
+                         │  RelationshipsWorker  │ ──► Claude (Anthropic API or Bedrock), Voyage
+                         │       (ECS/EC2)       │ ──► PostgreSQL (sources, propositions, subjects)
+                         │                       │ ──► Registry API (propositions, sm.contract_relationship)
                          └───────────────────────┘
 
       FetchRunner / NormalizeWorker / RelationshipsWorker ──► SNS topic ──► slack-queue ──► NotifyWorker ──► Slack
@@ -81,11 +73,10 @@ Each prediction market exchange has its own schema, naming conventions and contr
 |---|---|---|
 | FetchRunner | `fetch` | Internal loop; fetch (then closure check, recent settlements, reactivation) / settle sweep / resolve / stale cycles on intervals from runtime config |
 | NormalizeWorker | `normalize` | Continuous SQS poll (contracts-queue) |
-| EmbedWorker | `embed` | Continuous SQS poll (entities-queue) |
-| RelationshipsWorker | `relationships` | Continuous SQS poll (embeddings-queue) |
+| RelationshipsWorker | `relationships` | Continuous SQS poll (entities-queue) |
 | NotifyWorker | `notify` | Continuous SQS poll (slack-queue) |
 
-All five run as ECS services on a single EC2 auto-scaling group (spot t3.medium, 1–2 instances) inside the registry VPC, so they can reach PostgreSQL and Redis.
+All four run as ECS services on a single EC2 auto-scaling group (spot t3.medium, 1–2 instances) inside the registry VPC, so they can reach PostgreSQL and Redis.
 
 ---
 
@@ -118,9 +109,9 @@ Runs for the exchanges whose fetch just succeeded. Each step is logged and skipp
 
 1. **Closure check** (`check_closures`, `classifier/stages/settle.py`; needs `settlement_enabled`). The contracts that left an exchange's feed are looked up on the venue one market at a time (`adapter.fetch_market_states`), which unlike its bulk lists it gets right. Contracts it reports as no longer open are deactivated, and settled if their value is final; still-open ones (the feed missed them) and ones it doesn't know are left alone. More than `closure_check_max_lookups` (500) leaving one feed at once is a feed fault, not markets closing: none are checked (warning `"not checking them this cycle"`, the `ClosureChecksSkipped` alarm) and the resolve cycle picks them up.
 2. **Recent settlements** (`record_settlements` without cursors; needs `settlement_enabled`). Outcomes deactivated within `settle_recent_hours` (6) with no value yet are looked up again. Nearly all values arrive in that window, so a value is recorded within a fetch of the venue making it final.
-3. **Reactivation** (`reactivate_listings`, `classifier/stages/reactivate.py`; needs `reactivation_enabled`). Listings deactivated within `reactivation_lookback_days` (30) with no settlement value, which the fetch lists as tradable again, are turned back on with their securities, and their events are un-resolved (embeddings come back on the next embed batch). At least 50 on one exchange at once logs `"retired listings as open again"` (the `ListingsReactivated` alarm).
+3. **Reactivation** (`reactivate_listings`, `classifier/stages/reactivate.py`; needs `reactivation_enabled`). Listings deactivated within `reactivation_lookback_days` (30) with no settlement value, which the fetch lists as tradable again, are turned back on with their securities, and their events are un-resolved. At least 50 on one exchange at once logs `"retired listings as open again"` (the `ListingsReactivated` alarm).
 
-Recording a value runs `apply_market_states()`: values go to `sm.event_contract.settlement_price` (the registry keeps the first one), listings the venue no longer trades are deactivated, and events whose every outcome now has a value are resolved (`resolved_at = now`, embeddings deleted). Events resolved this way are published to SNS as `{"type": "resolved", ...counts, "resolved_event_ids": [...], "resolved_event_names": [...]}`, which the launcher reads to stop sessions on them.
+Recording a value runs `apply_market_states()`: values go to `sm.event_contract.settlement_price` (the registry keeps the first one), listings the venue no longer trades are deactivated, and events whose every outcome now has a value are resolved (`resolved_at = now`). Events resolved this way are published to SNS as `{"type": "resolved", ...counts, "resolved_event_ids": [...], "resolved_event_names": [...]}`, which the launcher reads to stop sessions on them.
 
 `fetch_market_states(exchange_security_ids)` returns a `MarketState(open, settlement)` per contract the venue answered for: open; closed with no final value yet (Kalshi `determined`/`disputed`, Polymarket UMA proposals, Polymarket US resolving); or settled. Hyperliquid only reports settled outcomes (`settledOutcome` can't tell open from closed). Polymarket International asks Gamma for closed and then open markets, and asks the CLOB (`/markets/{condition_id}`, which names the winner) about markets Gamma no longer returns, at most `CLOB_LOOKUPS_PER_HOUR` (2000) an hour.
 
@@ -183,7 +174,7 @@ Messages are collected into a batch (20s long-polling) until `normalize_max_mess
 
 **`type: "closed"`** → `deactivate_closed_listings()` (`classifier/stages/resolve.py`): deactivates the active listings matching the closed `exchange_security_id`s and the securities left with no active listings. Never resolves an event (see [After each fetch](#after-each-fetch-closures-settlements-reactivation-fetchrunner_run_after_fetch)), so nothing is published.
 
-**`type: "stale"`** → `deactivate_stale_events()` (`classifier/stages/stale.py`): looks up the event by `(exchange_id, native_event_id)` on `sm.event`, deactivates that event's active listings on that exchange and securities left with none, and resolves events with no remaining active securities (`resolved = true`, `resolved_at = now`, embeddings deleted). Publishes `{"type": "resolved", ...counts, "resolved_event_ids": [...], "resolved_event_names": [...]}` to SNS when anything changed.
+**`type: "stale"`** → `deactivate_stale_events()` (`classifier/stages/stale.py`): looks up the event by `(exchange_id, native_event_id)` on `sm.event`, deactivates that event's active listings on that exchange and securities left with none, and resolves events with no remaining active securities (`resolved = true`, `resolved_at = now`). Publishes `{"type": "resolved", ...counts, "resolved_event_ids": [...], "resolved_event_names": [...]}` to SNS when anything changed.
 
 **`type: "new"`** → `create_entities()` (see [Entity Creation Pipeline](#entity-creation-pipeline)). Every new security yields `{"type": "new_security", "security_id", "security_symbol"}` on the entities queue; securities belonging to a newly created event also carry `created_event_id` / `created_event_name`.
 
@@ -191,27 +182,13 @@ If `process_batch()` raises, no messages are deleted; they reappear after the 15
 
 ---
 
-### Stage 5: Embed (`classifier/workers/embed.py` → `EmbedWorker`)
+### Stage 5: Relationships (`classifier/workers/relationships.py` → `RelationshipsWorker`, `classifier/stages/propositions.py`)
 
-**Reads entities-queue, writes embeddings-queue.**
-
-`embed_and_update()` (`classifier/stages/embed.py`):
-1. Loads all unresolved events with no row in `sm.event_embedding`.
-2. Embeds them in chunks of `voyage_embed_chunk_size` with the Voyage client: text is `"{title}. {description[:200]}"`, sent in batches of 128 with 5 parallel workers and up to 3 retries.
-3. Upserts the vectors into `sm.event_embedding`.
-4. Adds every security of the newly embedded events to the set to classify.
-
-Each resulting security is forwarded as `{"type": "security", "security_id", "security_symbol"}` (plus `created_event_*` when present).
+**Reads entities-queue.** With `feature_flags.relationships_enabled`: reads the propositions of new or changed securities (venue readers, then Claude when `feature_flags.proposition_llm_enabled`), stores them with their subjects, embeds new subjects, then derives and reconciles every subject due a derivation (also on idle, for merges), and runs the daily drift check (only with the LLM on); see [Relationship Discovery](#relationship-discovery). Afterwards publishes `{"type": "new_events", "created_event_ids", "created_event_names"}` to SNS for any newly created events in the batch.
 
 ---
 
-### Stage 6: Relationships (`classifier/workers/relationships.py` → `RelationshipsWorker`)
-
-**Reads embeddings-queue.** Calls `run_classification_sync()` (`classifier/stages/classify.py`) with the batch's security IDs; see [Relationship Discovery](#relationship-discovery). Afterwards publishes `{"type": "new_events", "created_event_ids", "created_event_names"}` to SNS for any newly created events in the batch.
-
----
-
-### Stage 7: Notify (`classifier/workers/notify.py` → `NotifyWorker`)
+### Stage 6: Notify (`classifier/workers/notify.py` → `NotifyWorker`)
 
 **Reads slack-queue (SNS subscription).**
 
@@ -355,13 +332,10 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 
 **`sm.event_contract`** — links an event to its outcome securities: `event_contract_id`, `event_id`, `security_id`, `outcome_label`.
 
-**`sm.event_embedding`** — pgvector embeddings (`event_id`, `embedding`) from Voyage AI, searched through an HNSW index.
-
 **`sm.contract_relationship`** — `relationship_id`, `security_id_a`, `security_id_b`, `relationship_type`, `confidence` (0.0–1.0), `method` (`"rule"`, `"embedding"`, or `"manual"`).
 
 **`sm.currency`** — `currency_id`, `symbol`.
 
-**`sm.hedge_keyword`** — `security_id` (a tradeable, non-event security) and `keyword`; a keyword appearing in an event title or outcome label marks that security as a hedge.
 
 ---
 
@@ -423,48 +397,9 @@ If disabled, events keep whatever their labels gave: the mapped category (or `"O
 
 ## Relationship Discovery
 
-`run_classification_sync()` (`classifier/stages/classify.py`) runs two phases for the given security IDs, then deduplicates and writes.
-
-### Relationship Types
-
-| Type | Meaning | Source | Confidence |
-|---|---|---|---|
-| `EQUIVALENT` | Same question, different wording | Semantic judge (+ complement derivation) | per pair (LLM) |
-| `IMPLIES` | If A resolves YES, B must resolve YES | Semantic judge (+ complement derivation) | per pair (LLM) |
-| `MUTUALLY_EXCLUSIVE` | Both cannot resolve YES | Semantic judge | per pair (LLM) |
-| `HEDGEABLE_WITH` | Event contract can be hedged with a tradeable security | Rule-based keyword match | `hedgeable_with_confidence` (0.90) |
-
-Relationships between outcomes of the same event (complements, mutually exclusive siblings) are not written; they are implied by `sm.event_contract`.
-
-### Phase A: Rule-based (always runs)
-
-`classify_structural()` → `find_hedgeable_pairs()` (`classifier/relationships/rule_based.py`): loads `sm.hedge_keyword` and, for each event contract, checks the event title and outcome label for each keyword as a whole word (case-insensitive). Matches produce `HEDGEABLE_WITH` with method `"rule"`.
-
-### Phase B: Semantic (only if `semantic_judgements_enabled`)
-
-`classifier/relationships/semantic.py`:
-
-1. **Candidates**: `db.find_all_neighbor_pairs()` runs a per-event LATERAL KNN query over `sm.event_embedding` (HNSW) restricted to unresolved events, keeping pairs with cosine similarity ≥ `embedding_similarity_threshold` (default 0.85) and at most `neighbor_search_limit` (default 60) neighbors per event. When the category filter is enabled, events outside `allowed_categories` are not used as search targets.
-2. **Contracts sent to the judge**: for a binary event (exactly 2 contracts) only one representative contract is sent; other events send all contracts.
-3. **Cache**: pairs already judged (Redis judgment cache) are reused.
-4. **Judge**: uncached pairs go to Claude (`semantic_judgment_model`, default `claude-sonnet-4-6`) with a system prompt of worked examples (`_JUDGE_SYSTEM_PROMPT`). The user message lists both events' titles, descriptions, numbered contracts and the embedding similarity. Claude returns `[{"a", "b", "type", "confidence", "direction"?}]` with types `EQUIVALENT`, `IMPLIES` or `MUTUALLY_EXCLUSIVE`. Items below 0.70 confidence are discarded. Sync vs. Batch API follows `anthropic_sync_threshold`.
-5. **Complement derivation** (`classifier/relationships/structural.py`): using each binary event's two contracts as complements:
-   - `IMPLIES(A→B)` ⇒ `IMPLIES(¬B→¬A)`
-   - `EQUIVALENT(A,B)` ⇒ `EQUIVALENT(¬A,¬B)`
-   - `MUTUALLY_EXCLUSIVE(A,B)` ⇒ `IMPLIES(A→¬B)` and `IMPLIES(B→¬A)`
-
-Semantic relationships are written with method `"embedding"`.
-
-### Dedup and write
-
-`_dedup_and_write_relationships()`:
-- Skips pairs that already have a non-`manual` relationship.
-- Skips pairs not touching any of the input securities.
-- Keeps the highest-confidence candidate per ordered pair.
-- Drops candidates below `min_confidence` (default 0.70).
-- Writes via `registry.bulk_create_contract_relationships()` in chunks of 1000.
-
----
+Relationships are derived from propositions, not judged pair by pair. See `classifier/propositions/` and the
+gnome-classifier CLAUDE.md for the design; `tests/fixtures/relationships/` holds the golden pairs and labelled
+propositions the evaluation commands score against.
 
 ## Caching
 
@@ -473,7 +408,6 @@ Semantic relationships are written with method `"embedding"`.
 | Key | Value | TTL | Used by |
 |---|---|---|---|
 | `canon:{sha256(model, exchange_id, native_event_id)}` | `{"category", "tags"}` | 30 days | NormalizeWorker (categorization) |
-| `judge:{sha256(model, titles + labels, order-independent)}` | `{"first_title", "items": [...]}`; empty `items` cached too | 30 days | RelationshipsWorker (semantic judge) |
 | `exchange_events` (hash) | field `"{exchange_id}:{native_event_id}"` → `event_id` | none | NormalizeWorker (known-event lookup) |
 | `fetch:known_contracts` | `{"eid:esid": hash}` | 7 days | FetchRunner fetch cycle |
 | `fetch:sent_resolved` | `[[exchange_id, exchange_security_id], ...]` | 7 days | FetchRunner resolve cycle |
@@ -497,7 +431,8 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 | `reactivation_enabled` | FetchRunner reactivates retired listings its fetch lists as open again |
 | `stale_cleanup_enabled` | FetchRunner runs stale cycles |
 | `canonicalization_enabled` | NormalizeWorker calls Bedrock for category and tags |
-| `semantic_judgements_enabled` | RelationshipsWorker runs the semantic phase |
+| `relationships_enabled` | RelationshipsWorker reads propositions and derives relationships |
+| `proposition_llm_enabled` | Claude reads the securities the venue code readers can't, and runs the daily drift check. Off: only code-read securities get propositions; the rest are read once it is turned on, while still open. Paid per contract |
 | `debug` | Verbose `[DEBUG]` logging across stages |
 
 **`Models`**
@@ -505,16 +440,15 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 | Field | Default |
 |---|---|
 | `canonicalize_model` | `us.amazon.nova-lite-v1:0` |
-| `semantic_judgment_model` | `claude-sonnet-4-6` |
+| `proposition_provider` | `anthropic` (or `bedrock`) |
+| `proposition_fallback_provider` | `null` |
+| `proposition_models` | `{anthropic: claude-haiku-5-5, bedrock: anthropic.claude-haiku-5-5}` (Haiku passed the relationship precision gate at about an eighth of Sonnet's cost) |
 | `voyage_embedding_model` | `voyage-3` |
 
 **`Thresholds`**
 
 | Field | Default | Description |
 |---|---|---|
-| `embedding_similarity_threshold` | `0.85` | Minimum cosine similarity for semantic candidates |
-| `min_confidence` | `0.70` | Relationships below this are not written |
-| `hedgeable_with_confidence` | `0.90` | Confidence of keyword-matched hedgeable pairs |
 | `min_event_volume` | `5000` | Event groups below this volume are not sent; `null` disables |
 
 **`Processing`**
@@ -529,9 +463,9 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 | `settle_recent_hours` | `6` | Outcomes deactivated this recently are looked up after every fetch |
 | `closure_check_max_lookups` | `500` | More contracts than this leaving one feed at once are not looked up |
 | `reactivation_lookback_days` | `30` | How long after deactivation a listing can be turned back on |
-| `neighbor_search_limit` | `60` | Max pgvector neighbors per event |
 | `voyage_embed_chunk_size` | `2000` | Events per Voyage embedding chunk |
-| `anthropic_sync_threshold` | `10` | Judgment requests: sync calls at or below this many, Batch API above |
+| `relationships_derive_limit` | `200` | Subjects one relationships pass derives |
+| `drift_sample_size` | `40` | Code-read contracts the daily drift check re-reads with Claude |
 | `stale_miss_threshold` | `24` | Consecutive stale-cycle misses before an event is stale |
 | `fetch_max_sqs_messages` | `100000` | Max groups sent per fetch cycle |
 | `resolve_max_sqs_messages` | `100000` | Max messages sent per resolve cycle |
@@ -542,20 +476,12 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 | Field | Default | Description |
 |---|---|---|
 | `normalize_max_messages` / `normalize_max_wait_seconds` | `500` / `60` | NormalizeWorker batch limits |
-| `embed_max_messages` / `embed_max_wait_seconds` | `2000` / `60` | EmbedWorker batch limits |
 | `relationships_max_messages` / `relationships_max_wait_seconds` | `200` / `60` | RelationshipsWorker batch limits |
 | `notify_max_messages` / `notify_max_wait_seconds` | `100000` / `300` | NotifyWorker batch limits |
 | `fetch_interval_seconds` | `60` | FetchRunner fetch cycle interval |
 | `resolve_interval_seconds` | `1800` | FetchRunner resolve cycle interval |
 | `stale_interval_seconds` | `3600` | FetchRunner stale cycle interval |
 | `settle_sweep_interval_seconds` | `3600` | FetchRunner settle sweep interval |
-
-**`CategoryFilter`**
-
-| Field | Default | Description |
-|---|---|---|
-| `enabled` | `false` | Restrict semantic classification to `allowed_categories` |
-| `allowed_categories` | all categories | Categories included when enabled |
 
 Standardized categories: `CRYPTO`, `POLITICS`, `SPORTS`, `ECONOMICS`, `FINANCE`, `ENTERTAINMENT`, `SCIENCE`, `TECHNOLOGY`, `HEALTH`, `WEATHER`, `LEGAL`, `OTHER`. Esports is `SPORTS`, tagged `esports` plus the game.
 
@@ -570,9 +496,9 @@ Defined with AWS CDK (TypeScript) in `cdk/`. `ClassifierPipelineStack` is a Code
 | Secret | Used by |
 |---|---|
 | `anthropic-api-key` | NormalizeWorker, RelationshipsWorker |
-| `voyage-api-key` | EmbedWorker (also granted to RelationshipsWorker) |
+| `voyage-api-key` | RelationshipsWorker |
 | `slack-bot-token` | NotifyWorker |
-| `registry-database-root-user` | NormalizeWorker, EmbedWorker, RelationshipsWorker |
+| `registry-database-root-user` | NormalizeWorker, RelationshipsWorker |
 
 Registry and controller API keys are read from API Gateway (`apigateway:GET`) at startup.
 
@@ -596,7 +522,6 @@ Workers override the visibility timeout to 15 minutes on each receive. `Notifica
 |---|---|---|
 | Fetch | `fetch` | 1024 MiB |
 | Normalize | `normalize` | 512 MiB |
-| Embed | `embed` | 512 MiB |
 | Relationships | `relationships` | 512 MiB |
 | Notify | `notify` | 128 MiB |
 
@@ -640,31 +565,18 @@ Tests use in-memory stubs from `scripts/testing.py`; no AWS services, database o
 
 | Command | Purpose |
 |---|---|
-| `poetry run worker <fetch\|normalize\|embed\|relationships\|notify>` | Run a worker (`classifier/workers/runner.py`) |
-| `poetry run dry-run <fetch\|canonicalize\|entities\|classify\|reclassify> ...` | Run pipeline stages locally against stubs, or real Postgres/Redis when `DATABASE_URL` / `REDIS_URL` are set (`scripts/dry_run.py`) |
-| `poetry run bootstrap [ADAPTER] [--no-classify] [--with-judgment] [--batch-size N]` | One-time full load of the exchange universe into the real registry (`scripts/bootstrap.py`) |
+| `poetry run worker <fetch\|normalize\|relationships\|notify>` | Run a worker (`classifier/workers/runner.py`) |
+| `poetry run dry-run <fetch\|canonicalize\|entities> ...` | Run pipeline stages locally against stubs, or real Postgres/Redis when `DATABASE_URL` / `REDIS_URL` are set (`scripts/dry_run.py`) |
+| `poetry run bootstrap [ADAPTER] [--batch-size N]` | One-time full load of the exchange universe into the real registry (`scripts/bootstrap.py`) |
 | `poetry run tunnel [--stage dev\|prod] [--pg] [--redis]` | SSM port-forwarding tunnels to RDS and Redis through the bastion (`scripts/tunnel.py`) |
+| `poetry run eval-relationships [--derive]` / `poetry run eval-propositions` | Score relationships and propositions against `tests/fixtures/relationships/` |
 | `poetry run backfill-taxonomy [--apply]` | Re-derive unresolved events' categories (and open events' tags) from the static exchange taxonomy; stops on unmapped labels (`scripts/backfill_taxonomy.py`) |
 
 ### Running the Pipeline In-Process
 
-`classifier/pipeline.py` exposes `run_full_pipeline_sync()`, which runs entity creation → embedding → classification synchronously:
-
-```python
-from classifier.pipeline import run_full_pipeline_sync
-
-result = run_full_pipeline_sync(
-    registry, batch_client, contracts,
-    voyage_client=voyage_client,
-    cache=cache,
-    db=db,
-    skip_classify=False,
-    skip_semantic=True,  # skip the LLM judgment phase
-)
-print(result.entity_result)
-print(result.classification)
-```
+Propositions and relationships run in the relationships worker (`classifier/stages/propositions.py`) and are scored offline with
+`poetry run eval-propositions` and `poetry run eval-relationships --derive`.
 
 ### Worker Entry Points
 
-The Docker image's entrypoint is `python -m classifier.workers.runner`, a Click group whose subcommands (`fetch`, `normalize`, `embed`, `relationships`, `notify`) start the matching worker. SQS workers read queue URLs and secret names from environment variables via `WorkerConfig` and loop in `BaseWorker.run()`; `FetchRunner` reads `REDIS_ENDPOINT`, `CONTRACTS_QUEUE_URL` and the registry/controller settings directly. All exit cleanly on SIGTERM/SIGINT.
+The Docker image's entrypoint is `python -m classifier.workers.runner`, a Click group whose subcommands (`fetch`, `normalize`, `relationships`, `notify`) start the matching worker. SQS workers read queue URLs and secret names from environment variables via `WorkerConfig` and loop in `BaseWorker.run()`; `FetchRunner` reads `REDIS_ENDPOINT`, `CONTRACTS_QUEUE_URL` and the registry/controller settings directly. All exit cleanly on SIGTERM/SIGINT.

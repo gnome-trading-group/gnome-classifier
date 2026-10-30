@@ -1,3 +1,5 @@
+import base64
+import gzip
 import json
 import logging
 import signal
@@ -13,6 +15,23 @@ logger = logging.getLogger(__name__)
 
 _SEND_BATCH_SIZE = 10
 _MAX_BATCH_BYTES = 1_000_000  # SQS limit is 1,048,576; leave headroom for request overhead
+# A fetch message carries an event's whole contract set with each contract's venue source; the largest events (300
+# contracts) come near the 1 MiB message limit, so large bodies travel gzipped (about 7% of their size).
+_COMPRESS_ABOVE_BYTES = 256_000
+
+
+def encode_body(msg: dict) -> str:
+    body = json.dumps(msg)
+    if len(body) <= _COMPRESS_ABOVE_BYTES:
+        return body
+    return json.dumps({"gzip": base64.b64encode(gzip.compress(body.encode("utf-8"))).decode("ascii")})
+
+
+def message_body(msg: dict) -> dict:
+    body = json.loads(msg["Body"])
+    if isinstance(body, dict) and set(body) == {"gzip"}:
+        return json.loads(gzip.decompress(base64.b64decode(body["gzip"])))
+    return body
 
 
 def sqs_send_batch(sqs_client, queue_url: str, messages: list[dict]):
@@ -21,7 +40,7 @@ def sqs_send_batch(sqs_client, queue_url: str, messages: list[dict]):
     entry_id = 0
 
     for msg in messages:
-        body = json.dumps(msg)
+        body = encode_body(msg)
         body_len = len(body.encode("utf-8"))
         if batch_entries and (len(batch_entries) >= _SEND_BATCH_SIZE or batch_bytes + body_len > _MAX_BATCH_BYTES):
             _flush_sqs_batch(sqs_client, queue_url, batch_entries)
@@ -48,7 +67,7 @@ def parse_security_messages(messages: list[dict]) -> tuple[list[int], dict[int, 
     security_ids: list[int] = []
     symbol_by_id: dict[int, str] = {}
     for msg in messages:
-        body = json.loads(msg["Body"])
+        body = message_body(msg)
         sid = body["security_id"]
         security_ids.append(sid)
         symbol_by_id[sid] = body.get("security_symbol", "")
@@ -131,10 +150,19 @@ class BaseWorker(ABC):
                 if deadline is None:
                     deadline = time.monotonic() + max_wait_seconds
                 messages.extend(new_msgs)
+            elif not messages:
+                try:
+                    self.on_idle()
+                except Exception:
+                    logger.exception("on_idle failed")
             if len(messages) >= max_messages:
                 break
 
         return messages
+
+    def on_idle(self) -> None:
+        """Called after a poll that found nothing while no batch is being collected; for work not driven by
+        messages."""
 
     def _resolve_worker_max_messages(self, wp) -> int | None:
         return getattr(wp, self._worker_messages_attr, None) if self._worker_messages_attr else None

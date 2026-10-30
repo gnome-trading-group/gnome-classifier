@@ -10,13 +10,10 @@ interface Props extends cdk.StackProps {
   contractsDlq: sqs.Queue;
   entitiesQueue: sqs.Queue;
   entitiesDlq: sqs.Queue;
-  embeddingsQueue: sqs.Queue;
-  embeddingsDlq: sqs.Queue;
   slackQueue: sqs.Queue;
   slackDlq: sqs.Queue;
   fetchService: ecs.Ec2Service;
   normalizeService: ecs.Ec2Service;
-  embedService: ecs.Ec2Service;
   relationshipsService: ecs.Ec2Service;
   notifyService: ecs.Ec2Service;
   workerStarts: Record<string, cloudwatch.Metric>;
@@ -25,6 +22,8 @@ interface Props extends cdk.StackProps {
   closureChecksSkipped: cloudwatch.Metric;
   listingsReactivated: cloudwatch.Metric;
   identityRegressions: cloudwatch.Metric;
+  venueReaderFallbacks: cloudwatch.Metric;
+  propositionDrift: cloudwatch.Metric;
 }
 
 const AT_LEAST = cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD;
@@ -74,7 +73,6 @@ export class MonitoringStack extends cdk.Stack {
     for (const [name, queue, dlq] of [
       ['Contracts', props.contractsQueue, props.contractsDlq],
       ['Entities', props.entitiesQueue, props.entitiesDlq],
-      ['Embeddings', props.embeddingsQueue, props.embeddingsDlq],
       ['Slack', props.slackQueue, props.slackDlq],
     ] as [string, sqs.Queue, sqs.Queue][]) {
       monitoring.monitorSqsQueue({
@@ -98,7 +96,6 @@ export class MonitoringStack extends cdk.Stack {
     for (const [name, service] of [
       ['Fetch', props.fetchService],
       ['Normalize', props.normalizeService],
-      ['Embed', props.embedService],
       ['Relationships', props.relationshipsService],
       ['Notify', props.notifyService],
     ] as [string, ecs.Ec2Service][]) {
@@ -151,6 +148,17 @@ export class MonitoringStack extends cdk.Stack {
               'Hundreds of contracts left a venue feed at once; they wait for the resolve cycle', 'Warning'),
             countAlarm(props.listingsReactivated, 'ListingsReactivated', 1,
               'A venue listed dozens of retired markets as open again; the classifier turned them back on', 'Warning'),
+          ],
+        },
+        {
+          title: 'Proposition readers per hour',
+          // A venue rewording a template sends a whole family (every strike of a ladder) to the LLM at once; a few
+          // misses are new market shapes. Any drift means a code reader and Claude read the same rules differently.
+          metrics: [
+            countAlarm(props.venueReaderFallbacks, 'VenueReaderFallbacks', 25,
+              'A family the venue readers handle stopped parsing: its contracts now go to the LLM', 'Warning'),
+            countAlarm(props.propositionDrift, 'PropositionDrift', 1,
+              'The daily re-read by Claude disagreed with a venue reader on a field', 'Warning'),
           ],
         },
       ],

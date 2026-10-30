@@ -1,12 +1,10 @@
 import logging
 import time
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import voyageai
-from gnomepy.registry.types import Event
 
-from classifier.constants import DEFAULT_VOYAGE_EMBED_CHUNK_SIZE, DEFAULT_VOYAGE_EMBEDDING_MODEL
+from classifier.constants import DEFAULT_VOYAGE_EMBEDDING_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -16,20 +14,6 @@ class BatchVoyageClient:
         self._client = client
         self._max_workers = max_workers
         self._max_retries = max_retries
-
-    def embed_events(
-        self, events: list[Event], chunk_size: int = DEFAULT_VOYAGE_EMBED_CHUNK_SIZE, model: str = DEFAULT_VOYAGE_EMBEDDING_MODEL,
-    ) -> Iterator[dict[int, list[float]]]:
-        for i in range(0, len(events), chunk_size):
-            chunk = events[i:i + chunk_size]
-            texts = []
-            for event in chunk:
-                text = event.title
-                if event.description:
-                    text += ". " + event.description[:200]
-                texts.append(text)
-            result_embeddings = self.embed(texts, model=model)
-            yield {event.event_id: emb for event, emb in zip(chunk, result_embeddings)}
 
     def embed(self, texts: list[str], model: str = DEFAULT_VOYAGE_EMBEDDING_MODEL, input_type: str = "document") -> list[list[float]]:
         if not texts:

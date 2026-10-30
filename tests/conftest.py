@@ -7,9 +7,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-import anthropic
 
-from classifier.client import BatchAnthropicClient
 from scripts.testing import FakeConverseClient, StubDB, StubRegistry
 from gnomepy.registry.types import Event, EventContract
 
@@ -25,57 +23,8 @@ def stub_db(stub_registry):
 
 
 @pytest.fixture
-def mock_anthropic():
-    inner = MagicMock(spec=anthropic.Anthropic)
-
-    def _fake_create(*args, **kwargs):
-        messages = kwargs.get("messages", [])
-        content = messages[0].get("content", "") if messages else ""
-        titles = []
-        idx = 1
-        for line in content.splitlines():
-            if line.startswith("[") and "] Title: " in line:
-                raw_title = line.split("] Title: ", 1)[1].split(" | ")[0].strip()
-                key = hashlib.sha256(raw_title.encode()).hexdigest()[:6]
-                titles.append({"id": idx, "key": key, "title": raw_title, "category": "POLITICS", "tags": ["test", "tag", "here"]})
-                idx += 1
-            elif line.startswith("Exchange-provided title:"):
-                title = line.split(":", 1)[1].strip()
-                titles.append({"title": title, "category": "OTHER", "tags": ["test", "tag", "here"]})
-
-        if not titles:
-            text = "[]"
-        elif len(titles) == 1:
-            text = json.dumps(titles[0])
-        else:
-            text = json.dumps(titles)
-
-        mock_content = MagicMock()
-        mock_content.text = text
-        mock_response = MagicMock()
-        mock_response.content = [mock_content]
-        return mock_response
-
-    inner.messages.create.side_effect = _fake_create
-    return BatchAnthropicClient(client=inner, max_batch_wait=0)
-
-
-@pytest.fixture
 def mock_converse():
     return FakeConverseClient(category="POLITICS", tags=["test", "tag", "here"])
-
-
-@pytest.fixture
-def mock_voyage():
-    client = MagicMock()
-
-    def _fake_embed(texts, **kwargs):
-        result = MagicMock()
-        result.embeddings = [[float(i) / 100] * 10 for i in range(len(texts))]
-        return result
-
-    client.embed.side_effect = _fake_embed
-    return client
 
 
 @pytest.fixture

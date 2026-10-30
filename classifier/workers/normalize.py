@@ -8,7 +8,7 @@ from classifier.adapters.types import AdapterContract
 from classifier.stages.entities import create_entities
 from classifier.stages.resolve import deactivate_closed_listings
 from classifier.stages.stale import deactivate_stale_events
-from classifier.workers.base import BaseWorker
+from classifier.workers.base import BaseWorker, message_body
 from classifier.workers.config import WorkerConfig, init_bedrock, init_cache, init_db, init_registry, init_runtime_config
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class NormalizeWorker(BaseWorker):
         stale_events: list[tuple[int, str]] = []
 
         for msg in messages:
-            body = json.loads(msg["Body"])
+            body = message_body(msg)
             if body["type"] == "new":
                 for c in body["contracts"]:
                     new_contracts.append(AdapterContract(**c))

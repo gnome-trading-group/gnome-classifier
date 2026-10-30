@@ -34,7 +34,6 @@ export class ClassifierStack extends cdk.Stack {
   public readonly notificationsTopic: sns.Topic;
   public readonly fetchService: ecs.Ec2Service;
   public readonly normalizeService: ecs.Ec2Service;
-  public readonly embedService: ecs.Ec2Service;
   public readonly relationshipsService: ecs.Ec2Service;
   public readonly notifyService: ecs.Ec2Service;
   /** Hourly count of each worker's process starting, by worker name; more than a deploy's worth means it is crashing. */
@@ -49,6 +48,10 @@ export class ClassifierStack extends cdk.Stack {
   public readonly listingsReactivated: cloudwatch.Metric;
   /** Hourly count of securities an adapter tried to move to a second event. */
   public readonly identityRegressions: cloudwatch.Metric;
+  /** Hourly count of contracts in a family the venue readers handle that their rules text no longer parsed. */
+  public readonly venueReaderFallbacks: cloudwatch.Metric;
+  /** Hourly count of fields where the daily re-read by Claude disagreed with a venue reader. */
+  public readonly propositionDrift: cloudwatch.Metric;
 
   constructor(scope: Construct, id: string, props: Props) {
     super(scope, id, props);
@@ -95,6 +98,12 @@ export class ClassifierStack extends cdk.Stack {
       visibilityTimeout: cdk.Duration.minutes(15),
       deadLetterQueue: { queue: this.embeddingsDlq, maxReceiveCount: 3 },
     });
+    // The Embed worker is gone and nothing uses these queues. The deployed monitoring stack still imports them, and
+    // this stack deploys first, so they and their exports stay for one release; the next release deletes both.
+    this.exportValue(this.embeddingsQueue.queueUrl);
+    this.exportValue(this.embeddingsQueue.queueName);
+    this.exportValue(this.embeddingsDlq.queueUrl);
+    this.exportValue(this.embeddingsDlq.queueName);
 
     this.notificationsTopic = new sns.Topic(this, 'NotificationsTopic');
 
@@ -179,7 +188,6 @@ export class ClassifierStack extends cdk.Stack {
       DB_SECRET_NAME: 'registry-database-root-user',
       CONTRACTS_QUEUE_URL: this.contractsQueue.queueUrl,
       ENTITIES_QUEUE_URL: this.entitiesQueue.queueUrl,
-      EMBEDDINGS_QUEUE_URL: this.embeddingsQueue.queueUrl,
       NOTIFICATIONS_TOPIC_ARN: this.notificationsTopic.topicArn,
       SLACK_QUEUE_URL: this.slackQueue.queueUrl,
       ...controllerEnv,
@@ -309,29 +317,10 @@ export class ClassifierStack extends cdk.Stack {
     this.identityRegressions = logMetric(workerLogGroups.Normalize, 'IdentityRegressions',
       logs.FilterPattern.literal('"already in event"'));
 
-    // ── EmbedWorker ───────────────────────────────────────────────────
-
-    this.embedService = createWorkerService('Embed', 'embed', {
-      VOYAGE_API_KEY_SECRET: 'voyage-api-key',
-      DB_SECRET_NAME: 'registry-database-root-user',
-      ENTITIES_QUEUE_URL: this.entitiesQueue.queueUrl,
-      EMBEDDINGS_QUEUE_URL: this.embeddingsQueue.queueUrl,
-      ...controllerEnv,
-    }, 512, (role) => {
-      this.entitiesQueue.grantConsumeMessages(role);
-      this.embeddingsQueue.grantSendMessages(role);
-      voyageApiKeySecret.grantRead(role);
-      dbSecret.grantRead(role);
-      role.addToPolicy(new iam.PolicyStatement({
-        actions: ['apigateway:GET'],
-        resources: [controllerApiKeyArn],
-      }));
-    });
-
     // ── RelationshipsWorker ───────────────────────────────────────────
 
     this.relationshipsService = createWorkerService('Relationships', 'relationships', sharedEnv, 512, (role) => {
-      this.embeddingsQueue.grantConsumeMessages(role);
+      this.entitiesQueue.grantConsumeMessages(role);
       this.notificationsTopic.grantPublish(role);
       anthropicApiKeySecret.grantRead(role);
       voyageApiKeySecret.grantRead(role);
@@ -341,6 +330,13 @@ export class ClassifierStack extends cdk.Stack {
         resources: [cdk.Fn.importValue('RegistryApiKeyArn'), controllerApiKeyArn],
       }));
     });
+
+    // Propositions are extracted by the relationships worker, which logs each contract a venue reader should have read
+    // but could not (a venue rewording its rules) and each field where the daily re-read by Claude disagreed.
+    this.venueReaderFallbacks = logMetric(workerLogGroups.Relationships, 'VenueReaderFallbacks',
+      logs.FilterPattern.literal('"venue reader fell back"'));
+    this.propositionDrift = logMetric(workerLogGroups.Relationships, 'PropositionDrift',
+      logs.FilterPattern.literal('"proposition drift"'));
 
     // ── NotifyWorker ──────────────────────────────────────────────────
 

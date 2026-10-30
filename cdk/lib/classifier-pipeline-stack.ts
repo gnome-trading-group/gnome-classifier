@@ -23,13 +23,10 @@ class AppStage extends cdk.Stage {
       contractsDlq: classifierStack.contractsDlq,
       entitiesQueue: classifierStack.entitiesQueue,
       entitiesDlq: classifierStack.entitiesDlq,
-      embeddingsQueue: classifierStack.embeddingsQueue,
-      embeddingsDlq: classifierStack.embeddingsDlq,
       slackQueue: classifierStack.slackQueue,
       slackDlq: classifierStack.slackDlq,
       fetchService: classifierStack.fetchService,
       normalizeService: classifierStack.normalizeService,
-      embedService: classifierStack.embedService,
       relationshipsService: classifierStack.relationshipsService,
       notifyService: classifierStack.notifyService,
       workerStarts: classifierStack.workerStarts,
@@ -38,6 +35,8 @@ class AppStage extends cdk.Stage {
       closureChecksSkipped: classifierStack.closureChecksSkipped,
       listingsReactivated: classifierStack.listingsReactivated,
       identityRegressions: classifierStack.identityRegressions,
+      venueReaderFallbacks: classifierStack.venueReaderFallbacks,
+      propositionDrift: classifierStack.propositionDrift,
     });
   }
 }

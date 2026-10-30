@@ -3,7 +3,7 @@ import hashlib
 import logging
 
 from classifier.adapters import ADAPTERS
-from classifier.adapters.types import AdapterContract
+from classifier.adapters.types import AdapterContract, proposition_source_hash
 from gnomepy.registry import RegistryClient
 from gnomepy.registry.types import Exchange
 
@@ -24,6 +24,7 @@ def contract_hash(contract: AdapterContract) -> str:
         str(int(contract.min_size)),
         contract.fee_group or "",
         contract.fee_event or "",
+        proposition_source_hash(contract.proposition_source),
     ])
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 

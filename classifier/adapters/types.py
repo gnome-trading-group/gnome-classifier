@@ -1,3 +1,5 @@
+import hashlib
+import json
 from dataclasses import dataclass, field
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
@@ -40,3 +42,20 @@ class AdapterContract:
     # Set only where a schedule other than the exchange's default can apply.
     fee_group: str | None = None
     fee_event: str | None = None
+    # The venue's own resolution-relevant fields for this contract (rules, strikes, resolution sources, times), stored
+    # as sm.contract_source so propositions are read from everything the venue said. Static fields only: a price or
+    # volume here would resend the contract every fetch.
+    proposition_source: dict | None = None
+
+
+def pick_source_fields(raw: dict | None, keys: tuple[str, ...]) -> dict:
+    """The named fields a venue gave, leaving out absent and empty ones."""
+    if not raw:
+        return {}
+    return {k: raw[k] for k in keys if raw.get(k) not in (None, "", [], {})}
+
+
+def proposition_source_hash(source: dict | None) -> str:
+    if not source:
+        return ""
+    return hashlib.sha256(json.dumps(source, sort_keys=True, default=str).encode()).hexdigest()[:16]

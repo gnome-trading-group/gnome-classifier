@@ -71,6 +71,5 @@ def resolve_settled_events(
 
     now = datetime.now(timezone.utc).isoformat()
     registry.bulk_patch_events([{"event_id": eid, "resolved": True, "resolved_at": now} for eid in resolved_event_ids])
-    db.delete_embeddings(resolved_event_ids)
     event_info = db.get_events(resolved_event_ids)
     return resolved_event_ids, [event_info[eid]["title"] for eid in resolved_event_ids if eid in event_info]

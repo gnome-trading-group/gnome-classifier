@@ -9,7 +9,7 @@ from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier import taxonomy
 from classifier.adapters.settlement import CLOSED, OPEN, PRICE_SCALE, MarketState, chunked, settled, to_price
-from classifier.adapters.types import AdapterContract
+from classifier.adapters.types import AdapterContract, pick_source_fields
 from classifier.client.http import RateLimitedSession
 from classifier.stages.fees import kalshi_fee_scopes, kalshi_schedules
 from classifier.types import ExchangeId
@@ -53,6 +53,32 @@ def _dollar_volume_24h(market: dict) -> float:
         return float(market.get("volume_24h_fp") or 0) * float(market.get("last_price_dollars") or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+_SOURCE_EVENT_FIELDS = (
+    "event_ticker", "series_ticker", "title", "sub_title", "category", "mutually_exclusive", "settlement_sources",
+    "strike_date", "strike_period",
+)
+_SOURCE_MARKET_FIELDS = (
+    "ticker", "title", "subtitle", "yes_sub_title", "no_sub_title", "rules_primary", "rules_secondary", "market_type",
+    "strike_type", "floor_strike", "cap_strike", "custom_strike", "functional_strike", "open_time", "close_time",
+    "expected_expiration_time", "expiration_time", "latest_expiration_time", "can_close_early", "early_close_condition",
+    "settlement_timer_seconds",
+)
+
+
+def _with_sources(event: dict, contracts: list[AdapterContract]) -> list[AdapterContract]:
+    event_source = pick_source_fields(event, _SOURCE_EVENT_FIELDS)
+    market_by_ticker = {m.get("ticker"): m for m in event.get("markets", [])}
+    for c in contracts:
+        ticker, _, side = c.exchange_security_id.partition(":")
+        c.proposition_source = {
+            "venue": "KALSHI",
+            "event": event_source,
+            "market": pick_source_fields(market_by_ticker.get(ticker), _SOURCE_MARKET_FIELDS),
+            "side": side or "yes",
+        }
+    return contracts
 
 
 def _is_multi_outcome(event: dict) -> bool:
@@ -118,7 +144,8 @@ class KalshiAdapter:
             except requests.exceptions.RequestException as e:
                 logger.error("Kalshi API error: %s", e)
                 raise
-            page = [c for event in data.get("events", []) for c in self._map_event(exchange_id, event, series_tags, fee_scopes)]
+            page = [c for event in data.get("events", [])
+                    for c in _with_sources(event, self._map_event(exchange_id, event, series_tags, fee_scopes))]
             if page:
                 yield page
             cursor = data.get("cursor", "")

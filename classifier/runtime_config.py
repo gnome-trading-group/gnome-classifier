@@ -10,27 +10,28 @@ from classifier.constants import (
     DEFAULT_CANONICALIZE_BATCH_SIZE,
     DEFAULT_CANONICALIZE_MODEL,
     DEFAULT_CLOSURE_CHECK_MAX_LOOKUPS,
+    DEFAULT_DRIFT_INTERVAL_SECONDS,
+    DEFAULT_DRIFT_SAMPLE_SIZE,
     DEFAULT_BULK_CREATE_BATCH_SIZE,
-    DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD,
     DEFAULT_FEE_SYNC_INTERVAL_SECONDS,
     DEFAULT_VOLUME_INTERVAL_SECONDS,
     DEFAULT_VOLUME_MAX_AGE_SECONDS,
     DEFAULT_VOLUME_MIN_CHANGE,
     DEFAULT_FETCH_INTERVAL_SECONDS,
     DEFAULT_FETCH_MAX_SQS_MESSAGES,
-    DEFAULT_HEDGEABLE_WITH_CONFIDENCE,
     DEFAULT_MAX_MESSAGES,
     DEFAULT_MAX_WAIT_SECONDS,
-    DEFAULT_MIN_CONFIDENCE,
     DEFAULT_MIN_EVENT_VOLUME,
     DEFAULT_NOTIFY_MAX_MESSAGES,
     DEFAULT_NOTIFY_MAX_WAIT_SECONDS,
-    DEFAULT_NEIGHBOR_SEARCH_LIMIT,
     DEFAULT_REACTIVATION_LOOKBACK_DAYS,
     DEFAULT_RESOLUTION_LOOKBACK_DAYS,
     DEFAULT_RESOLVE_INTERVAL_SECONDS,
     DEFAULT_RESOLVE_MAX_SQS_MESSAGES,
-    DEFAULT_SEMANTIC_JUDGMENT_MODEL,
+    DEFAULT_PROPOSITION_MODELS,
+    DEFAULT_PROPOSITION_PROVIDER,
+    DEFAULT_RELATIONSHIPS_BACKLOG_LIMIT,
+    DEFAULT_RELATIONSHIPS_DERIVE_LIMIT,
     DEFAULT_SETTLE_MAX_CANDIDATES,
     DEFAULT_SETTLE_RECENT_HOURS,
     DEFAULT_SETTLE_SWEEP_INTERVAL_SECONDS,
@@ -39,10 +40,7 @@ from classifier.constants import (
     DEFAULT_STALE_MAX_SQS_MESSAGES,
     DEFAULT_STALE_MIN_FEED_RATIO,
     DEFAULT_STALE_MISS_THRESHOLD,
-    DEFAULT_SYNC_THRESHOLD,
-    DEFAULT_VOYAGE_EMBED_CHUNK_SIZE,
     DEFAULT_VOYAGE_EMBEDDING_MODEL,
-    STANDARDIZED_CATEGORIES,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,7 +54,11 @@ class FeatureFlags:
     fetch_enabled: bool = False
     resolve_enabled: bool = False
     canonicalization_enabled: bool = False
-    semantic_judgements_enabled: bool = False
+    # Proposition extraction and relationship derivation in the relationships worker.
+    relationships_enabled: bool = False
+    # Claude reads the securities the venue code readers can't; off, only code-read securities get propositions (the
+    # rest are read once it is turned on, while still open). Paid per contract, so off where nobody needs the coverage.
+    proposition_llm_enabled: bool = False
     stale_cleanup_enabled: bool = False
     settlement_enabled: bool = False
     reactivation_enabled: bool = False
@@ -65,25 +67,23 @@ class FeatureFlags:
 
 
 @dataclasses.dataclass
-class CategoryFilter:
-    enabled: bool = False
-    allowed_categories: list[str] = dataclasses.field(
-        default_factory=lambda: sorted(STANDARDIZED_CATEGORIES)
-    )
-
-
-@dataclasses.dataclass
 class Models:
     canonicalize_model: str = DEFAULT_CANONICALIZE_MODEL
-    semantic_judgment_model: str = DEFAULT_SEMANTIC_JUDGMENT_MODEL
     voyage_embedding_model: str = DEFAULT_VOYAGE_EMBEDDING_MODEL
+    proposition_provider: str = DEFAULT_PROPOSITION_PROVIDER
+    # Tried once when the first provider is unavailable (refused credentials, out of credit, down).
+    proposition_fallback_provider: str | None = None
+    proposition_models: dict[str, str] = dataclasses.field(default_factory=lambda: dict(DEFAULT_PROPOSITION_MODELS))
+
+    def proposition_providers(self) -> list[str]:
+        providers = [self.proposition_provider]
+        if self.proposition_fallback_provider and self.proposition_fallback_provider != self.proposition_provider:
+            providers.append(self.proposition_fallback_provider)
+        return providers
 
 
 @dataclasses.dataclass
 class Thresholds:
-    embedding_similarity_threshold: float = DEFAULT_EMBEDDING_SIMILARITY_THRESHOLD
-    min_confidence: float = DEFAULT_MIN_CONFIDENCE
-    hedgeable_with_confidence: float = DEFAULT_HEDGEABLE_WITH_CONFIDENCE
     min_event_volume: float | None = DEFAULT_MIN_EVENT_VOLUME
     # Per-tag / per-category thresholds that replace min_event_volume for matching events; the smallest
     # matching value wins and None ungates. Empty defaults so entries removed in the controller stay removed.
@@ -101,9 +101,9 @@ class Processing:
     settle_recent_hours: int = DEFAULT_SETTLE_RECENT_HOURS
     closure_check_max_lookups: int = DEFAULT_CLOSURE_CHECK_MAX_LOOKUPS
     reactivation_lookback_days: int = DEFAULT_REACTIVATION_LOOKBACK_DAYS
-    neighbor_search_limit: int = DEFAULT_NEIGHBOR_SEARCH_LIMIT
-    voyage_embed_chunk_size: int = DEFAULT_VOYAGE_EMBED_CHUNK_SIZE
-    anthropic_sync_threshold: int = DEFAULT_SYNC_THRESHOLD
+    relationships_derive_limit: int = DEFAULT_RELATIONSHIPS_DERIVE_LIMIT
+    relationships_backlog_limit: int = DEFAULT_RELATIONSHIPS_BACKLOG_LIMIT
+    drift_sample_size: int = DEFAULT_DRIFT_SAMPLE_SIZE
     stale_miss_threshold: int = DEFAULT_STALE_MISS_THRESHOLD
     stale_min_feed_ratio: float = DEFAULT_STALE_MIN_FEED_RATIO
     fetch_max_sqs_messages: int = DEFAULT_FETCH_MAX_SQS_MESSAGES
@@ -115,10 +115,9 @@ class Processing:
 class WorkerParams:
     normalize_max_messages: int = DEFAULT_MAX_MESSAGES
     normalize_max_wait_seconds: int = DEFAULT_MAX_WAIT_SECONDS
-    embed_max_messages: int = DEFAULT_VOYAGE_EMBED_CHUNK_SIZE
-    embed_max_wait_seconds: int = DEFAULT_MAX_WAIT_SECONDS
     relationships_max_messages: int = 200
     relationships_max_wait_seconds: int = DEFAULT_MAX_WAIT_SECONDS
+    drift_interval_seconds: int = DEFAULT_DRIFT_INTERVAL_SECONDS
     notify_max_messages: int = DEFAULT_NOTIFY_MAX_MESSAGES
     notify_max_wait_seconds: int = DEFAULT_NOTIFY_MAX_WAIT_SECONDS
     fetch_interval_seconds: int = DEFAULT_FETCH_INTERVAL_SECONDS
@@ -134,7 +133,6 @@ class WorkerParams:
 @dataclasses.dataclass
 class ClassifierConfig:
     feature_flags: FeatureFlags = dataclasses.field(default_factory=FeatureFlags)
-    category_filter: CategoryFilter = dataclasses.field(default_factory=CategoryFilter)
     models: Models = dataclasses.field(default_factory=Models)
     thresholds: Thresholds = dataclasses.field(default_factory=Thresholds)
     processing: Processing = dataclasses.field(default_factory=Processing)
