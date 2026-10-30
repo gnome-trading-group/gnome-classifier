@@ -802,14 +802,14 @@ files = [
 
 [[package]]
 name = "gnomepy"
-version = "3.1.0"
+version = "3.5.0"
 description = ""
 optional = false
 python-versions = "<3.14,>=3.13"
 groups = ["main"]
 files = [
-    {file = "gnomepy-3.1.0-py3-none-any.whl", hash = "sha256:86f801f7fbc450764a9061d6876379771dda37895bf9b67e904fbbe1e0d1264a"},
-    {file = "gnomepy-3.1.0.tar.gz", hash = "sha256:44e510e65d40fad88440a311c29d48f21a49636e1f446f38b448b47579fc781f"},
+    {file = "gnomepy-3.5.0-py3-none-any.whl", hash = "sha256:a45b16cfc20b1c6ad9bfc124c9b6ec23bd3eb0e645ed8f957759243b00ffcaaa"},
+    {file = "gnomepy-3.5.0.tar.gz", hash = "sha256:964d0946dac446e998be871b615abe4998159d4b2109c20752908db90f5b2f83"},
 ]
 
 [package.dependencies]
@@ -825,7 +825,6 @@ zstandard = ">=0.23.0,<0.24.0"
 backtest = ["anthropic (>=0.40.0,<1.0.0)", "boto3-stubs (>=1.42.73,<2.0.0)", "dash (>=2.18.0,<3.0.0)", "dash-bootstrap-components (>=1.6.0,<2.0.0)", "numpy (>=2.2.4,<3.0.0)", "pandas (>=2.2.3,<3.0.0)", "pandas-stubs (>=2.3.3,<2.4.0)", "plotly (>=6.6.0,<6.7.0)", "pyarrow (>=23.0.1,<24.0.0)", "pyiceberg[pyiceberg-core] (>=0.12.0,<0.13.0)", "scipy (>=1.15.0,<2.0.0)"]
 live-data = ["pandas (>=2.2.3,<3.0.0)", "pyarrow (>=23.0.1,<24.0.0)", "pyiceberg[pyiceberg-core] (>=0.12.0,<0.13.0)"]
 strategy = ["numpy (>=2.2.4,<3.0.0)", "scipy (>=1.15.0,<2.0.0)"]
-tardis = ["tardis-dev (>=4.0.0,<5.0.0)"]
 
 [[package]]
 name = "h11"
@@ -2519,4 +2518,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<3.14"
-content-hash = "337335fe77bf0553a8852f7068bfb4553cc67c0818c49c37512957e44974e5a3"
+content-hash = "60c73a7b4fcb6b4af9a4d6da4b9e0d6dba7c677040d1ca69675134219cfc4a1c"
