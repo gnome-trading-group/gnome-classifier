@@ -396,12 +396,22 @@ def _sync_contract_sources(
     security_id_by_key: dict[ListingKey, SecurityId],
 ) -> int:
     """Stores each contract's venue source for proposition extraction; the registry skips unchanged ones by hash."""
-    pending = [
-        dict(security_id=security_id_by_key[_listing_key(c)], exchange_id=c.exchange_id,
-             source=c.proposition_source, source_hash=proposition_source_hash(c.proposition_source))
-        for c in contracts
-        if c.proposition_source and _listing_key(c) in security_id_by_key
-    ]
+    by_security: dict[SecurityId, list[dict]] = {}
+    for c in contracts:
+        if c.proposition_source and _listing_key(c) in security_id_by_key:
+            security_id = security_id_by_key[_listing_key(c)]
+            by_security.setdefault(security_id, []).append(dict(
+                security_id=security_id, exchange_id=c.exchange_id, source=c.proposition_source,
+                source_hash=proposition_source_hash(c.proposition_source)))
+    pending = []
+    for security_id, items in by_security.items():
+        if len({item["source_hash"] for item in items}) == 1:
+            pending.append(items[0])
+        else:
+            # Securities from before identity was one per listing can hold two markets (two strikes); a proposition
+            # read from either source would be wrong for the other, so the security gets none.
+            logger.warning("security %s has %d listings with different sources; not storing a source",
+                           security_id, len(items))
     for _, chunk in bulk_create_chunked(pending, "contract sources"):
         registry.upsert_contract_sources(chunk)
     return len(pending)

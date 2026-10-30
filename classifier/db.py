@@ -448,6 +448,17 @@ class ClassifierDB:
                 )
                 return cur.fetchone()[0]
 
+    # Column order is what _input reads.
+    _INPUT_COLUMNS = (
+        "SELECT cs.security_id, x.exchange_code, ec.event_id, s.contract_type, e.title, ec.outcome_label,"
+        " e.description, e.expiry, cs.source, cs.source_hash"
+        " FROM sm.contract_source cs"
+        " JOIN sm.exchange x ON x.exchange_id = cs.exchange_id"
+        " JOIN sm.security s ON s.security_id = cs.security_id"
+        " JOIN sm.event_contract ec ON ec.security_id = cs.security_id"
+        " JOIN sm.event e ON e.event_id = ec.event_id"
+    )
+
     @staticmethod
     def _input(row) -> ExtractionInput:
         return ExtractionInput(

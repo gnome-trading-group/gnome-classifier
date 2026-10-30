@@ -353,6 +353,8 @@ class StubRegistry(RegistryClient):
         return {"inserted": inserted, "updated": 0, "deleted": len(stale), "unchanged": len(desired) - inserted}
 
     def upsert_contract_sources(self, items: list[dict]) -> list[dict]:
+        if len({item["security_id"] for item in items}) != len(items):
+            raise ValueError("Each security may appear once")
         results = []
         for item in items:
             changed = self._contract_sources.get(item["security_id"], {}).get("source_hash") != item["source_hash"]

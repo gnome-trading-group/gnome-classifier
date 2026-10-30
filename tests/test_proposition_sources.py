@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 from classifier.adapters import kalshi, polymarket_intl, polymarket_us
 from classifier.adapters.hyperliquid import HyperliquidAdapter, OutcomeTemplate
 from classifier.adapters.types import proposition_source_hash
-from classifier.stages.entities import create_entities
+from classifier.stages.entities import _listing_key, _sync_contract_sources, create_entities
 from classifier.stages.fetch import contract_hash
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -105,3 +105,15 @@ def test_entities_store_each_contracts_source(stub_registry, stub_db):
     assert len(stored) == len({c.exchange_security_id for c in contracts})
     one = next(iter(stored.values()))
     assert one["exchange_id"] == 2 and one["source"]["venue"] == "KALSHI" and one["source_hash"]
+
+
+def test_a_security_listed_twice_stores_one_source_or_none_when_they_differ(stub_registry):
+    a, b, c = _kalshi_contracts()[:3]
+    same_as_a = dataclasses.replace(a, exchange_security_id=a.exchange_security_id + "-dup")
+    security_id_by_key = {_listing_key(a): 1, _listing_key(same_as_a): 1, _listing_key(b): 2, _listing_key(c): 2}
+    assert a.proposition_source != b.proposition_source != c.proposition_source
+
+    stored = _sync_contract_sources(stub_registry, [a, same_as_a, b, c], security_id_by_key)
+
+    assert stored == 1
+    assert set(stub_registry._contract_sources) == {1}
