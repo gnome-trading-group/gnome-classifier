@@ -57,7 +57,9 @@ seats, rate, daily_views_peak). A quantity of one team, player or party is <meas
 (margin:democratic, receptions:darnell-mooney, team_points:mil). When you use a candidate subject, use its listed \
 measure name for the same quantity. For OCCURS_BY, the event that must happen, as a short key (ipo, \
 announce_ipo, make_playoffs, reach_nfc_championship, recognize_palestine): announcing something is a different event \
-from it happening. Null for WINNER.
+from it happening. Reuse a candidate's measure only when the event that must happen is exactly the same; a narrower \
+or more specific event (win_super_bowl, compared with make_playoffs; a merger closing, compared with it being \
+approved) gets its own key, even when one implies the other. Null for WINNER.
 - comparator: GT, GTE, LT, LTE (THRESHOLD only). Use the rules' exact wording: "above"/"more than" is GT, "at least"/ \
 "or above" is GTE.
 - value, unit; low, high, low_inclusive, high_inclusive (RANGE). Copy each number exactly as the rules state it: \
