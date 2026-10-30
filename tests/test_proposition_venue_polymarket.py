@@ -101,11 +101,18 @@ class TestPolymarketIntl:
     def test_brackets_below_a_dollar(self):
         assert read("xrp-price-on-october-30-2026:<0.90").value == 0.9
 
-    def test_chainlink_up_or_down(self):
-        up, down = read("sol-updown-15m-1785941100:Up"), read("sol-updown-15m-1785941100:Down")
-        assert (up.measure, up.window_start, up.window_end) == ("change", utc(2026, 8, 5, 14, 45), utc(2026, 8, 5, 15))
-        assert up.resolution_source == "chainlink-solusd-stream"
+    def test_short_up_or_down_compares_a_twap_with_the_start(self):
+        up, down = read("eth-updown-15m-1793367000:Up"), read("eth-updown-15m-1793367000:Down")
+        assert (up.measure, up.window_start, up.window_end) == ("twap_change", utc(2026, 10, 30, 13, 30),
+                                                                utc(2026, 10, 30, 13, 45))
+        assert up.resolution_source == "chainlink-ethusd-twap-stream"
         assert down == up.negate()
+
+    def test_short_up_or_down_in_other_wording_is_not_read(self):
+        source = SOURCES["eth-updown-15m-1793367000:Up"]
+        reworded = {**source, "market": {**source["market"], "description": source["market"]["description"].replace(
+            "time-weighted average price (TWAP)", "price at the end")}}
+        assert claims(reworded) and extract_venue(reworded) is None
 
     def test_hourly_binance_candle(self):
         p = read("bitcoin-up-or-down-october-29-2026-7pm-et:Up")
@@ -133,6 +140,11 @@ class TestAcrossVenues:
         us = read("cpc-btc-updown-15m-2026-10-29-2315z")
         [found] = derive([Contract(1, "KALSHI", kalshi), Contract(2, "POLYMARKET_US", us)])
         assert (found.relationship_type, found.flags) == (EQUIVALENT, ())
+
+    def test_a_twap_window_never_matches_a_close_over_the_same_window(self):
+        twap = read("eth-updown-15m-1793367000:Up")
+        close = dataclasses.replace(twap, measure="change", resolution_source="chainlink-ethusd-stream")
+        assert derive([Contract(1, "POLYMARKET_INTL", twap), Contract(2, "KALSHI", close)]) == []
 
     def test_the_same_hour_on_different_sources_is_equivalent_with_a_flag(self):
         us = read("cpc-btc-updown-1h-2026-10-29-2300z")

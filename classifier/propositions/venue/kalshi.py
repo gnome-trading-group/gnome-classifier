@@ -52,7 +52,7 @@ _PROP_SUFFIXES = ("RECYDS", "RSHYDS", "PASSYDS", "PASSTD", "REC", "TD", "HRR", "
                   "RBI", "SB", "TB", "3PT")
 # Tennis games markets name the tour with a trailing G (KXATPGTOTAL); their match winners don't.
 _TENNIS_GAMES = re.compile(r"^(?P<tour>ATP|WTA|ATPCHALLENGER|WTACHALLENGER)G$")
-_SPREAD_RULE = re.compile(r"wins? by (?:more than|over) (?P<v>[\d.]+) (?P<unit>runs|points|goals|maps)")
+_SPREAD_RULE = re.compile(r"wins? by (?:more than|over) (?P<v>[\d.]+) (?P<unit>runs|points|goals|maps|games)")
 _GAME_SEGMENT = re.compile(r"^(?P<yy>\d{2})(?P<mon>[A-Z]{3})(?P<dd>\d{2})(?P<hhmm>\d{4})?(?P<teams>[A-Z][A-Z0-9]+)$")
 _FAMILY_SUFFIXES = ("TEAMTOTAL", "1HTOTAL", "TOTAL", "SPREAD", "GAME", "MAP") + _PROP_SUFFIXES
 

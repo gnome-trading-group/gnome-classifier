@@ -260,6 +260,12 @@ class TestLongerSeriesNames:
                                         "Sep 23, 2026 at 6:40 PM EDT"))
         assert game_two.subject == "game:mlb:2026-09-23:torbal-1840"
 
+    def test_series_spreads_count_games(self):
+        p = extract_venue(kalshi("KXLOLSPREAD-26OCT301600LOSTL-TL2", "If Team Liquid wins by over 1.5 games in the Worlds "
+                                 "2026: LOS vs. Team Liquid League of Legends match originally scheduled for Oct 30, 2026 at "
+                                 "4:00 PM EDT, then the market resolves to Yes."))
+        assert (p.measure, p.value, p.unit) == ("margin:tl", 1.5, "games")
+
     def test_first_half_spreads_say_win_by(self):
         p = extract_venue(kalshi("KXINTLFRIENDLY1HSPREAD-26OCT10ARGBFA-ARG2", "If Argentina win by more than 1.5 goals in the 1st "
                                  "Half of the Argentina vs Burkina Faso professional Intl Friendlies soccer game"))
