@@ -35,7 +35,6 @@ def moto_env(aws_credentials, monkeypatch):
 
         contracts_q = sqs.create_queue(QueueName="contracts")["QueueUrl"]
         entities_q = sqs.create_queue(QueueName="entities")["QueueUrl"]
-        embeddings_q = sqs.create_queue(QueueName="embeddings")["QueueUrl"]
         slack_q = sqs.create_queue(QueueName="slack")["QueueUrl"]
 
         topic_arn = sns.create_topic(Name="notifications")["TopicArn"]
@@ -46,7 +45,6 @@ def moto_env(aws_credentials, monkeypatch):
 
         monkeypatch.setenv("CONTRACTS_QUEUE_URL", contracts_q)
         monkeypatch.setenv("ENTITIES_QUEUE_URL", entities_q)
-        monkeypatch.setenv("EMBEDDINGS_QUEUE_URL", embeddings_q)
         monkeypatch.setenv("SLACK_QUEUE_URL", slack_q)
         monkeypatch.setenv("NOTIFICATIONS_TOPIC_ARN", topic_arn)
         monkeypatch.setenv("SLACK_CHANNEL", "test-channel")
@@ -59,7 +57,6 @@ def moto_env(aws_credentials, monkeypatch):
             "sns": sns,
             "contracts_queue": contracts_q,
             "entities_queue": entities_q,
-            "embeddings_queue": embeddings_q,
             "slack_queue": slack_q,
             "topic_arn": topic_arn,
         }

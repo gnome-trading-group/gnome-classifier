@@ -11,29 +11,25 @@ test('ClassifierStack creates SQS queues, SNS topic, ECS cluster, and ElastiCach
   const stack = new ClassifierStack(app, 'TestStack', { stage: Stage.PROD, slackChannel: 'test-channel', env });
   const template = Template.fromStack(stack);
 
-  // 4 main queues + 4 DLQs
-  template.resourceCountIs('AWS::SQS::Queue', 8);
+  // 3 main queues (contracts, entities, slack) + 3 DLQs
+  template.resourceCountIs('AWS::SQS::Queue', 6);
 
   // 1 notifications topic + 1 ASG ECS drain hook topic (created by CDK)
   template.resourceCountIs('AWS::SNS::Topic', 2);
   // 1 slack-queue subscription + 1 ASG drain hook subscription (created by CDK)
   template.resourceCountIs('AWS::SNS::Subscription', 2);
 
-  // One ECS service per queue-polling worker (normalize, relationships, notify) plus the fetch loop, and the retired
-  // Embed service kept with no tasks while the deployed monitoring stack still imports its name
+  // One ECS service per queue-polling worker (normalize, relationships, notify) plus the fetch loop
   template.resourceCountIs('AWS::ECS::Cluster', 1);
-  template.resourceCountIs('AWS::ECS::TaskDefinition', 5);
-  template.resourceCountIs('AWS::ECS::Service', 5);
+  template.resourceCountIs('AWS::ECS::TaskDefinition', 4);
+  template.resourceCountIs('AWS::ECS::Service', 4);
 
   // Redis cache
   template.resourceCountIs('AWS::ElastiCache::CacheCluster', 1);
 
-  // S3 cache bucket
-  template.resourceCountIs('AWS::S3::Bucket', 1);
-
-  // 1 ASG drain hook Lambda (CDK) + 2 application Lambdas (fetch, resolve)
-  template.resourceCountIs('AWS::Lambda::Function', 3);
-  template.resourceCountIs('AWS::StepFunctions::StateMachine', 0);
-  // 2 EventBridge schedules: fetch (every 5 min) + resolve (every 15 min)
-  template.resourceCountIs('AWS::Events::Rule', 2);
+  // Every worker, the fetch loop included, is an ECS service: the only Lambda is CDK's ASG drain hook, and nothing is
+  // scheduled outside the fetch loop.
+  template.resourceCountIs('AWS::Lambda::Function', 1);
+  template.resourceCountIs('AWS::Events::Rule', 0);
+  template.resourceCountIs('AWS::S3::Bucket', 0);
 });

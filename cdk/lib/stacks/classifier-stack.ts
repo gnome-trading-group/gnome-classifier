@@ -27,8 +27,6 @@ export class ClassifierStack extends cdk.Stack {
   public readonly contractsDlq: sqs.Queue;
   public readonly entitiesQueue: sqs.Queue;
   public readonly entitiesDlq: sqs.Queue;
-  public readonly embeddingsQueue: sqs.Queue;
-  public readonly embeddingsDlq: sqs.Queue;
   public readonly slackQueue: sqs.Queue;
   public readonly slackDlq: sqs.Queue;
   public readonly notificationsTopic: sns.Topic;
@@ -99,20 +97,6 @@ export class ClassifierStack extends cdk.Stack {
       visibilityTimeout: cdk.Duration.minutes(30),
       deadLetterQueue: { queue: this.entitiesDlq, maxReceiveCount: 3 },
     });
-
-    this.embeddingsDlq = new sqs.Queue(this, 'EmbeddingsDlq', {
-      retentionPeriod: cdk.Duration.days(14),
-    });
-    this.embeddingsQueue = new sqs.Queue(this, 'EmbeddingsQueue', {
-      visibilityTimeout: cdk.Duration.minutes(15),
-      deadLetterQueue: { queue: this.embeddingsDlq, maxReceiveCount: 3 },
-    });
-    // The Embed worker is gone and nothing uses these queues. The deployed monitoring stack still imports them, and
-    // this stack deploys first, so they and their exports stay for one release; the next release deletes both.
-    this.exportValue(this.embeddingsQueue.queueUrl);
-    this.exportValue(this.embeddingsQueue.queueName);
-    this.exportValue(this.embeddingsDlq.queueUrl);
-    this.exportValue(this.embeddingsDlq.queueName);
 
     this.notificationsTopic = new sns.Topic(this, 'NotificationsTopic');
 
@@ -330,24 +314,6 @@ export class ClassifierStack extends cdk.Stack {
     // Entities are created by the normalize worker, which logs when it refuses to link a security a second time.
     this.identityRegressions = logMetric(workerLogGroups.Normalize, 'IdentityRegressions',
       logs.FilterPattern.literal('"already in event"'));
-
-    // The Embed worker is gone. The deployed monitoring stack still imports this service's name, and this stack deploys
-    // first, so the service stays for one release with no tasks; the next release deletes it with the embeddings queues.
-    const retiredEmbedTask = new ecs.Ec2TaskDefinition(this, 'EmbedTask');
-    retiredEmbedTask.addContainer('EmbedContainer', {
-      image: ecs.ContainerImage.fromAsset(imageAsset),
-      command: ['embed'],
-      memoryLimitMiB: 512,
-    });
-    const retiredEmbedService = new ecs.Ec2Service(this, 'EmbedService', {
-      cluster,
-      taskDefinition: retiredEmbedTask,
-      desiredCount: 0,
-      minHealthyPercent: 0,
-      maxHealthyPercent: 100,
-      capacityProviderStrategies: [{ capacityProvider: workerCapacity.capacityProviderName, weight: 1 }],
-    });
-    this.exportValue(retiredEmbedService.serviceName);
 
     // ── RelationshipsWorker ───────────────────────────────────────────
 

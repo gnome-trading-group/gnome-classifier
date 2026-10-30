@@ -332,7 +332,9 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 
 **`sm.event_contract`** — links an event to its outcome securities: `event_contract_id`, `event_id`, `security_id`, `outcome_label`.
 
-**`sm.contract_relationship`** — `relationship_id`, `security_id_a`, `security_id_b`, `relationship_type`, `confidence` (0.0–1.0), `method` (`"rule"`, `"embedding"`, or `"manual"`).
+**`sm.contract_relationship`** — `relationship_id`, `security_id_a`, `security_id_b`, `relationship_type` (`EQUIVALENT`, lower security first, or `IMPLIES`, antecedent first), `method` (`"derived"` or `"manual"`), `flags` (e.g. `RESOLUTION_SOURCE_DIFFERS`), `evidence` (the rule and the proposition fields it compared), `derivation_version`. Only the fewest rows that rebuild the relation are stored; consumers rebuild the rest with gnomepy's `RelationshipGraph`.
+
+**`sm.contract_source`**, **`sm.contract_proposition`**, **`sm.proposition_subject`** (+ `_alias`, `_merge_log`) — each security's venue source, the proposition read from it, and the subjects propositions are about; see [Relationship Discovery](#relationship-discovery).
 
 **`sm.currency`** — `currency_id`, `symbol`.
 
@@ -464,7 +466,6 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 | `settle_recent_hours` | `6` | Outcomes deactivated this recently are looked up after every fetch |
 | `closure_check_max_lookups` | `500` | More contracts than this leaving one feed at once are not looked up |
 | `reactivation_lookback_days` | `30` | How long after deactivation a listing can be turned back on |
-| `voyage_embed_chunk_size` | `2000` | Events per Voyage embedding chunk |
 | `relationships_derive_limit` | `200` | Subjects one relationships pass derives |
 | `drift_sample_size` | `40` | Code-read contracts the daily drift check re-reads with Claude |
 | `stale_miss_threshold` | `24` | Consecutive stale-cycle misses before an event is stale |
@@ -509,7 +510,6 @@ Registry and controller API keys are read from API Gateway (`apigateway:GET`) at
 |---|---|---|---|
 | `ContractsQueue` | 5 min | 14 days | 3 |
 | `EntitiesQueue` | 30 min | 14 days | 3 |
-| `EmbeddingsQueue` | 15 min | 14 days | 3 |
 | `SlackQueue` | 2 min | 7 days | 5 |
 
 Workers override the visibility timeout to 15 minutes on each receive. `NotificationsTopic` (SNS, exported as `ClassifierNotificationsTopicArn`) fans out to `SlackQueue` and the launcher. FetchRunner publishes events resolved on settlement, NormalizeWorker stale resolutions, RelationshipsWorker new events.
