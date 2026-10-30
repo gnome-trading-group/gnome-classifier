@@ -76,8 +76,9 @@ ends 2026-12-31 even if the data comes out in 2027. Convert local times; a date 
 is Eastern Time ("before Jan 1, 2027" is 2027-01-01T05:00:00Z).
 - entity: who must win (WINNER), as a short lowercase key: a candidate's entity key when it names the same team, \
 player or party; otherwise a short name (clemson, democratic, republican, zohran-mamdani).
-- scope: the part of the contest when it matters: match (the whole fixture, a single game or a best-of series), \
-regulation, first_half, map:1, playoff_series (several fixtures, as an NBA playoff series), regular_season, season. Null when not a sports contest (elections, awards, charts have no scope). A soccer result with a draw outcome is decided after 90 minutes plus stoppage time: \
+- scope: the part of the contest when it matters: match (the whole fixture: one game, or a whole best-of series), \
+map:<n> (one game or map within a series, whatever the sport calls it: "Game 2 Winner" and "Map 2 Winner" are both \
+map:2), regulation, first_half, playoff_series (several fixtures, as an NBA playoff series), regular_season, season. Null when not a sports contest (elections, awards, charts have no scope). A soccer result with a draw outcome is decided after 90 minutes plus stoppage time: \
 regulation.
 - stability: SETTLED if the measured value can no longer move around the observation time (a review score after \
 release, published official statistics), otherwise LIVE.

@@ -9,7 +9,7 @@ import re
 from datetime import datetime
 from enum import StrEnum
 
-EXTRACTOR_VERSION = "p3"
+EXTRACTOR_VERSION = "p4"
 
 SUBJECT_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9:._/-]{0,199}$")
 
