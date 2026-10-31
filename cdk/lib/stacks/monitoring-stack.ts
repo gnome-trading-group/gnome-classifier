@@ -27,6 +27,7 @@ interface Props extends cdk.StackProps {
   batchFailures: Record<string, cloudwatch.Metric>;
   relationshipsPasses: cloudwatch.Metric;
   propositionExtractionFailures: cloudwatch.Metric;
+  propositionCollisions: cloudwatch.Metric;
   multiMarketSecurities: cloudwatch.Metric;
 }
 
@@ -196,6 +197,9 @@ export class MonitoringStack extends cdk.Stack {
             countAlarm(props.propositionExtractionFailures, 'PropositionExtractionFailures', 5,
               'Claude proposition requests failed 5+ times in an hour (provider down, out of credit, bad answers)',
               'Error'),
+            countAlarm(props.propositionCollisions, 'PropositionCollisions', 1,
+              'Two outcomes of one event were read as the same proposition (two candidates given one name); they get no relationships',
+              'Warning'),
             countAlarm(props.multiMarketSecurities, 'MultiMarketSecurities', 1,
               'A security\'s listings are different markets, so it gets no proposition until it is split', 'Warning'),
           ],

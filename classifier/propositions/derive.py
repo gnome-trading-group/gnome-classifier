@@ -14,6 +14,7 @@ pairs inside a group are compared. Groups that share a contract form one derivat
 re-derives and replaces together.
 """
 import dataclasses
+import logging
 import math
 import re
 from datetime import timedelta
@@ -23,7 +24,9 @@ from gnomepy.registry.relations import Edge, close, reduce
 
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
 
-DERIVATION_VERSION = "d4"
+logger = logging.getLogger(__name__)
+
+DERIVATION_VERSION = "d5"
 
 EQUIVALENT = "EQUIVALENT"
 IMPLIES = "IMPLIES"
@@ -59,6 +62,7 @@ class Contract:
     proposition: Proposition
     # The other security of its BINARY event (its No side, or Yes side), when the event has exactly two.
     complement: int | None = None
+    event_id: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -472,17 +476,47 @@ def derivation_units(contracts: list[Contract]) -> list[Unit]:
 
 def derive_unit(unit: Unit) -> list[Derived]:
     """The relationships among a unit's contracts, at most one per pair: EQUIVALENT (lower security first) or
-    IMPLIES (antecedent first)."""
+    IMPLIES (antecedent first).
+
+    A venue never lists the same contract twice in one event, so two of an event's outcomes read as equivalent are a
+    misreading (two candidates given one name). Neither reading can be trusted against the other venues' contracts, so
+    the colliding contracts are left out of the unit: a missed relationship rather than a wrong one."""
+    left_out: set[int] = set()
+    while True:
+        derived = _derive_pairs(unit, left_out)
+        collided = _collisions(unit, derived)
+        if not collided:
+            return derived
+        for event_id, ids in sorted(collided.items()):
+            # Counted by the PropositionCollisions metric filter (cdk/lib/stacks/classifier-stack.ts); keep the wording.
+            logger.warning("proposition collision: event=%d securities=%s subject=%s",
+                           event_id, sorted(ids), unit.contracts[0].proposition.subject)
+            left_out |= ids
+
+
+def _derive_pairs(unit: Unit, left_out: set[int]) -> list[Derived]:
     out = []
     seen: set[tuple[int, int]] = set()
     for group in unit.groups:
-        for a, b in combinations(group, 2):
+        for a, b in combinations([c for c in group if c.security_id not in left_out], 2):
             if (a.security_id, b.security_id) in seen:
                 continue
             seen.add((a.security_id, b.security_id))
             derived = _relate_pair(a, b)
             if derived is not None:
                 out.append(derived)
+    return out
+
+
+def _collisions(unit: Unit, derived: list[Derived]) -> dict[int, set[int]]:
+    """{event_id: securities} of equivalences between two different outcomes of one event."""
+    by_id = {c.security_id: c for c in unit.contracts}
+    out: dict[int, set[int]] = {}
+    for d in derived:
+        a, b = by_id[d.security_id_a], by_id[d.security_id_b]
+        if (d.relationship_type == EQUIVALENT and a.event_id is not None and a.event_id == b.event_id
+                and a.complement != b.security_id):
+            out.setdefault(a.event_id, set()).update((a.security_id, b.security_id))
     return out
 
 

@@ -21,6 +21,9 @@ Python 3.13, Poetry, from the repo root:
   stubs; real Postgres/Redis only when `DATABASE_URL`/`REDIS_URL` are set. Flags in the `scripts/dry_run.py` docstring.
 - `poetry run bootstrap ...` - one-time full load into the real registry (writes for real; see script header)
 - `poetry run backfill-taxonomy [--apply]` - re-derive categories/tags from the static taxonomy; dry run without `--apply`
+- `worker sync-names [--exchange X] [--apply]` - rename outcome labels, security symbols and listing names to what the
+  venues list now; dry run without `--apply`. It reads the database, so run it as a one-off ECS task on the Fetch task
+  definition with the command overridden (the API can't look securities up by id in bulk; paging them all times out)
 - `poetry run tunnel` - currently broken: `<Stage>-DatabaseStack` no longer exports `BastionInstanceId`
 
 CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnome-trading-group/gnome-shared-cdk`):
@@ -104,7 +107,10 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
 - Log lines counted by metric filters (`classifier-stack.ts`) must keep their wording: `cycle failed`,
   `Failed to fetch settlements from`, `not counting misses this cycle`, `not checking them this cycle`,
   `retired listings as open again`, `already in event`, `<Name>Worker started`, `venue reader fell back`,
-  `proposition drift`.
+  `proposition drift`, `proposition collision`.
+- Venues rename outcomes in place (Polymarket International placeholders "Team A" become the team). The entities stage
+  keeps `outcome_label`, the security symbol and the listing name in step with the adapter; ids never change. A rename
+  onto a symbol another security holds is skipped (`symbol rename clashes`).
 - Tests use in-memory stubs from `scripts/testing.py` plus `MagicMock` LLM/Voyage clients and moto; no AWS needed.
 
 ## Operations
@@ -150,6 +156,9 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
     rules. `poetry run eval-propositions --stored` shows which family; fix the reader and bump `EXTRACTOR_VERSION`.
   - `Classifier--WorkerHealth-PropositionDrift-Warning`: any `proposition drift`: the daily re-read by Claude disagreed
     with a code reader on a field. Read the line (family, field, both values) and the contract's stored source.
+  - `Classifier--WorkerHealth-PropositionCollisions-Warning`: two outcomes of one event were read as the same
+    proposition (two candidates given one name), so derivation left both out. Read the `proposition collision` line
+    and the two contracts' sources; usually a prompt fix for the next `EXTRACTOR_VERSION`.
   - `Classifier--WorkerHealth-ListingsReactivated-Warning`: 50+ retired listings on one venue listed as open again and
     turned back on; a venue misreporting closures.
 - Runbook: gnome-registry `docs/runbooks/cloudwatch/Classifier.md` (it lists fewer alarms than exist here).

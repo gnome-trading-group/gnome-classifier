@@ -57,6 +57,7 @@ export class ClassifierStack extends cdk.Stack {
   public readonly relationshipsPasses: cloudwatch.Metric;
   /** Hourly count of Claude proposition requests that failed (provider down, out of credit, unreadable answer). */
   public readonly propositionExtractionFailures: cloudwatch.Metric;
+  public readonly propositionCollisions: cloudwatch.Metric;
   /** Hourly count of securities whose listings carry different venue sources, so none is stored for them. */
   public readonly multiMarketSecurities: cloudwatch.Metric;
 
@@ -339,6 +340,8 @@ export class ClassifierStack extends cdk.Stack {
       logs.FilterPattern.literal('"Relationships pass"'));
     this.propositionExtractionFailures = logMetric(workerLogGroups.Relationships, 'PropositionExtractionFailures',
       logs.FilterPattern.literal('"Proposition request for"'));
+    this.propositionCollisions = logMetric(workerLogGroups.Relationships, 'PropositionCollisions',
+      logs.FilterPattern.literal('"proposition collision"'));
     this.multiMarketSecurities = logMetric(workerLogGroups.Normalize, 'MultiMarketSecurities',
       logs.FilterPattern.literal('"listings with different sources"'));
 

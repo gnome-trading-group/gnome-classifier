@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 from classifier.cache.base import ClassifierCache
 from classifier.client import BedrockConverseClient, ConverseResult
+from classifier.db import EventLink
 from classifier.propositions.attempts import Attempt
 from classifier.propositions.derive import Contract
 from classifier.propositions.inputs import ExtractionInput
@@ -300,10 +301,15 @@ class StubRegistry(RegistryClient):
         return results
 
     def bulk_patch_event_contracts(self, items: list[dict]) -> list[dict]:
-        # Kept beside the EventContract rows so the stub doesn't depend on gnomepy carrying settlement fields; the
-        # first value recorded wins, as in the registry.
+        # Settlement values are kept beside the EventContract rows so the stub doesn't depend on gnomepy carrying
+        # settlement fields; the first value recorded wins, as in the registry.
         for item in items:
-            self._settlement_by_event_contract.setdefault(item["event_contract_id"], item["settlement_price"])
+            if "settlement_price" in item:
+                self._settlement_by_event_contract.setdefault(item["event_contract_id"], item["settlement_price"])
+            if "outcome_label" in item:
+                for i, ec in enumerate(self._event_contracts):
+                    if ec.event_contract_id == item["event_contract_id"]:
+                        self._event_contracts[i] = dataclasses.replace(ec, outcome_label=item["outcome_label"])
         return [dict(item) for item in items]
 
     def _tick(self) -> int:
@@ -553,9 +559,22 @@ class StubDB:
         wanted = set(security_ids)
         return {ec.event_id for ec in self._r._event_contracts if ec.security_id in wanted and ec.event_id in resolved}
 
-    def get_event_ids_by_security(self, security_ids: list[int]) -> dict[int, int]:
+    def get_event_links(self, security_ids: list[int]) -> dict[int, EventLink]:
         id_set = set(security_ids)
-        return {ec.security_id: ec.event_id for ec in self._r._event_contracts if ec.security_id in id_set}
+        return {ec.security_id: EventLink(ec.event_id, ec.event_contract_id, ec.outcome_label)
+                for ec in self._r._event_contracts if ec.security_id in id_set}
+
+    def get_security_symbols(self, security_ids: list[int]) -> dict[int, str]:
+        id_set = set(security_ids)
+        return {s.security_id: s.symbol for s in self._r._securities if s.security_id in id_set}
+
+    def get_security_ids_by_symbol(self, symbols: list[str]) -> dict[str, int]:
+        wanted = set(symbols)
+        return {s.symbol: s.security_id for s in self._r._securities if s.symbol in wanted}
+
+    def get_listing_symbols(self, listing_ids: list[int]) -> dict[int, str]:
+        id_set = set(listing_ids)
+        return {l.listing_id: l.exchange_security_symbol for l in self._r._listings if l.listing_id in id_set}
 
     def get_existing_listing_specs(self, listing_ids: list[int]) -> dict[int, tuple[int, int, int, int, int]]:
         id_set = set(listing_ids)
@@ -695,6 +714,9 @@ class StubDB:
         due = [s for s in self._r._subjects.values() if s["derived_at"] is None or s["date_modified"] > s["derived_at"]]
         return [s["subject_id"] for s in sorted(due, key=lambda s: s["date_modified"])][:limit]
 
+    def _event_id(self, security_id: int) -> int | None:
+        return next((c.event_id for c in self._r._event_contracts if c.security_id == security_id), None)
+
     def _complement(self, security_id: int) -> int | None:
         ec = next((c for c in self._r._event_contracts if c.security_id == security_id), None)
         if ec is None:
@@ -714,7 +736,8 @@ class StubDB:
             if p["subject_id"] != subject_id or sid not in open_sids or source["source_hash"] != p["source_hash"]:
                 continue
             contracts.append(Contract(sid, self._exchange_code(source["exchange_id"]),
-                                      Proposition.from_fields(subject["key"], p["fields"]), self._complement(sid)))
+                                      Proposition.from_fields(subject["key"], p["fields"]), self._complement(sid),
+                                      self._event_id(sid)))
             if subject["derived_at"] is None or self._r._proposition_modified[sid] > subject["derived_at"]:
                 changed.add(sid)
         return contracts, changed, datetime(2026, 1, 1, tzinfo=timezone.utc)

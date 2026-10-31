@@ -33,6 +33,9 @@ class EntityResult:
     event_contracts_created: int
     listing_specs_created: int
     listing_specs_updated: int
+    event_contracts_relabelled: int
+    securities_renamed: int
+    listings_renamed: int
     new_security_ids: list[SecurityId]
     new_security_symbols: list[str]
     created_event_ids: list[EventId]
@@ -47,6 +50,9 @@ class EntityResult:
             "event_contracts_created": self.event_contracts_created,
             "listing_specs_created": self.listing_specs_created,
             "listing_specs_updated": self.listing_specs_updated,
+            "event_contracts_relabelled": self.event_contracts_relabelled,
+            "securities_renamed": self.securities_renamed,
+            "listings_renamed": self.listings_renamed,
         }
 
     @property

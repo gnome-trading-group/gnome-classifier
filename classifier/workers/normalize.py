@@ -100,6 +100,13 @@ class NormalizeWorker(BaseWorker):
                     "Entities: %d new securities from %d contracts",
                     len(entity_result.new_security_ids), len(new_contracts),
                 )
+            if entity_result.event_contracts_relabelled or entity_result.securities_renamed \
+                    or entity_result.listings_renamed:
+                logger.info(
+                    "Entities: renamed by the venue: %d outcome labels, %d securities, %d listings",
+                    entity_result.event_contracts_relabelled, entity_result.securities_renamed,
+                    entity_result.listings_renamed,
+                )
 
         return entities_queue_messages
 

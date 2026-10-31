@@ -366,3 +366,39 @@ class TestWinnerTiming:
     def test_a_contest_decided_once_still_matches_without_timing(self):
         assert relation(winner("navi"), winner("navi"))[0] == EQUIVALENT
         assert relation(winner("navi"), self.leader("navi", Observation.AT_TIME)) is None
+
+
+class TestOneEventsOutcomes:
+    """Two candidates on one ballot given one name (the Alaska Senate race lists both "Dan Sullivan" and "Daniel J.
+    Sullivan Jr.") must not become one contract."""
+
+    def contracts(self):
+        return [
+            Contract(1, "PMI", winner("dan-sullivan"), event_id=10),
+            Contract(2, "PMI", winner("dan-sullivan"), event_id=10),
+            Contract(3, "PMI", winner("mary-peltola"), event_id=10),
+            Contract(4, "K", winner("dan-sullivan"), event_id=20),
+            Contract(7, "K", winner("mary-peltola"), complement=8, event_id=30),
+            Contract(8, "K", winner("mary-peltola", negated=True), complement=7, event_id=30),
+        ]
+
+    def pairs(self, found):
+        return {(d.security_id_a, d.security_id_b, d.relationship_type) for d in found}
+
+    def test_colliding_outcomes_get_no_relationships_and_the_rest_are_kept(self, caplog):
+        found = self.pairs(derive(self.contracts()))
+        assert not any({1, 2} & {a, b} for a, b, _ in found)
+        assert (3, 7, EQUIVALENT) in found
+        assert (4, 8, IMPLIES) in found
+        assert "proposition collision: event=10 securities=[1, 2] subject=s" in caplog.text
+
+    def test_a_binary_events_two_sides_are_not_a_collision(self, caplog):
+        found = self.pairs(derive(self.contracts()[2:]))
+        assert (7, 8, EQUIVALENT) not in found
+        assert (3, 7, EQUIVALENT) in found
+        assert "proposition collision" not in caplog.text
+
+    def test_the_same_reading_in_different_events_still_equates(self):
+        found = self.pairs(derive([Contract(1, "PMI", winner("dan-sullivan"), event_id=10),
+                                   Contract(4, "K", winner("dan-sullivan"), event_id=20)]))
+        assert found == {(1, 4, EQUIVALENT)}

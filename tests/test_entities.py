@@ -4,6 +4,7 @@ import pytest
 
 from classifier.adapters.types import AdapterContract
 from classifier.stages.entities import create_entities
+from classifier.workers.sync_names import sync_exchange_names
 from gnomepy.registry.types import AssetClass, ContractType, Security, SecurityType
 
 
@@ -174,3 +175,82 @@ def test_event_ids_come_from_the_database_each_time(stub_registry, stub_db, mock
     result = create_entities(stub_registry, mock_converse, moved, db=stub_db)
     assert [result.events_created, result.event_contracts_created] == [0, 0]
     assert {ec.event_id for ec in stub_registry._event_contracts} == {event.event_id}
+
+
+def _renamed(c: AdapterContract, outcome: str) -> AdapterContract:
+    """The same market (same exchange_security_id) after the venue renamed its outcome."""
+    return dataclasses.replace(c, outcome_label=outcome, exchange_security_symbol=f"{c.event_title} -- {outcome}",
+                               security_symbol=f"EX1-UCL-{outcome}".upper())
+
+
+class TestRenamedOutcomes:
+    def placeholders(self):
+        return [_make_contract("UCL Champion", f"Team {x}", native_id="ucl", symbol=f"EX1-UCL-TEAM-{x}") for x in "AB"]
+
+    def test_a_renamed_outcome_relabels_its_link_and_renames_its_security_and_listing(
+            self, stub_registry, stub_db, mock_converse):
+        team_a, team_b = self.placeholders()
+        create_entities(stub_registry, mock_converse, [team_a, team_b], db=stub_db)
+        ids = {s.symbol: s.security_id for s in stub_registry._securities}
+
+        result = create_entities(stub_registry, mock_converse, [_renamed(team_a, "Fenerbahce"), team_b], db=stub_db)
+
+        assert (result.securities_created, result.event_contracts_created) == (0, 0)
+        assert (result.event_contracts_relabelled, result.securities_renamed, result.listings_renamed) == (1, 1, 1)
+        sid = ids["EX1-UCL-TEAM-A"]
+        assert next(s.symbol for s in stub_registry._securities if s.security_id == sid) == "EX1-UCL-FENERBAHCE"
+        assert next(l.exchange_security_symbol for l in stub_registry._listings
+                    if l.security_id == sid) == "UCL Champion -- Fenerbahce"
+        assert next(ec.outcome_label for ec in stub_registry._event_contracts if ec.security_id == sid) == "Fenerbahce"
+        assert next(ec.outcome_label for ec in stub_registry._event_contracts
+                    if ec.security_id == ids["EX1-UCL-TEAM-B"]) == "Team B"
+
+    def test_unchanged_names_are_not_patched(self, stub_registry, stub_db, mock_converse):
+        contracts = self.placeholders()
+        create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+        result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+        assert (result.event_contracts_relabelled, result.securities_renamed, result.listings_renamed) == (0, 0, 0)
+
+    def test_a_rename_onto_a_symbol_another_security_holds_is_skipped(self, stub_registry, stub_db, mock_converse,
+                                                                      caplog):
+        team_a, team_b = self.placeholders()
+        create_entities(stub_registry, mock_converse, [team_a, team_b], db=stub_db)
+        onto_b = dataclasses.replace(_renamed(team_a, "Fenerbahce"), security_symbol=team_b.security_symbol)
+
+        result = create_entities(stub_registry, mock_converse, [onto_b, team_b], db=stub_db)
+
+        assert (result.event_contracts_relabelled, result.securities_renamed, result.listings_renamed) == (1, 0, 1)
+        assert sorted(s.symbol for s in stub_registry._securities) == ["EX1-UCL-TEAM-A", "EX1-UCL-TEAM-B"]
+        assert "symbol rename clashes" in caplog.text
+
+    def test_a_market_moved_to_another_event_is_not_relabelled(self, stub_registry, stub_db, mock_converse):
+        original = _binary("Will BTC hit 100k?", native_id="BTC-100K")
+        create_entities(stub_registry, mock_converse, original, db=stub_db)
+        moved = [dataclasses.replace(c, exchange_event_native_id="BTC-EVENT", outcome_label=f"{c.outcome_label}!")
+                 for c in original]
+        result = create_entities(stub_registry, mock_converse, moved, db=stub_db)
+        assert result.event_contracts_relabelled == 0
+        assert sorted(ec.outcome_label for ec in stub_registry._event_contracts) == ["No", "Yes"]
+
+
+class TestSyncNames:
+    def renamed_before_the_stage_kept_names(self, stub_registry, stub_db, mock_converse):
+        team_a, team_b = TestRenamedOutcomes().placeholders()
+        create_entities(stub_registry, mock_converse, [team_a, team_b], db=stub_db)
+        return [_renamed(team_a, "Fenerbahce"), team_b]
+
+    def test_a_dry_run_finds_the_renames_and_writes_nothing(self, stub_registry, stub_db, mock_converse):
+        markets = self.renamed_before_the_stage_kept_names(stub_registry, stub_db, mock_converse)
+        renames = sync_exchange_names(stub_registry, stub_db, markets, apply=False)
+        assert [(r.was, r.patch["symbol"]) for r in renames.securities] == [("EX1-UCL-TEAM-A", "EX1-UCL-FENERBAHCE")]
+        assert [r.was for r in renames.labels] == ["Team A"]
+        assert [r.was for r in renames.listings] == ["UCL Champion -- Team A"]
+        assert sorted(s.symbol for s in stub_registry._securities) == ["EX1-UCL-TEAM-A", "EX1-UCL-TEAM-B"]
+
+    def test_apply_writes_them(self, stub_registry, stub_db, mock_converse, monkeypatch):
+        markets = self.renamed_before_the_stage_kept_names(stub_registry, stub_db, mock_converse)
+        monkeypatch.setattr("classifier.workers.sync_names.BATCH_SIZE", 1)
+        sync_exchange_names(stub_registry, stub_db, markets, apply=True)
+        assert sorted(s.symbol for s in stub_registry._securities) == ["EX1-UCL-FENERBAHCE", "EX1-UCL-TEAM-B"]
+        assert sorted(ec.outcome_label for ec in stub_registry._event_contracts) == ["Fenerbahce", "Team B"]
+        assert sync_exchange_names(stub_registry, stub_db, markets, apply=False).securities == []

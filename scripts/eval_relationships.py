@@ -124,7 +124,8 @@ def _derived_predictions(provider: str, model: str | None, saved: Path | None, s
     by_subject: dict[str, list[Contract]] = {}
     for sid, p in propositions.items():
         if "subject" not in p.unknown:
-            by_subject.setdefault(p.subject, []).append(Contract(sid, inputs[by_id[sid]].exchange, p, complements.get(sid)))
+            by_subject.setdefault(p.subject, []).append(Contract(sid, inputs[by_id[sid]].exchange, p, complements.get(sid),
+                                                                     inputs[by_id[sid]].event_id))
     stored: list[Edge] = []
     for contracts in by_subject.values():
         for unit in derivation_units(contracts):

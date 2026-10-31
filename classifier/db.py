@@ -1,6 +1,7 @@
 import logging
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from typing import NamedTuple
 
 import psycopg2
 import psycopg2.extras
@@ -15,6 +16,12 @@ from classifier.propositions.subjects import KnownSubject
 from classifier.propositions.types import Proposition
 
 logger = logging.getLogger(__name__)
+
+
+class EventLink(NamedTuple):
+    event_id: int
+    event_contract_id: int
+    outcome_label: str
 
 
 class ClassifierDB:
@@ -199,16 +206,44 @@ class ClassifierDB:
                 )
                 return {row[0] for row in cur.fetchall()}
 
-    def get_event_ids_by_security(self, security_ids: list[int]) -> dict[int, int]:
-        """Returns {security_id: event_id} for the securities already linked to an event."""
+    def get_event_links(self, security_ids: list[int]) -> dict[int, EventLink]:
+        """{security_id: its event link} for the securities already linked to an event."""
         if not security_ids:
             return {}
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT security_id, event_id FROM sm.event_contract WHERE security_id = ANY(%s)",
+                    "SELECT security_id, event_id, event_contract_id, outcome_label FROM sm.event_contract"
+                    " WHERE security_id = ANY(%s)",
                     (security_ids,),
                 )
+                return {row[0]: EventLink(row[1], row[2], row[3]) for row in cur.fetchall()}
+
+    def get_security_symbols(self, security_ids: list[int]) -> dict[int, str]:
+        if not security_ids:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT security_id, symbol FROM sm.security WHERE security_id = ANY(%s)",
+                            (list(security_ids),))
+                return {row[0]: row[1] for row in cur.fetchall()}
+
+    def get_security_ids_by_symbol(self, symbols: list[str]) -> dict[str, int]:
+        if not symbols:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT symbol, security_id FROM sm.security WHERE symbol = ANY(%s)", (list(symbols),))
+                return {row[0]: row[1] for row in cur.fetchall()}
+
+    def get_listing_symbols(self, listing_ids: list[int]) -> dict[int, str]:
+        """{listing_id: exchange_security_symbol}."""
+        if not listing_ids:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT listing_id, exchange_security_symbol FROM sm.listing WHERE listing_id = ANY(%s)",
+                            (list(listing_ids),))
                 return {row[0]: row[1] for row in cur.fetchall()}
 
     def get_existing_listing_specs(self, listing_ids: list[int]) -> dict[int, tuple[int, int, int, int, int]]:
@@ -574,7 +609,8 @@ class ClassifierDB:
                     "  JOIN sm.security so ON so.security_id = o.security_id AND so.contract_type = 7"
                     "  WHERE o.event_id = ec.event_id AND o.security_id <> p.security_id"
                     "  AND sec.contract_type = 7"
-                    "  AND (SELECT count(*) FROM sm.event_contract n WHERE n.event_id = ec.event_id) = 2 LIMIT 1)"
+                    "  AND (SELECT count(*) FROM sm.event_contract n WHERE n.event_id = ec.event_id) = 2 LIMIT 1),"
+                    " ec.event_id"
                     " FROM sm.contract_proposition p"
                     " JOIN sm.security sec ON sec.security_id = p.security_id"
                     " JOIN sm.proposition_subject s ON s.subject_id = p.subject_id"
@@ -586,7 +622,8 @@ class ClassifierDB:
                     (subject_id,),
                 )
                 rows = cur.fetchall()
-                contracts = [Contract(row[0], row[1], Proposition.from_fields(row[2], row[3]), row[5]) for row in rows]
+                contracts = [Contract(row[0], row[1], Proposition.from_fields(row[2], row[3]), row[5], row[6])
+                             for row in rows]
                 return contracts, {row[0] for row in rows if row[4]}, read_at
 
     def nearest_subjects(self, embedding: list[float], limit: int) -> list[KnownSubject]:

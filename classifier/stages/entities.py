@@ -1,5 +1,7 @@
 import dataclasses
 import logging
+from collections import Counter
+from typing import NamedTuple
 
 from classifier.adapters.types import AdapterContract, proposition_source_hash
 from classifier.cache import ClassifierCache
@@ -29,6 +31,7 @@ def _empty_result() -> EntityResult:
     return EntityResult(
         events_created=0, securities_created=0, listings_created=0,
         event_contracts_created=0, listing_specs_created=0, listing_specs_updated=0,
+        event_contracts_relabelled=0, securities_renamed=0, listings_renamed=0,
         new_security_ids=[], new_security_symbols=[],
         created_event_ids=[], created_event_names=[],
     )
@@ -113,6 +116,8 @@ def create_entities_from_canonical(
     event_contracts_created = _create_event_contracts(
         registry, db, unique_contracts, event_id_by_native, security_id_by_key,
     )
+    renames = find_renames(db, unique_contracts, event_id_by_native, security_id_by_key, listing_id_by_key)
+    apply_renames(registry, renames)
     spec_by_listing_id = db.get_existing_listing_specs(list(set(listing_id_by_key.values())))
     listing_specs_created, listing_specs_updated = _sync_listing_specs(
         registry, unique_contracts, listing_id_by_key, spec_by_listing_id,
@@ -141,6 +146,9 @@ def create_entities_from_canonical(
         event_contracts_created=event_contracts_created,
         listing_specs_created=listing_specs_created,
         listing_specs_updated=listing_specs_updated,
+        event_contracts_relabelled=len(renames.labels),
+        securities_renamed=len(renames.securities),
+        listings_renamed=len(renames.listings),
         new_security_ids=new_security_ids,
         new_security_symbols=new_security_symbols,
         created_event_ids=created_event_ids,
@@ -310,28 +318,124 @@ def _create_event_contracts(
     event_id_by_native: dict[NativeKey, EventId],
     security_id_by_key: dict[ListingKey, SecurityId],
 ) -> int:
-    wanted: dict[tuple[EventId, SecurityId], str] = {}
-    for c in contracts:
-        event_id = event_id_by_native.get(_native_key(c))
-        security_id = security_id_by_key.get(_listing_key(c))
-        if event_id is None or security_id is None:
-            continue
-        wanted.setdefault((event_id, security_id), c.outcome_label)
-
+    wanted = _wanted_links(contracts, event_id_by_native, security_id_by_key)
     # A security belongs to exactly one event. One already linked elsewhere means an adapter changed the event it
     # maps a market to, which would split the market across two events; skip it rather than link it twice.
-    linked = db.get_event_ids_by_security([sid for _, sid in wanted])
+    links = db.get_event_links(list(wanted))
     pending = []
-    for (eid, sid), label in wanted.items():
-        if sid not in linked:
+    for sid, (eid, label) in wanted.items():
+        link = links.get(sid)
+        if link is None:
             pending.append(dict(event_id=eid, security_id=sid, outcome_label=label))
-        elif linked[sid] != eid:
+        elif link.event_id != eid:
             # Counted by the IdentityRegressions metric filter (cdk/lib/stacks/classifier-stack.ts); keep the wording.
-            logger.error("Security %d is already in event %d; not linking it to event %d", sid, linked[sid], eid)
+            logger.error("Security %d is already in event %d; not linking it to event %d", sid, link.event_id, eid)
     created_count = 0
     for _, chunk in bulk_create_chunked(pending, "event contracts"):
         created_count += len(registry.bulk_create_event_contracts(chunk))
     return created_count
+
+
+def _wanted_links(
+    contracts: list[AdapterContract],
+    event_id_by_native: dict[NativeKey, EventId],
+    security_id_by_key: dict[ListingKey, SecurityId],
+) -> dict[SecurityId, tuple[EventId, str]]:
+    wanted: dict[SecurityId, tuple[EventId, str]] = {}
+    for c in contracts:
+        event_id = event_id_by_native.get(_native_key(c))
+        security_id = security_id_by_key.get(_listing_key(c))
+        if event_id is not None and security_id is not None:
+            wanted.setdefault(security_id, (event_id, c.outcome_label))
+    return wanted
+
+
+class Rename(NamedTuple):
+    patch: dict
+    was: str
+
+
+@dataclasses.dataclass
+class Renames:
+    """Names the venue changed since they were stored, as registry patches. Venues rename outcomes in place (a
+    placeholder "Team A" becomes the team it was held for, a party outcome becomes its candidate), and the security
+    symbol and listing name are built from the outcome. Names only: identity is the listing's exchange_security_id."""
+    labels: list[Rename]
+    securities: list[Rename]
+    listings: list[Rename]
+
+
+def find_renames(
+    db: ClassifierDB,
+    contracts: list[AdapterContract],
+    event_id_by_native: dict[NativeKey, EventId],
+    security_id_by_key: dict[ListingKey, SecurityId],
+    listing_id_by_key: dict[ListingKey, int],
+) -> Renames:
+    wanted_labels = _wanted_links(contracts, event_id_by_native, security_id_by_key)
+    links = db.get_event_links(list(wanted_labels))
+    labels = [
+        Rename(dict(event_contract_id=links[sid].event_contract_id, outcome_label=label), links[sid].outcome_label)
+        for sid, (eid, label) in sorted(wanted_labels.items())
+        # Only links to the same event: a market whose event changed is an identity regression, not a rename.
+        if sid in links and links[sid].event_id == eid and links[sid].outcome_label != label
+    ]
+
+    wanted_symbols, wanted_listing_names = _wanted_names(contracts, security_id_by_key, listing_id_by_key)
+    # A security with several listings is several markets, so no one name is its own.
+    for sid in db.securities_listed_more_than_once(list(wanted_symbols)):
+        del wanted_symbols[sid]
+    current = db.get_security_symbols(list(wanted_symbols))
+    holders = db.get_security_ids_by_symbol(sorted({s for sid, s in wanted_symbols.items()
+                                                    if current.get(sid) not in (None, s)}))
+    current_names = db.get_listing_symbols(list(wanted_listing_names))
+    listings = [Rename(dict(listing_id=lid, exchange_security_symbol=name), current_names[lid])
+                for lid, name in sorted(wanted_listing_names.items()) if current_names.get(lid) not in (None, name)]
+    return Renames(labels, _symbol_renames(wanted_symbols, current, holders), listings)
+
+
+def apply_renames(registry: RegistryClient, renames: Renames) -> None:
+    if renames.labels:
+        registry.bulk_patch_event_contracts([r.patch for r in renames.labels])
+    if renames.securities:
+        registry.bulk_patch_securities([r.patch for r in renames.securities])
+    if renames.listings:
+        registry.bulk_patch_listings([r.patch for r in renames.listings])
+
+
+def _wanted_names(
+    contracts: list[AdapterContract],
+    security_id_by_key: dict[ListingKey, SecurityId],
+    listing_id_by_key: dict[ListingKey, int],
+) -> tuple[dict[SecurityId, str], dict[int, str]]:
+    """({security_id: symbol}, {listing_id: exchange_security_symbol}) as the venue's contracts name them; a security
+    that two contracts name differently is left out."""
+    symbols: dict[SecurityId, set[str]] = {}
+    listing_names: dict[int, str] = {}
+    for c in contracts:
+        key = _listing_key(c)
+        if key in security_id_by_key:
+            symbols.setdefault(security_id_by_key[key], set()).add(c.security_symbol)
+        if key in listing_id_by_key:
+            listing_names[listing_id_by_key[key]] = c.exchange_security_symbol
+    return {sid: next(iter(s)) for sid, s in symbols.items() if len(s) == 1}, listing_names
+
+
+def _symbol_renames(
+    wanted: dict[SecurityId, str], current: dict[SecurityId, str], holders: dict[str, SecurityId],
+) -> list[Rename]:
+    """Symbols are unique, so a rename onto one another security holds (or two renames onto one symbol) is skipped and
+    logged rather than failing the whole patch."""
+    changed = {sid: s for sid, s in wanted.items() if current.get(sid) not in (None, s)}
+    targets = Counter(changed.values())
+    out = []
+    for sid, symbol in sorted(changed.items()):
+        holder = holders.get(symbol)
+        if (holder is not None and holder != sid) or targets[symbol] > 1:
+            logger.warning("symbol rename clashes: security=%d symbol=%s held_by=%s", sid, symbol, holder)
+            continue
+        out.append(Rename(dict(security_id=sid, symbol=symbol), current[sid]))
+    return out
 
 
 def _sync_listing_specs(

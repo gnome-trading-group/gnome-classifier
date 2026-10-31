@@ -40,6 +40,7 @@ class AppStage extends cdk.Stage {
       batchFailures: classifierStack.batchFailures,
       relationshipsPasses: classifierStack.relationshipsPasses,
       propositionExtractionFailures: classifierStack.propositionExtractionFailures,
+      propositionCollisions: classifierStack.propositionCollisions,
       multiMarketSecurities: classifierStack.multiMarketSecurities,
     });
   }
