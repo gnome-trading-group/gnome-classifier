@@ -124,7 +124,7 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   until gnomepy 3.1.0.
 - What runs: five ECS services (EC2 spot t3.medium ASG, 1-2 instances, registry VPC), one task each, all from the repo
   Docker image. There are no Lambdas besides CDK's ASG drain hook; resolve, stale and settle are Fetch cycles.
-  - Fetch (`fetch`, 2048 MiB): loop; fetch every `fetch_interval_seconds` (60) followed by closure check, recent
+  - Fetch (`fetch`, 3072 MiB): loop; fetch every `fetch_interval_seconds` (60) followed by closure check, recent
     settlements, reactivation; resolve every 1800s; stale every 3600s; settle sweep every 3600s; fee sync every 3600s.
     Volume write every 900s after a fetch. Intervals are `worker_params.*` in the service config; each cycle is
     skipped while its flag is off (volume follows `fetch_enabled`).
@@ -162,5 +162,5 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   - `Classifier--WorkerHealth-ListingsReactivated-Warning`: 50+ retired listings on one venue listed as open again and
     turned back on; a venue misreporting closures.
 - Runbook: gnome-registry `docs/runbooks/cloudwatch/Classifier.md` (it lists fewer alarms than exist here).
-- TODO(verify): README drift to fix separately: Fetch memory (says 1024, is 2048), `min_event_volume` default (5000 vs
+- TODO(verify): README drift to fix separately: Fetch memory (says 1024, is 3072), `min_event_volume` default (5000 vs
   1000), Normalize's Anthropic secret (it uses Bedrock), alarms "routed to Slack" (they have no actions), fee sync interval missing.
