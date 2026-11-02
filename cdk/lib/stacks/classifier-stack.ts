@@ -267,8 +267,9 @@ export class ClassifierStack extends cdk.Stack {
       NOTIFICATIONS_TOPIC_ARN: this.notificationsTopic.topicArn,
       ...controllerEnv,
     // A full fetch holds every venue's markets at once (Polymarket International alone is ~460k); at 1024 MiB its
-    // peaks were OOM-killing the worker every few minutes, cutting off the resolve and stale cycles behind it.
-    }, 2048, (role) => {
+    // peaks were OOM-killing the worker every few minutes, cutting off the resolve and stale cycles behind it, and
+    // 2048 MiB was still OOM-killed (exit 137) every ~16 minutes (2026-11-02).
+    }, 3072, (role) => {
       this.contractsQueue.grantSendMessages(role);
       this.notificationsTopic.grantPublish(role);
       dbSecret.grantRead(role);

@@ -33,3 +33,14 @@ test('ClassifierStack creates SQS queues, SNS topic, ECS cluster, and ElastiCach
   template.resourceCountIs('AWS::Events::Rule', 0);
   template.resourceCountIs('AWS::S3::Bucket', 0);
 });
+
+test('Fetch task limit is 3072 MiB (2048 MiB was OOM-killed)', () => {
+  const app = new cdk.App();
+  const stack = new ClassifierStack(app, 'TestStack', { stage: Stage.PROD, slackChannel: 'test-channel', env });
+  const template = Template.fromStack(stack);
+
+  const fetchTasks = Object.values(template.findResources('AWS::ECS::TaskDefinition')).filter((r: any) =>
+    r.Properties.ContainerDefinitions.some((c: any) => c.Name === 'FetchContainer'));
+  expect(fetchTasks).toHaveLength(1);
+  expect((fetchTasks[0] as any).Properties.ContainerDefinitions[0].Memory).toBe(3072);
+});
