@@ -40,12 +40,12 @@ def by(end, measure="ipo", **kw):
     return Proposition(subject="s", kind=Kind.OCCURS_BY, measure=measure, window_end=end, **kw)
 
 
-def winner(entity, scope="match", **kw):
-    return Proposition(subject="s", kind=Kind.WINNER, entity=entity, scope=scope, **kw)
+def winner(entity, scope="match", measure="winner", **kw):
+    return Proposition(subject="s", kind=Kind.WINNER, entity=entity, scope=scope, measure=measure, **kw)
 
 
-def relation(a: Proposition, b: Proposition, venue_a="K", venue_b="K"):
-    found = derive([Contract(1, venue_a, a), Contract(2, venue_b, b)])
+def relation(a: Proposition, b: Proposition, venue_a="K", venue_b="K", event_a=None, event_b=None):
+    found = derive([Contract(1, venue_a, a, event_id=event_a), Contract(2, venue_b, b, event_id=event_b)])
     assert len(found) <= 1
     if not found:
         return None
@@ -159,10 +159,29 @@ class TestWinners:
         assert relation(winner("fal", scope="map:1"), winner("fal", scope="match")) is None
 
     def test_one_win_implies_the_other_entity_loses(self):
-        assert relation(winner("unc"), winner("clem", negated=True))[0] == "1=>2"
+        assert relation(winner("unc"), winner("clem", negated=True), event_a=1, event_b=1)[0] == "1=>2"
+
+    def test_entities_no_event_lists_together_are_not_told_apart(self):
+        # Two venues' keys for one team: excluding one from the other would say the team can't beat itself.
+        assert relation(winner("ggo", scope="regulation"), winner("goias", scope="regulation", negated=True),
+                        "PMI", "PMUS", event_a=1, event_b=2) is None
+
+    @pytest.mark.parametrize("measure", ["place:2", "nomination", "first_round", "race_to_35"])
+    def test_winning_something_else_is_unrelated_to_winning(self, measure):
+        assert relation(winner("psoe", scope=None), winner("psoe", scope=None, measure=measure)) is None
+
+    def test_places_are_exclusive_but_a_top_three_is_not(self):
+        assert relation(winner("pp", measure="place:2"), winner("vox", measure="place:2", negated=True),
+                        event_a=1, event_b=1)[0] == "1=>2"
+        assert relation(winner("pp", measure="top:3"), winner("vox", measure="top:3", negated=True),
+                        event_a=1, event_b=1) is None
 
     def test_two_different_winners_are_not_stored(self):
         assert relation(winner("unc"), winner("clem")) is None
+
+    def test_a_winning_margin_says_nothing_about_a_side_contest(self):
+        margin = threshold(GT, 10.5, measure="margin:sea", unit="points", observation=Observation.CUMULATIVE, end=None)
+        assert relation(margin, winner("sea", measure="race_to_35")) is None
 
     def test_a_winning_margin_implies_the_win(self):
         margin = threshold(GTE, 1, measure="margin:republican", unit="percentage_points", observation=Observation.AT_TIME,
@@ -230,6 +249,18 @@ class TestReviewedMistakes:
     def test_a_vote_margin_needs_the_same_named_vote(self):
         margin = threshold(GT, 0, measure="margin:dem", unit="percentage_points", observation=Observation.AT_TIME, end=None)
         assert relation(margin, winner("dem", scope=None)) is None
+
+    def test_a_reading_whose_date_is_unknown_matches_nothing(self):
+        # A fiscal year's customer count and one quarter's, both read without their dates.
+        fiscal_year = threshold(GT, 910, measure="customers", end=None, unknown=frozenset({"window_end"}))
+        quarter = threshold(GT, 825, measure="customers", end=None, unknown=frozenset({"window_end"}))
+        assert relation(fiscal_year, quarter) is None
+
+    def test_values_in_different_unit_sizes_compare_in_one_size(self):
+        billions = threshold(GTE, 600, measure="market_cap", unit="usd-billions")
+        trillions = threshold(GTE, 1.8, measure="market_cap", unit="T")
+        assert relation(billions, trillions)[0] == "2=>1"
+        assert relation(threshold(GTE, 600, measure="market_cap"), trillions) is None
 
     def test_deadlines_compare_only_from_the_same_start(self):
         from_listing = by(T)
@@ -347,7 +378,7 @@ class TestGameTotals:
 
 class TestWinnerTiming:
     def leader(self, entity, observation, **kw):
-        return winner(entity, scope=None, observation=observation, window_end=T, **kw)
+        return winner(entity, scope=None, measure="holder:leader", observation=observation, window_end=T, **kw)
 
     def test_holding_at_the_end_implies_holding_at_some_point(self):
         at_end = self.leader("reza-pahlavi", Observation.AT_TIME)
@@ -361,7 +392,13 @@ class TestWinnerTiming:
         b = self.leader("mojtaba-khamenei", Observation.ANY_TIME, negated=True)
         assert relation(a, b) is None
         assert relation(self.leader("reza-pahlavi", Observation.AT_TIME),
-                        self.leader("mojtaba-khamenei", Observation.AT_TIME, negated=True))[0] == "1=>2"
+                        self.leader("mojtaba-khamenei", Observation.AT_TIME, negated=True),
+                        event_a=1, event_b=1)[0] == "1=>2"
+
+    def test_a_de_facto_leader_is_not_the_leader(self):
+        official = self.leader("nicolas-maduro", Observation.AT_TIME)
+        de_facto = dataclasses.replace(official, measure="holder:de-facto-leader")
+        assert relation(official, de_facto) is None
 
     def test_a_contest_decided_once_still_matches_without_timing(self):
         assert relation(winner("navi"), winner("navi"))[0] == EQUIVALENT
@@ -397,6 +434,14 @@ class TestOneEventsOutcomes:
         assert (7, 8, EQUIVALENT) not in found
         assert (3, 7, EQUIVALENT) in found
         assert "proposition collision" not in caplog.text
+
+    def test_a_binary_side_read_as_its_other_side_is_a_collision(self, caplog):
+        # A No side read as its Yes side.
+        found = derive([Contract(1, "HL", by(T), complement=2, event_id=5),
+                        Contract(2, "HL", by(T), complement=1, event_id=5),
+                        Contract(3, "K", by(T), event_id=6)])
+        assert not any({1, 2} & {d.security_id_a, d.security_id_b} for d in found)
+        assert "proposition collision: event=5 securities=[1, 2]" in caplog.text
 
     def test_the_same_reading_in_different_events_still_equates(self):
         found = self.pairs(derive([Contract(1, "PMI", winner("dan-sullivan"), event_id=10),

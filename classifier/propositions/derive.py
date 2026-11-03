@@ -4,9 +4,9 @@ the same relationships, each with the rule and fields that produced it.
 A threshold or range is the set of values of its measure that pay out (integer measures normalized, so "over 4.5
 goals" and "5+ goals" are the same set); a negated proposition is the complement. One implies another when its set
 is inside the other's, and they are equivalent when the sets are equal. By-deadline questions imply later deadlines,
-winners are equal on the same entity and exclude other entities, and a short list of cross-measure rules relates
-margins to winners and team totals to game totals. Anything with a field the rule needs left unknown is skipped:
-no relationship is better than a wrong one.
+winners of the same thing are equal on the same entity and exclude the event's other outcomes, and a short list of
+cross-measure rules relates margins to winners and team totals to game totals. Anything with a field the rule needs
+left unknown is skipped: no relationship is better than a wrong one.
 
 A subject can hold thousands of contracts (every BTC strike on every venue and expiry), so contracts are first split
 into groups that no rule can relate across (snapshots at different times, deadlines on different events), and only
@@ -26,7 +26,7 @@ from classifier.propositions.types import Comparator, Kind, Observation, Proposi
 
 logger = logging.getLogger(__name__)
 
-DERIVATION_VERSION = "d5"
+DERIVATION_VERSION = "d6"
 
 EQUIVALENT = "EQUIVALENT"
 IMPLIES = "IMPLIES"
@@ -45,6 +45,13 @@ _INTEGER_WORDS = frozenset({
 # Sports units: a margin in them is whole, and the side with more of them wins. Not games: a tennis player can win
 # more games and lose the match (6-0 4-6 4-6).
 _DECIDING_MARGIN_UNITS = frozenset({"points", "goals", "runs", "maps", "sets", "rounds"})
+# Scale words in a unit: "usd-billions" and "T" quote the same valuation in different sizes.
+_SCALES = {
+    "k": 1e3, "thousand": 1e3, "thousands": 1e3, "m": 1e6, "mm": 1e6, "mn": 1e6, "million": 1e6, "millions": 1e6,
+    "b": 1e9, "bn": 1e9, "billion": 1e9, "billions": 1e9, "t": 1e12, "tn": 1e12, "trillion": 1e12, "trillions": 1e12,
+}
+# What a winner can win that only one entity can: the contest, one finishing place, a single office.
+_EXCLUSIVE_WINNER_MEASURE = re.compile(r"^(winner|place:\d+|holder:.+)$")
 # A vote-share margin decides the vote it is counted in, which must be named on both sides: winning the popular vote
 # is not winning the electoral college.
 _VOTE_MARGIN_UNITS = frozenset({"percentage_points", "percent", "votes"})
@@ -154,7 +161,7 @@ _NEEDED = {
     Kind.THRESHOLD: {"measure", "comparator", "value", "observation"},
     Kind.RANGE: {"measure", "low", "high", "observation"},
     Kind.OCCURS_BY: {"window_end", "measure"},
-    Kind.WINNER: {"entity"},
+    Kind.WINNER: {"entity", "measure"},
 }
 
 
@@ -162,6 +169,10 @@ def usable(p: Proposition) -> bool:
     """Whether every field its kind's rules read is known. A field left empty counts as unknown even when extraction
     didn't say so: a deadline question without its deadline, or two different events, would otherwise compare."""
     if p.kind not in _NEEDED or "subject" in p.unknown or _NEEDED[p.kind] & p.unknown:
+        return False
+    if p.kind in (Kind.THRESHOLD, Kind.RANGE) and p.observation != Observation.CUMULATIVE and "window_end" in p.unknown:
+        # A reading at a moment the extractor couldn't place (a fiscal year's count, or one quarter's?) would match
+        # every other undated reading of the measure.
         return False
     return all(getattr(p, name) not in (None, "") for name in _NEEDED[p.kind])
 
@@ -218,10 +229,34 @@ def _extreme(p: Proposition) -> str:
     return "max" if p.comparator in (Comparator.GT, Comparator.GTE) else "min"
 
 
+def _scale(p: Proposition) -> float:
+    words = re.split(r"[^a-z0-9]+", (p.unit or "").lower())
+    return math.prod(_SCALES.get(w, 1.0) for w in words)
+
+
+def _rescaled(p: Proposition, scale: float) -> Proposition:
+    times = lambda v: None if v is None else v * scale
+    return dataclasses.replace(p, value=times(p.value), low=times(p.low), high=times(p.high))
+
+
+def _same_units(a: Proposition, b: Proposition) -> tuple[Proposition, Proposition] | None:
+    """The two in the same unit size, or None when one names a size and the other has no unit to compare it with."""
+    sa, sb = _scale(a), _scale(b)
+    if sa == sb:
+        return a, b
+    if not a.unit or not b.unit:
+        return None
+    return _rescaled(a, sa), _rescaled(b, sb)
+
+
 def _values(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | None:
     """(forward, backward) truth of a ⇒ b and b ⇒ a for two thresholds/ranges on the same measure."""
     if a.measure != b.measure or not _same_entity(a, b) or not _scope_matches(a, b):
         return None
+    scaled = _same_units(a, b)
+    if scaled is None:
+        return None
+    a, b = scaled
     if a.observation == Observation.ANY_TIME:
         # Touching a level at any time is about the window's maximum ("reaches 120k") or its minimum ("dips to 100k"),
         # two different quantities: the price can do both. Only touches on the same side compare.
@@ -279,8 +314,8 @@ def _winner_timing(a: Proposition, b: Proposition) -> tuple[str, list[str]] | No
     return None
 
 
-def _winners(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | None:
-    if not _scope_matches(a, b):
+def _winners(a: Proposition, b: Proposition, rivals: frozenset[frozenset[str]]) -> tuple[str, str, list[str]] | None:
+    if a.measure != b.measure or not _scope_matches(a, b):
         return None
     timing = _winner_timing(a, b)
     if timing is None:
@@ -296,8 +331,12 @@ def _winners(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | Non
         a_first = (how == "a_at_end") != a.negated
         return ("y", "n", flags) if a_first else ("n", "y", flags)
     # Different entities can't both win a contest or hold a position at the same moment, but each can hold it at some
-    # point in a window.
+    # point in a window, and several can be nominated or finish in a top three. Keys only tell entities apart when a
+    # venue lists both as outcomes of one event: two venues' keys for one team (ggo, goias) would exclude it from
+    # itself.
     if how != "same" or a.observation == Observation.ANY_TIME:
+        return None
+    if not _EXCLUSIVE_WINNER_MEASURE.match(a.measure) or frozenset((a.entity, b.entity)) not in rivals:
         return None
     if not a.negated and b.negated:
         return "y", "n", flags
@@ -307,7 +346,9 @@ def _winners(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | Non
 
 
 def _margin_implies_winner(margin: Proposition, winner: Proposition) -> bool:
-    if winner.negated or margin.negated or not (margin.measure or "").startswith("margin:"):
+    if winner.negated or margin.negated or winner.measure != "winner":
+        return False
+    if not (margin.measure or "").startswith("margin:"):
         return False
     unit = (margin.unit or "").lower()
     if unit in _VOTE_MARGIN_UNITS:
@@ -336,7 +377,8 @@ def _team_total_implies_total(team: Proposition, total: Proposition) -> bool:
     return _inside(team_set[0], total_set[0])
 
 
-def _relate(a: Proposition, b: Proposition) -> tuple[str, str, list[str], str] | None:
+def _relate(a: Proposition, b: Proposition,
+            rivals: frozenset[frozenset[str]] = frozenset()) -> tuple[str, str, list[str], str] | None:
     """(a ⇒ b, b ⇒ a, flags, rule) or None when the rules say nothing."""
     if a.kind in (Kind.THRESHOLD, Kind.RANGE) and b.kind in (Kind.THRESHOLD, Kind.RANGE):
         found = _values(a, b)
@@ -350,7 +392,7 @@ def _relate(a: Proposition, b: Proposition) -> tuple[str, str, list[str], str] |
         found = _deadlines(a, b)
         return None if found is None else (*found, "deadlines")
     if a.kind == b.kind == Kind.WINNER:
-        found = _winners(a, b)
+        found = _winners(a, b, rivals)
         return None if found is None else (*found, "winners")
     if a.kind == Kind.THRESHOLD and b.kind == Kind.WINNER and _margin_implies_winner(a, b):
         return "y", "n", [], "margin_implies_winner"
@@ -375,8 +417,8 @@ def _evidence(rule: str, a: Proposition, b: Proposition) -> dict:
     return {"rule": rule, "version": DERIVATION_VERSION, "a": pick(a), "b": pick(b)}
 
 
-def _relate_pair(a: Contract, b: Contract) -> Derived | None:
-    found = _relate(a.proposition, b.proposition)
+def _relate_pair(a: Contract, b: Contract, rivals: frozenset[frozenset[str]]) -> Derived | None:
+    found = _relate(a.proposition, b.proposition, rivals)
     if found is None:
         return None
     forward, backward, flags, rule = found
@@ -494,28 +536,38 @@ def derive_unit(unit: Unit) -> list[Derived]:
             left_out |= ids
 
 
+def _rivals(unit: Unit) -> frozenset[frozenset[str]]:
+    """Winner entities some event lists as different outcomes."""
+    by_event: dict[int, set[str]] = {}
+    for c in unit.contracts:
+        if c.proposition.kind == Kind.WINNER and c.event_id is not None:
+            by_event.setdefault(c.event_id, set()).add(c.proposition.entity)
+    return frozenset(frozenset(pair) for entities in by_event.values() for pair in combinations(sorted(entities), 2))
+
+
 def _derive_pairs(unit: Unit, left_out: set[int]) -> list[Derived]:
     out = []
+    rivals = _rivals(unit)
     seen: set[tuple[int, int]] = set()
     for group in unit.groups:
         for a, b in combinations([c for c in group if c.security_id not in left_out], 2):
             if (a.security_id, b.security_id) in seen:
                 continue
             seen.add((a.security_id, b.security_id))
-            derived = _relate_pair(a, b)
+            derived = _relate_pair(a, b, rivals)
             if derived is not None:
                 out.append(derived)
     return out
 
 
 def _collisions(unit: Unit, derived: list[Derived]) -> dict[int, set[int]]:
-    """{event_id: securities} of equivalences between two different outcomes of one event."""
+    """{event_id: securities} of equivalences between two different outcomes of one event, a binary's two sides
+    included (a No side read as its Yes side)."""
     by_id = {c.security_id: c for c in unit.contracts}
     out: dict[int, set[int]] = {}
     for d in derived:
         a, b = by_id[d.security_id_a], by_id[d.security_id_b]
-        if (d.relationship_type == EQUIVALENT and a.event_id is not None and a.event_id == b.event_id
-                and a.complement != b.security_id):
+        if d.relationship_type == EQUIVALENT and a.event_id is not None and a.event_id == b.event_id:
             out.setdefault(a.event_id, set()).update((a.security_id, b.security_id))
     return out
 

@@ -68,6 +68,13 @@ class TestPrimarySide:
         assert is_primary_side(item(5, 3, {"venue": "POLYMARKET_US", "leg": "long"}))
         assert not is_primary_side(item(6, 3, {"venue": "POLYMARKET_US", "leg": "short"}))
 
+    def test_hyperliquid_templated_yes_and_no_sides_pair_up(self):
+        outcome = {"sideSpecs": [{"name": "template:Yes"}, {"name": "template:No"}], "description": "company:Anthropic"}
+        yes = {"venue": "HYPERLIQUID", "label": "Yes", "outcome": outcome}
+        no = {"venue": "HYPERLIQUID", "label": "No", "outcome": outcome}
+        assert is_primary_side(item(1, 1, yes, exchange="HYPERLIQUID"))
+        assert not is_primary_side(item(2, 1, no, outcome="No", exchange="HYPERLIQUID"))
+
     def test_polymarket_outcomes_given_as_a_json_string(self):
         source = pm_source("Notre Dame")
         source["market"]["outcomes"] = json.dumps(["Notre Dame", "Navy"])
@@ -233,8 +240,9 @@ def test_fields_without_meaning_for_the_kind_are_cleared():
     noisy = entry(7, kind="OCCURS_BY", measure="announce_ipo", observation="ANY_TIME", unknown=["observation"])
     proposition, _ = parse_answer(json.dumps({"propositions": [noisy]}), [item(7, 1, pm_source("Yes"))])[7]
     assert (proposition.measure, proposition.observation, proposition.unknown) == ("announce_ipo", None, frozenset())
-    winner = entry(8, kind="WINNER", entity="clem", measure="moneyline")
-    assert parse_answer(json.dumps({"propositions": [winner]}), [item(8, 1, pm_source("Yes"))])[8][0].measure is None
+    winner = entry(8, kind="WINNER", entity="clem", measure="winner", comparator="GT", value=3)
+    read = parse_answer(json.dumps({"propositions": [winner]}), [item(8, 1, pm_source("Yes"))])[8][0]
+    assert (read.measure, read.comparator, read.value) == ("winner", None, None)
 
 
 def test_embedding_neighbours_become_candidates():

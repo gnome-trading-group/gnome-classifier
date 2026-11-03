@@ -56,7 +56,9 @@ def is_primary_side(item: ExtractionInput) -> bool:
             return True
         return not outcomes or source.get("outcome") == outcomes[0]
     if venue == "HYPERLIQUID":
-        names = [s.get("name") for s in (source.get("outcome") or {}).get("sideSpecs") or []]
+        # Templated outcomes name their sides `template:Yes` / `template:No`.
+        names = [str(s.get("name")).removeprefix("template:") if s.get("name") else None
+                 for s in (source.get("outcome") or {}).get("sideSpecs") or []]
         if _named_sides([n for n in names if n]) and not any(str(n).startswith("{") for n in names):
             return True
         first = (names[0] if names else None) or "Yes"

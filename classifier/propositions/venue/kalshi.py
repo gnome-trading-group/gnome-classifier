@@ -186,10 +186,11 @@ def _kalshi_game(series: str, rest: str, market: dict, rules: str) -> Propositio
                            comparator=Comparator.GT, value=float(m.group("v")), unit=m.group("unit"),
                            observation=Observation.CUMULATIVE, scope=scope)
     if family == "GAME" and len(segments) > 1:
-        return Proposition(subject=subject, kind=Kind.WINNER, entity=segments[1].lower(),
+        return Proposition(subject=subject, kind=Kind.WINNER, measure="winner", entity=segments[1].lower(),
                            scope="regulation" if "90 minutes" in (rules + " " + (market.get("rules_secondary") or "")) else "match")
     if family == "MAP" and len(segments) > 2 and segments[1].isdigit():
-        return Proposition(subject=subject, kind=Kind.WINNER, entity=segments[2].lower(), scope=f"map:{segments[1]}")
+        return Proposition(subject=subject, kind=Kind.WINNER, measure="winner", entity=segments[2].lower(),
+                           scope=f"map:{segments[1]}")
     return None
 
 

@@ -47,6 +47,8 @@ key is game:<league>:<date the game starts, US Eastern Time>:<teams> (a 8pm ET k
 day). A team's or player's season is <entity>:<league>-<season> (liverpool:epl-2026-27, josh-allen:nfl-2026-27).
   Crypto assets are <asset>-usd whatever the quote currency (USDT, USDC); the venue's price feed goes in \
 resolution_source.
+  A ranking or chart in another region or by another publisher (the US chart and the global one, Spotify and \
+Billboard) is a different subject.
 - subject_description: one plain sentence saying what the subject is.
 - kind: THRESHOLD (a number compared with a value), RANGE (a number between two values), OCCURS_BY (something \
 happens by a deadline), WINNER (an entity wins a contest), OTHER. A market asking which of several candidates is \
@@ -60,7 +62,15 @@ measure name for the same quantity. For OCCURS_BY, the event that must happen, a
 announce_ipo, make_playoffs, reach_nfc_championship, recognize_palestine): announcing something is a different event \
 from it happening. Reuse a candidate's measure only when the event that must happen is exactly the same; a narrower \
 or more specific event (win_super_bowl, compared with make_playoffs; a merger closing, compared with it being \
-approved) gets its own key, even when one implies the other. Null for WINNER.
+approved) gets its own key, even when one implies the other.
+  For WINNER, what the entity must win or be, since one subject often has several such markets: winner (wins the \
+contest itself: the game, the election, the award or title (Person of the Year, an MVP), the chart; first place is \
+winner), place:<n> (finishes exactly nth: "2nd place", "third most seats"), top:<n> (finishes in the top n), \
+nomination (nominated, not winning), holder:<position> (holds a single position: holder:leader, \
+holder:de-facto-leader, holder:prime-minister), or a short key for anything else decided within the subject \
+(first_round, race_to_35, most_rushing_yards, first_touchdown, endorsement). Two markets get the same measure only \
+when they ask exactly the same thing: an official leader and a de facto leader, a first round and the election, a \
+nomination and the award are different measures.
 - comparator: GT, GTE, LT, LTE (THRESHOLD only). Use the rules' exact wording: "above"/"more than" is GT, "at least"/ \
 "or above" is GTE.
 - value, unit; low, high, low_inclusive, high_inclusive (RANGE). Copy each number exactly as the rules state it: \
@@ -174,7 +184,6 @@ def to_proposition(entry: dict) -> tuple[Proposition, str]:
     if entry["kind"] in (Kind.OCCURS_BY.value, Kind.WINNER.value):
         cleared = {"comparator", "value"}
         if entry["kind"] == Kind.WINNER.value:
-            cleared.add("measure")
             # A winner's observation says when it must hold the position; a cumulative one has no meaning.
             if entry.get("observation") not in (Observation.AT_TIME.value, Observation.ANY_TIME.value):
                 cleared.add("observation")
