@@ -1,11 +1,12 @@
-"""Finds subjects that name the same thing under two keys, so contracts on different venues that ask the same question
-get compared. Derivation only compares propositions that share a subject, and extraction sometimes coins a second key
-for a subject another venue already has (`us-house-2026` and `us-house-2026-control`, `ga-governor-2026` and
-`georgia-governor-2026`).
+"""Finds subjects that name the same thing under two keys, so contracts that ask about the same thing get compared.
+Derivation only compares propositions that share a subject, and extraction sometimes coins a second key for a subject
+that already has one: another venue's (`us-house-2026` and `us-house-2026-control`, `ga-governor-2026` and
+`georgia-governor-2026`), or the same venue's (`a-j-brown:nfl-2026` with a 1,400.5+ receiving-yards market and
+`a-j-brown:nfl-2026-27` with a 1,000.5+ one, which merged imply each other).
 
 Candidates are cheap and recall-oriented: embedding neighbours, keys that normalize alike, and subjects whose
-propositions share a deadline date and an entity or measure. Only pairs that would link different venues are kept. A
-Claude judge then decides each pair from the subjects' sample contracts. Embedding distance alone can't: the nearest
+propositions share a deadline date and an entity or measure. A Claude judge then decides each pair from the subjects'
+sample contracts. Embedding distance alone can't: the nearest
 subject to `us-house-2026-control` is `us-house-2028-control`, and merging those would make two different elections'
 contracts equivalent.
 """
@@ -167,12 +168,6 @@ def key_tokens(key: str) -> tuple[str, ...]:
     return tuple(t for t in _SEPARATORS.split(text) if t and t not in _FILLER)
 
 
-def crosses_venues(a: SubjectProfile, b: SubjectProfile) -> bool:
-    """Whether merging would put contracts of two different venues on one subject for the first time: some venue of
-    one isn't the only venue of the other."""
-    return any(va != vb for va in a.venues for vb in b.venues)
-
-
 def _pair(a: str, b: str) -> tuple[str, str]:
     return (a, b) if a < b else (b, a)
 
@@ -223,7 +218,7 @@ def candidate_pairs(profiles: Iterable[SubjectProfile], neighbours: dict[str, li
     by_key = {p.key: p for p in profiles if p.key != UNKNOWN_SUBJECT}
     pairs = _token_pairs(list(by_key.values())) | _shared_pairs(list(by_key.values()), bucket_limit)
     pairs |= {_pair(k, n) for k, ns in neighbours.items() for n in ns if k != n}
-    return sorted((a, b) for a, b in pairs if a in by_key and b in by_key and crosses_venues(by_key[a], by_key[b]))
+    return sorted((a, b) for a, b in pairs if a in by_key and b in by_key)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -388,7 +383,7 @@ class SubjectMergeJudge:
 @dataclasses.dataclass(frozen=True)
 class MergeCheck:
     """What merging two subjects would change, before it is made."""
-    # Relationships the merge adds: between a contract of each subject, on different venues.
+    # Relationships the merge adds: between a contract of each subject, on any venues.
     new_relationships: tuple[Derived, ...]
     # {event_id: securities} two outcomes of one event that would read as equivalent once merged; derivation would
     # drop them, so a merge that makes any is wrong somewhere.
@@ -437,9 +432,5 @@ def check_merge(a: list[Contract], b: list[Contract], judgment: Judgment | None 
             before |= ids
 
     a_ids = {c.security_id for c in a}
-    venue = {c.security_id: c.venue for c in merged}
-    new = tuple(
-        d for d in derived
-        if (d.security_id_a in a_ids) != (d.security_id_b in a_ids) and venue[d.security_id_a] != venue[d.security_id_b]
-    )
+    new = tuple(d for d in derived if (d.security_id_a in a_ids) != (d.security_id_b in a_ids))
     return MergeCheck(new, {e: frozenset(ids) for e, ids in collided.items() if not ids <= before})

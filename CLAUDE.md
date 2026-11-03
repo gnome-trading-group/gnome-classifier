@@ -111,9 +111,9 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   re-runs everything once.
 - Redis (single `cache.t3.micro`, private subnets): `fetch:known_contracts`, `fetch:sent_resolved`,
   `fetch:stale_tracker`, `exchange_events`, `canon:*`, `prop:attempt:*` (proposition read backoff), `merge:judged:*`
-  (what the merge pass made of each subject pair: judgment, what it rested on, outcome) and `merge:last-sweep` (30
-  days each; losing them costs one full re-judging sweep, about $5–8). Every key expires, since the node's
-  `volatile-lru` only evicts keys that do. No bastion, SSM or ECS Exec reaches it, and
+  (what the merge pass made of each subject pair: judgment, what it rested on, outcome) and
+  `merge:last-sweep:<MERGE_RULES_VERSION>` (30 days each; losing them costs one full re-judging sweep, about $5–8).
+  Every key expires, since the node's `volatile-lru` only evicts keys that do. No bastion, SSM or ECS Exec reaches it, and
   `poetry run tunnel` is broken. TODO(verify): current access path; previously a temporary EC2 in the worker subnet/SG
   running a script from user-data.
 - `security_symbol` is computed at fetch and baked into ContractsQueue messages, and `contract_hash` excludes it: a

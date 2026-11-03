@@ -170,6 +170,13 @@ class TestMergePass:
         grown.subjects[GA][1].append(winner(13, GA, "libertarian", "KALSHI", 10))
         assert run(grown, FakeRegistry(), judge, memory).handled == 1
 
+    def test_checks_a_pair_that_gained_nothing_again_once_when_the_rules_change(self):
+        memory, judge = Memory(), FakeJudge({(GA_SHORT, GA): Judgment(Verdict.SAME, "same")})
+        run(governor_db(), FakeRegistry(), judge, memory)
+        memory.rows[(GA_SHORT, GA)] = dataclasses.replace(memory.rows[(GA_SHORT, GA)], rules=1)
+        assert run(governor_db(), FakeRegistry(), judge, memory).handled == 1
+        assert run(governor_db(), FakeRegistry(), judge, memory).handled == 0
+
     def test_leaves_a_held_pair_to_the_person_reviewing_it(self):
         memory, reads = Memory(), []
 

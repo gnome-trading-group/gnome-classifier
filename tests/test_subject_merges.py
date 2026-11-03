@@ -16,15 +16,15 @@ from classifier.propositions.merges import (
     Verdict,
     candidate_pairs,
     check_merge,
-    crosses_venues,
     key_tokens,
     parse_answer,
     profile,
 )
 from classifier.propositions.derive import Contract
-from classifier.propositions.types import Comparator, Kind, Proposition
+from classifier.propositions.types import Comparator, Kind, Observation, Proposition
 
 ELECTION_DAY = datetime(2026, 11, 4, tzinfo=timezone.utc)
+SEASON_END = datetime(2027, 1, 11, tzinfo=timezone.utc)
 
 
 def subject(key, venues=("KALSHI",), entities=(), measures=(), deadlines=()):
@@ -68,9 +68,10 @@ class TestCandidates:
     def test_order_matters_in_combination_keys(self):
         assert self.pairs(subject("combo:r-ak-ia-d-oh", ["KALSHI"]), subject("combo:r-ak-oh-d-ia", ["POLYMARKET_US"])) == []
 
-    def test_only_pairs_that_would_link_two_venues(self):
-        assert self.pairs(subject("ga-governor-2026"), subject("georgia-governor-2026")) == []
-        assert crosses_venues(subject("a", ["KALSHI", "POLYMARKET_US"]), subject("b", ["KALSHI"]))
+    def test_one_venues_duplicates_are_candidates_too(self):
+        assert self.pairs(subject("a-j-brown:nfl-2026", ["POLYMARKET_US"]),
+                          subject("a-j-brown:nfl-2026-27", ["POLYMARKET_US"])) == [
+            ("a-j-brown:nfl-2026", "a-j-brown:nfl-2026-27")]
 
     def test_the_unknown_subject_is_never_a_candidate(self):
         assert self.pairs(subject("unknown", ["KALSHI"]), subject("btc-usd", ["HYPERLIQUID"]),
@@ -171,7 +172,6 @@ class TestEvaluation:
         golden = load_golden()
         assert len({p.id for p in golden}) == len(golden)
         assert {p.expected for p in golden} == set(Verdict)
-        assert all(crosses_venues(p.a, p.b) for p in golden)
 
     def test_scores_same_precision_and_recall(self, tmp_path):
         assert score([], {}).precision is None
@@ -202,6 +202,17 @@ class TestCheckMerge:
         assert check.gain == 1 and not check.new_collisions
         assert {(d.security_id_a, d.security_id_b, d.relationship_type) for d in check.new_relationships} == {
             (1, 3, "EQUIVALENT")}
+
+    def test_counts_relationships_one_venues_duplicates_add(self):
+        def yards(subject, value):
+            return Proposition(subject, Kind.THRESHOLD, measure="receiving_yards:a-j-brown", comparator=Comparator.GT,
+                               value=value, observation=Observation.CUMULATIVE, window_end=SEASON_END)
+
+        a = [Contract(1, "POLYMARKET_US", yards("a-j-brown:nfl-2026-27", 1000.5), event_id=10)]
+        b = [Contract(2, "POLYMARKET_US", yards("a-j-brown:nfl-2026", 1400.5), event_id=20)]
+        check = check_merge(a, b)
+        assert [(d.security_id_a, d.security_id_b, d.relationship_type) for d in check.new_relationships] == [
+            (2, 1, "IMPLIES")]
 
     def test_unmapped_entities_gain_nothing(self):
         a = [winner_contract(1, "georgia-governor-2026", "republican", "KALSHI", 10)]

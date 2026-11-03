@@ -11,7 +11,7 @@ Each pass:
    - exactly one key is a team's or player's season (`josh-allen:nfl-2026-27`): judged the same as an award or league
      subject only because that's all it holds yet, so merging would put the whole key on the other subject;
    - merging would make two outcomes of one event read alike (queued, COLLISION);
-   - it adds no cross-venue relationship (skipped: nothing to gain);
+   - it adds no relationship between the two subjects' contracts (skipped: nothing to gain);
    - two venues' prices for a relationship it adds disagree by more than `subject_merge_max_price_gap` (queued, PRICE).
      The price check is a second opinion, not a gate: a relationship with no price on either side (a venue that
      couldn't be read, an empty or closed book, Hyperliquid) isn't checked, and a merge with none priced goes ahead.
@@ -64,12 +64,15 @@ MERGE_ACTOR = "classifier:subject-merger"
 NEIGHBOURS = 5
 MIN_NEIGHBOUR_SIMILARITY = 0.75
 MEMORY_TTL_SECONDS = 30 * 86400
+# Raised when what a pass finds or counts changes: the next pass sweeps every subject's neighbours again, and pairs it
+# skipped for gaining nothing are checked again once.
+MERGE_RULES_VERSION = 2
 # A subject is embedded after its propositions are written, so one that changed just before the last sweep may have
 # had no embedding to find neighbours with.
 SWEEP_OVERLAP = timedelta(hours=1)
 _SEASON_KEY = re.compile(r"^[a-z0-9.-]+:[a-z0-9]+-\d{4}(-\d{2})?$")
 _PAIR_KEY = "merge:judged:{}|{}"
-_SWEEP_KEY = "merge:last-sweep"
+_SWEEP_KEY = f"merge:last-sweep:{MERGE_RULES_VERSION}"
 
 QuoteReader = Callable[[list[ListingRef]], dict[int, Quote]]
 
@@ -93,15 +96,17 @@ class Remembered:
     counts: str
     # None until a SAME pair is handled.
     outcome: Outcome | None = None
+    # The MERGE_RULES_VERSION that handled it.
+    rules: int = 0
 
     def to_json(self) -> dict:
         return {"fingerprint": self.fingerprint, "judgment": self.judgment.to_json(), "counts": self.counts,
-                "outcome": self.outcome.value if self.outcome else None}
+                "outcome": self.outcome.value if self.outcome else None, "rules": self.rules}
 
     @classmethod
     def from_json(cls, row: dict) -> "Remembered":
         return cls(row["fingerprint"], Judgment.from_json(row["judgment"]), row.get("counts", ""),
-                   Outcome(row["outcome"]) if row.get("outcome") else None)
+                   Outcome(row["outcome"]) if row.get("outcome") else None, row.get("rules", 0))
 
 
 class MergeMemory(Protocol):
@@ -176,7 +181,7 @@ def is_due(remembered: Remembered, counts: str, auto_merge: bool) -> bool:
     if remembered.outcome is None:
         return True
     if remembered.outcome == Outcome.NO_GAIN:
-        return remembered.counts != counts
+        return remembered.counts != counts or remembered.rules != MERGE_RULES_VERSION
     if remembered.outcome == Outcome.WOULD_MERGE:
         return auto_merge
     return False
@@ -394,7 +399,8 @@ def run_merge_pass(
             continue
         outcome = _handle(ctx, s, pair[0], pair[1], remembered.judgment)
         result.handled += 1
-        memory.remember(pair, dataclasses.replace(remembered, counts=counts[pair], outcome=outcome))
+        memory.remember(pair, dataclasses.replace(remembered, counts=counts[pair], outcome=outcome,
+                                                  rules=MERGE_RULES_VERSION))
         if outcome == Outcome.MERGED:
             merged_now |= set(pair)
 
