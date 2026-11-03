@@ -206,6 +206,26 @@ def test_family_names_kalshi_series_and_hyperliquid_classes():
     assert family(item(1, 1, pm_source("Yes"))) == "POLYMARKET_INTL"
 
 
+def test_the_llm_reading_takes_the_direction_a_level_market_title_gives():
+    def low_level(outcome):
+        return {"venue": "POLYMARKET_INTL", "outcome": outcome, "event": {"slug": "will-anthropics-valuation-hit"},
+                "market": {"question": "Will Anthropic's valuation hit (LOW) $700B by December 31?",
+                           "groupItemTitle": "↓$700B", "outcomes": ["Yes", "No"]}}
+
+    items = [item(3, 20, low_level("Yes"), exchange="POLYMARKET_INTL"),
+             item(4, 20, low_level("No"), exchange="POLYMARKET_INTL")]
+    answer = entry(3, subject="anthropic:valuation-2026", kind="THRESHOLD", measure="valuation", comparator="GTE",
+                   value=700, unit="usd_bn", observation="ANY_TIME")
+    results, _ = extract_propositions(items, extractor_for(fake_client([[answer]])))
+    assert results[3].method == Method.LLM and results[3].proposition.comparator == Comparator.LTE
+    assert results[4].proposition == results[3].proposition.negate()
+
+
+def test_family_names_hyperliquid_templates():
+    touch = {"venue": "HYPERLIQUID", "outcome": {"name": "template:priceTouch", "description": "perp:BTC|target:1"}}
+    assert family(item(1, 1, touch)) == "HYPERLIQUID:template:priceTouch"
+
+
 def test_a_venue_read_carries_the_observation():
     results, _ = extract_propositions([item(1, 10, kalshi_side("yes"))], None)
     assert results[1].proposition.observation == Observation.AT_TIME

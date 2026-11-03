@@ -1,5 +1,5 @@
-"""Reads every security's proposition: the venue readers first, Claude for the rest, and the second side of each
-binary pair as the negation of the first. Counts what each family was read by, so a venue rewording its rules
+"""Reads every security's proposition: the venue readers first, Claude for the rest (with any field the venue states
+structurally put right), and the second side of each binary pair as the negation of the first. Counts what each family was read by, so a venue rewording its rules
 (which sends a family from the readers to the LLM) shows up in the logs instead of only in the bill.
 """
 import dataclasses
@@ -11,7 +11,7 @@ from classifier.propositions.inputs import ExtractionInput, is_primary_side
 from classifier.propositions.llm import PropositionExtractor
 from classifier.propositions.subjects import DEFAULT_CANDIDATES, KnownSubject, SubjectIndex, add_known, candidates_for, merge_candidates
 from classifier.propositions.types import Extraction, Method, Proposition
-from classifier.propositions.venue import claims, extract_venue
+from classifier.propositions.venue import claims, correct_venue, extract_venue
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +42,12 @@ def family(item: ExtractionInput) -> str:
     if venue == "KALSHI":
         return f"KALSHI:{((source.get('market') or {}).get('ticker') or '').split('-')[0]}"
     if venue == "HYPERLIQUID":
-        description = (source.get("outcome") or {}).get("description", "")
-        return f"HYPERLIQUID:{description.split('|')[0] if description.startswith('class:') else 'free'}"
+        outcome = source.get("outcome") or {}
+        description = outcome.get("description", "")
+        if description.startswith("class:"):
+            return f"HYPERLIQUID:{description.split('|')[0]}"
+        name = outcome.get("name") or ""
+        return f"HYPERLIQUID:{name if name.startswith('template:') else 'free'}"
     return venue
 
 
@@ -70,6 +74,7 @@ def _record_answers(wave, answers, results: dict[int, Extraction], report: "Extr
                 report.failed.append(item.security_id)
                 continue
             proposition, description = answer
+            proposition = correct_venue(item.source, proposition)
             results[item.security_id] = Extraction(proposition, Method.LLM, item.source_hash)
             report.subject_descriptions.setdefault(proposition.subject, description)
             add_known(report.known, proposition, description)
@@ -94,11 +99,12 @@ def extract_propositions(
     known: dict[str, KnownSubject] | None = None,
     index: SubjectIndex | None = None,
     partners: Mapping[int, tuple[Proposition, Method]] | None = None,
+    prices: Mapping[str, float] | None = None,
 ) -> tuple[dict[int, Extraction], ExtractionReport]:
     """{security_id: Extraction} for every security that could be read, and a report of how. `known` holds subjects
     already stored; with those read by the venue readers in this pass they are the LLM's candidate subjects.
     `partners` gives, for a second side whose first side isn't among `items`, the first side's stored proposition and
-    how it was read; the second side is its negation."""
+    how it was read; the second side is its negation. `prices` ({coin: mid}) are for the readers that need them."""
     partners = partners or {}
     report = ExtractionReport(known=dict(known or {}))
     results: dict[int, Extraction] = {}
@@ -109,7 +115,7 @@ def extract_propositions(
     primaries = [i for i in items if is_primary_side(i)]
     llm_events: dict[str, tuple[str, list[ExtractionInput]]] = {}
     for item in primaries:
-        proposition = extract_venue(item.source)
+        proposition = extract_venue(item.source, prices)
         if proposition is not None:
             results[item.security_id] = Extraction(proposition, Method.VENUE, item.source_hash)
             report.by_family[(family(item), Method.VENUE.value)] += 1

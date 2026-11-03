@@ -584,6 +584,19 @@ class ClassifierDB:
                 )
                 return {row[0]: (row[1], row[2]) for row in cur.fetchall()}
 
+    def get_extracted_subjects(self, security_ids: list[int]) -> dict[int, tuple[int, str]]:
+        """{security_id: (extracted_subject_id, extractor_version)} of stored propositions."""
+        if not security_ids:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT security_id, extracted_subject_id, extractor_version FROM sm.contract_proposition"
+                    " WHERE security_id = ANY(%s)",
+                    (list(security_ids),),
+                )
+                return {row[0]: (row[1], row[2]) for row in cur.fetchall()}
+
     def get_stored_propositions(self, security_ids: list[int]) -> dict[int, tuple[Proposition, str, str]]:
         """{security_id: (proposition on the subject extraction chose, method, source_hash)} for stored propositions."""
         if not security_ids:

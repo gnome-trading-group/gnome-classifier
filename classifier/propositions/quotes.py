@@ -1,13 +1,15 @@
 """Top of book for a few securities, read from each venue's public market data, for checking a subject merge against
 prices before making it. The same reads as the registry's mark poller (`lambda/sync/venues/books.ts`): Kalshi and
 Polymarket US keep one book per market, so a NO or short listing is priced as its complement; each Polymarket
-International outcome token has its own book. Hyperliquid isn't read: its securities go unchecked.
+International outcome token has its own book. Hyperliquid isn't read: its securities go unchecked. Hyperliquid's
+perp mids are read separately (`hyperliquid_mids`), for the touch reader.
 
 A side a venue shows empty is None. A market that can't be read is logged and left out, so it never stops the rest.
 """
 import dataclasses
 import logging
 
+from classifier.adapters.hyperliquid import BASE_URL as HYPERLIQUID_INFO_URL
 from classifier.adapters.kalshi import BASE_URL as KALSHI_API
 from classifier.adapters.polymarket_intl import CLOB_API_URL
 from classifier.adapters.polymarket_us import GATEWAY_URL as POLYMARKET_US_GATEWAY
@@ -161,3 +163,21 @@ def read_quotes(refs: list[ListingRef], session: RateLimitedSession | None = Non
         except Exception as e:
             logger.warning("Reading %s quotes for %d listings failed: %s", venue, len(venue_refs), e)
     return out
+
+
+def hyperliquid_mids(session: RateLimitedSession | None = None) -> dict[str, float]:
+    """{perp coin: mid} for every Hyperliquid perp, including those on builder-deployed exchanges (`xyz:CL`), which
+    only their own exchange's read lists. Raises on a failed read, so a pass reads nothing with no prices rather than
+    leaving every touch's direction unknown."""
+    session = session or RateLimitedSession(min_request_interval=0.1)
+
+    def post(body: dict):
+        res = session.post(HYPERLIQUID_INFO_URL, json=body, timeout=REQUEST_TIMEOUT)
+        res.raise_for_status()
+        return res.json()
+
+    dexes = [d["name"] for d in post({"type": "perpDexs"}) if d and d.get("name")]
+    mids: dict[str, float] = {}
+    for body in [{"type": "allMids"}] + [{"type": "allMids", "dex": dex} for dex in dexes]:
+        mids.update({coin: float(raw) for coin, raw in post(body).items() if not coin.startswith("@") and float(raw) > 0})
+    return mids

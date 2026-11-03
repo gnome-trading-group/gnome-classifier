@@ -4,7 +4,14 @@ from types import SimpleNamespace
 
 from classifier.propositions.derive import Contract
 from classifier.propositions.merges import Judgment, SubjectProfile, Verdict
-from classifier.propositions.quotes import ListingRef, Quote, kalshi_quote, polymarket_intl_quote, polymarket_us_quote
+from classifier.propositions.quotes import (
+    ListingRef,
+    Quote,
+    hyperliquid_mids,
+    kalshi_quote,
+    polymarket_intl_quote,
+    polymarket_us_quote,
+)
 from classifier.propositions.types import Kind, Proposition
 from classifier.stages.subject_merges import MERGE_ACTOR, Outcome, fingerprint, is_season_key, run_merge_pass
 
@@ -292,3 +299,13 @@ class TestQuotes:
 
     def test_listing_refs_are_hashable(self):
         assert len({ListingRef(1, "KALSHI", "m"), ListingRef(1, "KALSHI", "m")}) == 1
+
+
+def test_hyperliquid_mids_are_the_perps_on_every_exchange():
+    replies = {None: {"BTC": "72000.5", "@107": "0.99", "DEAD": "0"}, "xyz": {"xyz:CL": "96.9"}}
+
+    def post(url, json, timeout):
+        reply = [None, {"name": "xyz"}] if json["type"] == "perpDexs" else replies[json.get("dex")]
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: reply)
+
+    assert hyperliquid_mids(SimpleNamespace(post=post)) == {"BTC": 72000.5, "xyz:CL": 96.9}

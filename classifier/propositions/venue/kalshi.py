@@ -6,6 +6,7 @@ measure and time come from the bank table Polymarket's reader shares (`common.RA
 compare.
 """
 import re
+from collections.abc import Mapping
 from datetime import datetime
 
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability, subject_key
@@ -114,7 +115,7 @@ def _with_strike_check(market: dict, parts: dict) -> dict:
     return {**parts, "unknown": frozenset(unknown)}
 
 
-def read(source: dict) -> Proposition | None:
+def read(source: dict, prices: Mapping[str, float]) -> Proposition | None:
     market = source.get("market") or {}
     ticker = market.get("ticker") or ""
     rules = market.get("rules_primary") or ""

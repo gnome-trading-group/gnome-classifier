@@ -64,3 +64,10 @@ def test_a_claimed_family_that_stops_parsing_is_logged(caplog):
 def test_long_tail_markets_are_not_claimed():
     assert not claims({"venue": "KALSHI", "market": {"ticker": "KXELONMARS-99"}})
     assert not claims({"venue": "POLYMARKET_INTL", "market": {}})
+
+
+def test_readings_that_depend_on_prices_are_not_sampled():
+    touch = {"venue": "HYPERLIQUID", "label": "Yes", "outcome": {
+        "name": "template:priceTouch", "description": "perp:BTC|seconds:3|target:65000|time:20261201-0000"}}
+    items = [btc(1), ExtractionInput(2, "HYPERLIQUID", 2, ContractType.BINARY, "BTC", "Yes", None, None, touch, "h")]
+    assert [i.security_id for i in sample(items, 10, date(2026, 11, 3))] == [1]

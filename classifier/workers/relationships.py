@@ -11,6 +11,7 @@ from classifier.constants import DEFAULT_VOYAGE_EMBEDDING_MODEL
 from classifier.propositions.attempts import RedisAttemptStore
 from classifier.propositions.llm import PropositionExtractor
 from classifier.propositions.merges import SubjectMergeJudge
+from classifier.propositions.quotes import hyperliquid_mids
 from classifier.propositions.venue import READERS_VERSION
 from classifier.stages.propositions import (
     READERS_VERSION_KEY,
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 # Idle passes read the backlog of securities without a proposition and derive subjects that came due without a message
 # (a person merging two subjects); polls return every 20s, so this keeps them to about one a minute.
 IDLE_DERIVE_INTERVAL_SECONDS = 60
+PRICES_MAX_AGE_SECONDS = 60
 
 
 class RelationshipsWorker(BaseWorker):
@@ -58,6 +60,8 @@ class RelationshipsWorker(BaseWorker):
         self._markers = None
         # Where the walk re-checking the code readers' reads is, or None when this READERS_VERSION already walked.
         self._recheck_after: int | None = None
+        self._prices: dict[str, float] = {}
+        self._prices_read_at = 0.0
 
     def _setup(self):
         self._registry = init_registry()
@@ -83,21 +87,29 @@ class RelationshipsWorker(BaseWorker):
             return None
         return PropositionExtractor(self._client_for, cfg.models.providers(), cfg.models.proposition_models)
 
-    def _read_backlog(self):
+    def _current_prices(self) -> dict[str, float]:
+        """Hyperliquid's perp mids for the touch reader, read at most every PRICES_MAX_AGE_SECONDS: a touch's
+        direction only needs which side of the target the price is on."""
+        now = time.monotonic()
+        if not self._prices or now - self._prices_read_at > PRICES_MAX_AGE_SECONDS:
+            self._prices, self._prices_read_at = hyperliquid_mids(), now
+        return self._prices
+
+    def _read_backlog(self, prices: dict[str, float]):
         result, self._backlog_after = read_backlog(
             db=self._db, registry=self._registry, extractor=self._extractor(), embed=self._embed,
             limit=self._runtime_config.config.processing.relationships_backlog_limit, after=self._backlog_after,
-            attempts=self._attempts,
+            attempts=self._attempts, prices=prices,
         )
         return result
 
-    def _recheck_readers(self) -> PassResult:
+    def _recheck_readers(self, prices: dict[str, float]) -> PassResult:
         """One page of the walk that applies a reader change to what is already stored. The marker is only set once
         the walk ends, so a restart part way walks again from the start (free: no model calls)."""
         if self._recheck_after is None:
             return PassResult()
         result, following = recheck_readers(db=self._db, registry=self._registry, embed=self._embed,
-                                            after=self._recheck_after)
+                                            after=self._recheck_after, prices=prices)
         if following:
             self._recheck_after = following
         else:
@@ -119,10 +131,12 @@ class RelationshipsWorker(BaseWorker):
 
         cfg = self._runtime_config.config
         if cfg.feature_flags.relationships_enabled:
+            prices = self._current_prices()
             result = read_propositions(security_ids, db=self._db, registry=self._registry,
-                                       extractor=self._extractor(), embed=self._embed, attempts=self._attempts)
-            result.add(self._read_backlog())
-            result.add(self._recheck_readers())
+                                       extractor=self._extractor(), embed=self._embed, attempts=self._attempts,
+                                       prices=prices)
+            result.add(self._read_backlog(prices))
+            result.add(self._recheck_readers(prices))
             derive_due_subjects(db=self._db, registry=self._registry,
                                 limit=cfg.processing.relationships_derive_limit, result=result)
             logger.info("Relationships pass: %s", result)
@@ -149,8 +163,9 @@ class RelationshipsWorker(BaseWorker):
         if not cfg.feature_flags.relationships_enabled:
             logger.info("Relationships pass: disabled")
             return
-        result = self._read_backlog()
-        result.add(self._recheck_readers())
+        prices = self._current_prices()
+        result = self._read_backlog(prices)
+        result.add(self._recheck_readers(prices))
         derive_due_subjects(db=self._db, registry=self._registry,
                             limit=cfg.processing.relationships_derive_limit, result=result)
         logger.info("Relationships pass: %s", result)

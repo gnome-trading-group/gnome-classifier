@@ -10,8 +10,14 @@ Central bank rate decisions (`bank-of-england-decision`, `fomc`, ...) list one m
 between brackets is rounded into one, and the rounding says what each bracket holds: under 25 bps counts as 25 and
 the rest go to the nearest 25, ties away from 0 (most banks: "25 bps decrease" is any cut under 37.5), or the Fed's
 rounding up to the next 25 ("25 bps decrease" is any cut up to 25).
+
+"Will X hit __" events list a market per level, titled `↑$1.5T` or `↓$700B` ("(HIGH)"/"(LOW)" in the question), under
+one rules text for the whole event that only says "reaches or exceeds": a `↓` market asks whether the value falls to
+the level. `correct` sets the direction the title gives on whatever the LLM read.
 """
+import dataclasses
 import re
+from collections.abc import Mapping
 from datetime import date, datetime, timedelta, timezone
 
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
@@ -50,6 +56,9 @@ _RATE_SERIES = {
     "reserve-bank-of-india-decision": "rbi", "reserve-bank-of-new-zealand-decision": "rbnz",
     "swiss-national-bank-decision": "snb",
 }
+_DIRECTION_TITLE = re.compile(r"^\s*(?P<arrow>[↑↓])\s*\$?\d")
+_DIRECTION_QUESTION = re.compile(r"\((?P<word>HIGH|LOW)\)")
+_DIRECTIONS = {"↑": Comparator.GTE, "HIGH": Comparator.GTE, "↓": Comparator.LTE, "LOW": Comparator.LTE}
 _RATE_BRACKET = re.compile(r"^(?P<bps>25|50\+) bps (?P<dir>decrease|cut|increase|hike)$", re.I)
 _RATE_HOLD = re.compile(r"^no change$", re.I)
 _NEAREST_ROUNDING = ("Increases or decreases of less than 25 bps will be rounded to 25 bps",
@@ -167,7 +176,7 @@ def _rate_decision(bank: str, source: dict) -> Proposition | None:
     return rate_decision(RATE_BANKS[bank], meeting, fields)
 
 
-def read(source: dict) -> Proposition | None:
+def read(source: dict, prices: Mapping[str, float]) -> Proposition | None:
     if bank := _rate_series(source):
         return _rate_decision(bank, source)
     found = _family(_slug(source))
@@ -209,3 +218,20 @@ def read(source: dict) -> Proposition | None:
         observation=Observation.AT_TIME, window_start=start, window_end=end, stability=Stability.LIVE,
         resolution_source=f"chainlink-{asset.lower()}usd-twap-stream",
     )
+
+
+def _direction(market: dict) -> Comparator | None:
+    """The direction a level market's title or question gives, or None when neither gives one or they disagree."""
+    found = set()
+    if m := _DIRECTION_TITLE.match(market.get("groupItemTitle") or ""):
+        found.add(_DIRECTIONS[m.group("arrow")])
+    if m := _DIRECTION_QUESTION.search(market.get("question") or ""):
+        found.add(_DIRECTIONS[m.group("word")])
+    return found.pop() if len(found) == 1 else None
+
+
+def correct(source: dict, proposition: Proposition) -> Proposition:
+    direction = _direction(source.get("market") or {})
+    if direction is None or proposition.kind != Kind.THRESHOLD or proposition.comparator == direction:
+        return proposition
+    return dataclasses.replace(proposition, comparator=direction, unknown=proposition.unknown - {"comparator"})

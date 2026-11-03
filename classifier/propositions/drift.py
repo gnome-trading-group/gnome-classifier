@@ -11,7 +11,7 @@ from classifier.propositions.extract import family, request_group
 from classifier.propositions.inputs import ExtractionInput, is_primary_side
 from classifier.propositions.llm import PropositionExtractor
 from classifier.propositions.types import Proposition
-from classifier.propositions.venue import extract_venue
+from classifier.propositions.venue import extract_venue, needs_prices
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +38,10 @@ def _differences(venue: Proposition, llm: Proposition) -> list[tuple[str, object
 
 
 def sample(items: list[ExtractionInput], size: int = DEFAULT_SAMPLE, day: date | None = None) -> list[ExtractionInput]:
-    """A day's sample of code-readable first sides: the same on reruns within a day, different across days."""
-    readable = sorted((i for i in items if is_primary_side(i) and extract_venue(i.source) is not None),
+    """A day's sample of code-readable first sides: the same on reruns within a day, different across days. Readings
+    that depend on current prices are left out: the model, given only the text, can't agree with them."""
+    readable = sorted((i for i in items if is_primary_side(i) and not needs_prices(i.source)
+                       and extract_venue(i.source) is not None),
                       key=lambda i: i.security_id)
     return random.Random((day or date.today()).toordinal()).sample(readable, min(size, len(readable)))
 

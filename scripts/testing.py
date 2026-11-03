@@ -700,6 +700,10 @@ class StubDB:
         return {sid: (p["source_hash"], p["extractor_version"]) for sid, p in self._r._propositions.items()
                 if sid in set(security_ids)}
 
+    def get_extracted_subjects(self, security_ids: list[int]) -> dict[int, tuple[int, str]]:
+        return {sid: (p["extracted_subject_id"], p["extractor_version"]) for sid, p in self._r._propositions.items()
+                if sid in set(security_ids)}
+
     def get_stored_propositions(self, security_ids: list[int]) -> dict[int, tuple[Proposition, str, str]]:
         out = {}
         for sid in security_ids:

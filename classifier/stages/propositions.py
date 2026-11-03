@@ -10,12 +10,13 @@ contract that changed since its last derivation, and each unit's relationships a
 redelivery and re-derivation idempotent. Only the fewest rows that rebuild a unit's relationships are stored;
 consumers rebuild the rest (gnomepy `RelationshipGraph`). A new DERIVATION_VERSION re-derives every subject once (see
 `rederive_on_new_version`), since an incremental pass would leave rows the old rules wrote. A change to the code
-readers re-reads, without the model, every open security they now read differently (see `recheck_readers`), so a
-reader fix needs no new EXTRACTOR_VERSION and its re-read of everything the model read.
+readers re-reads, without the model, every open security they now read differently (see `recheck_readers`), and
+applies a venue correction to the model's stored readings, so a reader fix needs no new EXTRACTOR_VERSION and its
+re-read of everything the model read.
 """
 import dataclasses
 import logging
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from datetime import datetime, timezone
 from typing import Protocol
 
@@ -35,8 +36,8 @@ from classifier.propositions.subjects import (
     StoredSubjectIndex,
     embed_subjects,
 )
-from classifier.propositions.types import EXTRACTOR_VERSION, Method
-from classifier.propositions.venue import READERS_VERSION, extract_venue
+from classifier.propositions.types import EXTRACTOR_VERSION, Method, Proposition
+from classifier.propositions.venue import READERS_VERSION, correct_venue, extract_venue
 from classifier.utils import bulk_create_chunked
 
 logger = logging.getLogger(__name__)
@@ -126,13 +127,14 @@ def read_propositions(
     embed: Embed,
     attempts: AttemptStore | None = None,
     reread: Collection[int] = (),
+    prices: Mapping[str, float] | None = None,
 ) -> PassResult:
     result = PassResult()
     items, partners = _plan_reads(db, security_ids, attempts, extractor is not None, result, reread)
     if not items:
         return result
     index = CombinedSubjectIndex(StoredSubjectIndex(db, embed), InMemorySubjectIndex(embed))
-    extractions, report = extract_propositions(items, extractor, index=index, partners=partners)
+    extractions, report = extract_propositions(items, extractor, index=index, partners=partners, prices=prices)
     report.log()
     result.read, result.pending = len(extractions), len(report.failed)
     if attempts is not None:
@@ -181,6 +183,7 @@ def read_backlog(
     limit: int,
     after: int = 0,
     attempts: AttemptStore | None = None,
+    prices: Mapping[str, float] | None = None,
 ) -> tuple[PassResult, int]:
     """Reads up to `limit` open securities after `after` that still lack a current proposition (see
     `securities_needing_propositions`). Returns the pass and where the next one starts: past this page, or back at the
@@ -190,7 +193,8 @@ def read_backlog(
     following = due[-1] if len(due) == limit else 0
     if not due:
         return PassResult(), following
-    return read_propositions(due, db=db, registry=registry, extractor=extractor, embed=embed, attempts=attempts), following
+    return read_propositions(due, db=db, registry=registry, extractor=extractor, embed=embed, attempts=attempts,
+                             prices=prices), following
 
 
 def recheck_readers(
@@ -200,21 +204,53 @@ def recheck_readers(
     embed: Embed,
     limit: int = RECHECK_PAGE,
     after: int = 0,
+    prices: Mapping[str, float] | None = None,
 ) -> tuple[PassResult, int]:
     """Re-reads, by code alone, the open securities after `after` (up to `limit` of them) whose stored proposition
-    differs from what the code readers read now: a family a reader newly handles, or one it reads differently.
-    Returns the pass and where the next page starts, 0 once every open security was looked at. Nothing else would
-    re-read them, since their source and the extractor version are unchanged."""
+    differs from what the code readers read now: a family a reader newly handles, or one it reads differently. The
+    model's stored readings that a venue correction now changes are stored corrected. Returns the pass and where the
+    next page starts, 0 once every open security was looked at. Nothing else would re-read them, since their source
+    and the extractor version are unchanged."""
     security_ids = db.securities_with_open_sources(limit, after)
     following = security_ids[-1] if len(security_ids) == limit else 0
-    readings = {i.security_id: p for i in db.get_extraction_inputs(security_ids)
-                if is_primary_side(i) and (p := extract_venue(i.source)) is not None}
-    stored = db.get_stored_propositions(sorted(readings))
+    inputs = db.get_extraction_inputs(security_ids)
+    readings = {i.security_id: p for i in inputs
+                if is_primary_side(i) and (p := extract_venue(i.source, prices)) is not None}
+    stored = db.get_stored_propositions([i.security_id for i in inputs])
     changed = sorted(sid for sid, p in readings.items()
                      if sid in stored and stored[sid][:2] != (p, Method.VENUE.value))
-    if not changed:
-        return PassResult(), following
-    return read_propositions(changed, db=db, registry=registry, extractor=None, embed=embed, reread=changed), following
+    result = PassResult()
+    if changed:
+        result = read_propositions(changed, db=db, registry=registry, extractor=None, embed=embed, reread=changed,
+                                   prices=prices)
+    corrections = {}
+    for item in inputs:
+        held = stored.get(item.security_id)
+        if item.security_id in readings or held is None or held[1] != Method.LLM.value or held[2] != item.source_hash:
+            continue
+        fixed = correct_venue(item.source, held[0])
+        if fixed != held[0]:
+            corrections[item.security_id] = fixed
+    result.stored += _store_corrections(db, registry, corrections, {i.security_id: i.source_hash for i in inputs})
+    return result, following
+
+
+def _store_corrections(db: ClassifierDB, registry: RegistryClient, corrections: dict[int, Proposition],
+                       source_hashes: dict[int, str]) -> int:
+    """Stores the model's readings with a venue correction applied, on the subject they were read onto."""
+    if not corrections:
+        return 0
+    held = db.get_extracted_subjects(sorted(corrections))
+    rows = [
+        dict(security_id=sid, extracted_subject_id=held[sid][0], fields=p.to_fields(), method=Method.LLM.value,
+             extractor_version=held[sid][1], source_hash=source_hashes[sid])
+        for sid, p in sorted(corrections.items()) if sid in held
+    ]
+    stored = 0
+    for _, chunk in bulk_create_chunked(rows, "corrected contract propositions"):
+        stored += sum(1 for r in registry.upsert_contract_propositions(chunk) if r.get("changed"))
+    logger.info("Venue corrections: %d stored propositions corrected", stored)
+    return stored
 
 
 def _chunks(security_ids: list[int], rows: list[Derived]) -> list[tuple[list[int], list[Derived]]]:

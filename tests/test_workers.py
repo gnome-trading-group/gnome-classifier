@@ -94,6 +94,13 @@ def _patch_normalize_setup(worker, stub_registry, stub_db, mock_canonicalizer, s
     worker._setup = types.MethodType(_setup, worker)
 
 
+
+@pytest.fixture(autouse=True)
+def no_hyperliquid_prices():
+    with patch("classifier.workers.relationships.hyperliquid_mids", return_value={}) as mids:
+        yield mids
+
+
 def _patch_relationships_setup(worker, stub_registry, stub_db, sns_client, relationships_enabled=False, llm_enabled=False):
     def _setup(self):
         self._runtime_config = _make_mock_runtime_config()

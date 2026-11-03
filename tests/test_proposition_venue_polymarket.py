@@ -14,8 +14,8 @@ from classifier.propositions.derive import (
     derive,
     derive_unit,
 )
-from classifier.propositions.types import Comparator, Kind, Observation, Stability
-from classifier.propositions.venue import claims, extract_venue
+from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
+from classifier.propositions.venue import claims, correct_venue, extract_venue
 
 # Sources as the Polymarket adapters build them, from the live venues (2026-10-29).
 SOURCES = json.loads((Path(__file__).parent / "fixtures/relationships/polymarket_crypto_sources.json").read_text())
@@ -250,3 +250,52 @@ class TestPolymarketRateDecisions:
         got = sorted(unordered(label[d.security_id_a], d.relationship_type, label[d.security_id_b]) for d in rows)
         assert got == sorted(unordered(*row) for row in expected)
         assert all(d.flags == () for d in rows)
+
+
+RULES_FOR_EVERY_LEVEL = ("This market will resolve to \"Yes\" if Anthropic's private market valuation, as measured by the "
+                         "NPM Price reported by Nasdaq Private Market, LLC (NPM) for any date between market creation and "
+                         "December 31, 2026, reaches or exceeds the listed amount.")
+
+
+def level_market(title: str, question: str) -> dict:
+    return {"venue": "POLYMARKET_INTL", "outcome": "Yes",
+            "event": {"slug": "will-anthropics-valuation-hit-by-december-31"},
+            "market": {"question": question, "groupItemTitle": title, "outcomes": '["Yes", "No"]',
+                       "description": RULES_FOR_EVERY_LEVEL}}
+
+
+def valuation(comparator: Comparator, value: float) -> Proposition:
+    return Proposition(subject="anthropic:valuation-2026", kind=Kind.THRESHOLD, measure="valuation", unit="usd_bn",
+                       comparator=comparator, value=value, observation=Observation.ANY_TIME,
+                       window_end=utc(2027, 1, 1))
+
+
+class TestLevelDirections:
+    LOW = level_market("↓$700B", "Will Anthropic's valuation hit (LOW) $700B by December 31?")
+    HIGH = level_market("↑$1.5T", "Will Anthropic's valuation hit (HIGH) $1.5T by December 31?")
+
+    def test_a_low_level_read_as_reaching_it_from_below_is_a_fall_to_it(self):
+        fixed = correct_venue(self.LOW, valuation(Comparator.GTE, 700))
+        assert (fixed.comparator, fixed.value) == (Comparator.LTE, 700)
+
+    def test_a_high_level_is_a_rise_to_it(self):
+        assert correct_venue(self.HIGH, valuation(Comparator.GT, 1500)).comparator == Comparator.GTE
+
+    def test_a_direction_the_reading_left_unknown_is_filled_in(self):
+        unknown = dataclasses.replace(valuation(Comparator.GTE, 700), comparator=None, unknown=frozenset({"comparator"}))
+        fixed = correct_venue(self.LOW, unknown)
+        assert fixed.comparator == Comparator.LTE and fixed.unknown == frozenset()
+
+    def test_the_no_side_keeps_its_negation(self):
+        fixed = correct_venue(self.LOW, valuation(Comparator.GTE, 700).negate())
+        assert fixed.negated and fixed.comparator == Comparator.LTE
+
+    def test_a_title_and_question_that_disagree_change_nothing(self):
+        mixed = level_market("↑$700B", "Will Anthropic's valuation hit (LOW) $700B by December 31?")
+        assert correct_venue(mixed, valuation(Comparator.GTE, 700)).comparator == Comparator.GTE
+
+    def test_markets_without_a_direction_and_other_kinds_are_left_alone(self):
+        plain = level_market("$700B", "Will Anthropic's valuation reach $700B by December 31?")
+        assert correct_venue(plain, valuation(Comparator.GTE, 700)).comparator == Comparator.GTE
+        occurs = Proposition(subject="anthropic:ipo", kind=Kind.OCCURS_BY, window_end=utc(2027, 1, 1))
+        assert correct_venue(self.LOW, occurs) == occurs

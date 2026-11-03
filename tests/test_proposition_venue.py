@@ -118,6 +118,31 @@ class TestHyperliquid:
         assert extract_venue({"venue": "HYPERLIQUID", "outcome": {"description": "other"}}) is None
 
 
+class TestHyperliquidTouch:
+    def source(self, target, label="Yes"):
+        return {"venue": "HYPERLIQUID", "label": label, "title": f"BTC touches {target} by 2026-12-01 00:00",
+                "outcome": {"name": "template:priceTouch", "description":
+                            f"perp:BTC|priceDescription:BTC-USDC perp mark|seconds:3|target:{target}|time:20261201-0000"}}
+
+    def test_a_target_above_the_price_is_a_rise_to_it(self):
+        p = extract_venue(self.source(80000), {"BTC": 72000.0})
+        assert (p.subject, p.comparator, p.value, p.observation) == ("btc-usd", Comparator.GTE, 80000.0,
+                                                                      Observation.ANY_TIME)
+        assert p.window_end == datetime(2026, 12, 1, tzinfo=timezone.utc)
+
+    def test_a_target_below_the_price_is_a_fall_to_it(self):
+        assert extract_venue(self.source(65000), {"BTC": 72000.0}).comparator == Comparator.LTE
+
+    def test_the_no_side_is_the_negation(self):
+        p = extract_venue(self.source(65000, "No"), {"BTC": 72000.0})
+        assert p.negated and p.comparator == Comparator.LTE
+
+    @pytest.mark.parametrize("prices", [{}, {"BTC": 65010.0}], ids=["no price", "at the target"])
+    def test_without_a_clear_side_the_direction_is_unknown(self, prices):
+        p = extract_venue(self.source(65000), prices)
+        assert p.comparator is None and p.unknown == {"comparator"}
+
+
 def test_polymarket_always_goes_to_the_llm():
     assert extract_venue({"venue": "POLYMARKET_INTL", "market": {"question": "Will BTC hit 100k?"}}) is None
 

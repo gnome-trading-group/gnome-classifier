@@ -4,6 +4,7 @@ within a window. Market slugs name the family (`cpc-btc-updown-15m-...`, `cpceth
 the venue is free text for the LLM.
 """
 import re
+from collections.abc import Mapping
 
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
 from classifier.propositions.venue.common import CF_INDICES, CMP_WORDS, cf_index_asset, eastern, number, price_rise
@@ -54,7 +55,7 @@ def is_no_side(source: dict) -> bool:
     return source.get("leg") == "short"
 
 
-def read(source: dict) -> Proposition | None:
+def read(source: dict, prices: Mapping[str, float]) -> Proposition | None:
     family = _FAMILY_SLUG.match(_slug(source))
     market = source.get("market") or {}
     rules = re.sub(r"\s+", " ", market.get("description") or "")

@@ -74,7 +74,10 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   each subject's set is replaced as a whole (`contract-relationships/reconcile`); manual rows always win. Bumping
   either version re-reads or re-derives. A change to the code readers needs no bump: once per `READERS_VERSION` (a
   hash of `propositions/venue/`, marked in Redis `readers:version`) the Relationships worker walks the open
-  securities and re-reads, by code alone, those the readers now read differently. Only `EQUIVALENT` and `IMPLIES`
+  securities and re-reads, by code alone, those the readers now read differently, and stores corrected any LLM reading
+  a venue module's `correct` now changes (Polymarket Intl `↑`/`↓` level markets, whose shared rules text only says
+  "reaches or exceeds"). Hyperliquid price touches are read from the perp's current mid (`quotes.hyperliquid_mids`,
+  builder exchanges included): an open touch is still on the side it started from. Only `EQUIVALENT` and `IMPLIES`
   exist; exclusion and complements come from `contract_type` and event membership. A field the extractor couldn't
   determine is in `unknown` and blocks every rule that needs it.
 - An adapter must never move a security to another event; `entities.py` refuses and logs `already in event`

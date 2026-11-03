@@ -1,3 +1,5 @@
+import dataclasses
+
 from gnomepy.registry.relations import Edge, close
 
 from classifier.adapters import kalshi
@@ -287,7 +289,7 @@ class TestRecheckReaders:
         sids = {src["source"]["market"]["ticker"].rsplit("-", 1)[1]: sid
                 for sid, src in stub_registry._contract_sources.items()
                 if src["source"]["market"]["ticker"].startswith(event["event_ticker"])}
-        monkeypatch.setattr("classifier.propositions.extract.extract_venue", lambda source: None)
+        monkeypatch.setattr("classifier.propositions.extract.extract_venue", lambda source, prices=None: None)
         read_propositions(sorted(sids.values()), db=stub_db, registry=stub_registry, extractor=ReadsCutsAsHikes(),
                           embed=embed)
         monkeypatch.undo()
@@ -335,3 +337,42 @@ class TestRecheckReaders:
         recheck_readers(db=stub_db, registry=stub_registry, embed=embed)
         assert derive_due_subjects(db=stub_db, registry=stub_registry).subjects_derived >= 1
         assert "proposition collision" not in caplog.text
+
+
+class ReadsAThreshold:
+    def extract(self, groups, candidates):
+        items = [i for _, (_, chunk) in groups.items() for i in chunk]
+        return {i.security_id: (Proposition(subject="trump-rally-words", kind=Kind.THRESHOLD, measure="mentions",
+                                            comparator=Comparator.GTE, value=3.0, observation=Observation.AT_TIME),
+                                "Words at a rally") for i in items}
+
+
+class TestVenueCorrections:
+    def _stored_by_the_model(self, stub_registry, stub_db):
+        sids = load(stub_registry, stub_db, mention_market())
+        read_propositions(sorted(sids.values()), db=stub_db, registry=stub_registry, extractor=ReadsAThreshold(),
+                          embed=embed)
+        return sorted(sids.values())
+
+    def test_a_stored_model_reading_a_correction_now_changes_is_stored_corrected(self, stub_registry, stub_db,
+                                                                               monkeypatch):
+        sids = self._stored_by_the_model(stub_registry, stub_db)
+        subjects = {sid: stub_registry._propositions[sid]["extracted_subject_id"] for sid in sids}
+        monkeypatch.setattr(stage, "correct_venue",
+                            lambda source, p: dataclasses.replace(p, comparator=Comparator.LTE))
+
+        result, _ = recheck_readers(db=stub_db, registry=stub_registry, embed=embed)
+        assert result.stored == 2
+        stored = stub_db.get_stored_propositions(sids)
+        assert {p.comparator for p, _, _ in stored.values()} == {Comparator.LTE}
+        assert {method for _, method, _ in stored.values()} == {"LLM"}
+        assert {sid: stub_registry._propositions[sid]["extracted_subject_id"] for sid in sids} == subjects
+        assert stub_db.securities_needing_propositions(EXTRACTOR_VERSION, 100) == []
+
+        again, _ = recheck_readers(db=stub_db, registry=stub_registry, embed=embed)
+        assert again.stored == 0
+
+    def test_without_a_correction_nothing_is_stored(self, stub_registry, stub_db):
+        self._stored_by_the_model(stub_registry, stub_db)
+        result, _ = recheck_readers(db=stub_db, registry=stub_registry, embed=embed)
+        assert result.stored == 0
