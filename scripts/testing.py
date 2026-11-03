@@ -503,8 +503,8 @@ class StubDB:
             if (l.exchange_id, l.exchange_security_id) in key_set
         }
 
-    def securities_listed_more_than_once(self, security_ids: list[int]) -> set[int]:
-        counts = Counter(l.security_id for l in self._r._listings if l.security_id in set(security_ids))
+    def securities_with_several_open_listings(self, security_ids: list[int]) -> set[int]:
+        counts = Counter(l.security_id for l in self._r._listings if l.security_id in set(security_ids) and l.active)
         return {sid for sid, n in counts.items() if n > 1}
 
     def _modified_within(self, listing: Listing, max_age: timedelta) -> bool:

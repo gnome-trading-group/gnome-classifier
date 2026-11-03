@@ -461,15 +461,16 @@ class ClassifierDB:
                 )
                 return [(row[0], row[1], row[2]) for row in cur.fetchall()]
 
-    def securities_listed_more_than_once(self, security_ids: list[int]) -> set[int]:
-        """Securities with several listings: left from before identity was one security per listing, and on a
-        prediction venue each listing is its own market."""
+    def securities_with_several_open_listings(self, security_ids: list[int]) -> set[int]:
+        """Securities with several open listings: left from before identity was one security per listing, and on a
+        prediction venue each listing is its own market. A closed listing is a market that has ended, so it doesn't
+        count."""
         if not security_ids:
             return set()
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT security_id FROM sm.listing WHERE security_id = ANY(%s) GROUP BY security_id"
+                    "SELECT security_id FROM sm.listing WHERE security_id = ANY(%s) AND active GROUP BY security_id"
                     " HAVING count(*) > 1",
                     (list(security_ids),),
                 )

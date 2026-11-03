@@ -382,8 +382,8 @@ def find_renames(
     ]
 
     wanted_symbols, wanted_listing_names = _wanted_names(contracts, security_id_by_key, listing_id_by_key)
-    # A security with several listings is several markets, so no one name is its own.
-    for sid in db.securities_listed_more_than_once(list(wanted_symbols)):
+    # A security with several open listings is several markets, so no one name is its own.
+    for sid in db.securities_with_several_open_listings(list(wanted_symbols)):
         del wanted_symbols[sid]
     current = db.get_security_symbols(list(wanted_symbols))
     holders = db.get_security_ids_by_symbol(sorted({s for sid, s in wanted_symbols.items()
@@ -436,6 +436,54 @@ def _symbol_renames(
             continue
         out.append(Rename(dict(security_id=sid, symbol=symbol), current[sid]))
     return out
+
+
+class Split(NamedTuple):
+    security_id: SecurityId
+    listing_id: int
+    symbol: str
+    outcome_label: str
+
+
+def split_merged_securities(
+    registry: RegistryClient, db: ClassifierDB, contracts: list[AdapterContract], apply: bool,
+) -> list[Split]:
+    """Moves each extra open market off a security that holds several onto a security of its own. Such securities date
+    from when a security was identified by its symbol, so two markets whose titles normalized alike ("<8" and "8")
+    shared one. The market that stays is the one the security's event link is labelled for. Only markets in
+    `contracts` move, since the new security is built from the venue's contract; closed listings stay where they are."""
+    unique = list({_listing_key(c): c for c in contracts}.values())
+    listings = db.get_existing_listings([_listing_key(c) for c in unique])
+    merged = db.securities_with_several_open_listings(sorted({sid for _, sid in listings.values()}))
+    links = db.get_event_links(sorted(merged))
+    by_security: dict[SecurityId, list[AdapterContract]] = {}
+    for c in unique:
+        listing = listings.get(_listing_key(c))
+        if listing is not None and listing[1] in merged:
+            by_security.setdefault(listing[1], []).append(c)
+    moving: list[AdapterContract] = []
+    for sid, group in sorted(by_security.items()):
+        group.sort(key=lambda c: listings[_listing_key(c)][0])
+        label = links[sid].outcome_label if sid in links else None
+        keeper = next((c for c in group if c.outcome_label == label), group[0])
+        moving += [c for c in group if c is not keeper]
+    splits = [Split(listings[_listing_key(c)][1], listings[_listing_key(c)][0], c.security_symbol, c.outcome_label)
+              for c in moving]
+    if not apply or not moving:
+        return splits
+
+    new_security_id_by_key: dict[ListingKey, SecurityId] = {}
+    _create_securities(registry, db, moving, _resolve_currencies(registry, db, moving), new_security_id_by_key)
+    registry.bulk_patch_listings([dict(listing_id=listings[key][0], security_id=sid)
+                                  for key, sid in new_security_id_by_key.items()])
+    affected = [c for group in by_security.values() for c in group]
+    security_id_by_key = {key: sid for key, (_, sid) in listings.items()} | new_security_id_by_key
+    listing_id_by_key = {key: lid for key, (lid, _) in listings.items()}
+    event_id_by_native = db.get_exchange_events(sorted({_native_key(c) for c in affected}))
+    _create_event_contracts(registry, db, moving, event_id_by_native, new_security_id_by_key)
+    apply_renames(registry, find_renames(db, affected, event_id_by_native, security_id_by_key, listing_id_by_key))
+    _sync_contract_sources(registry, db, affected, security_id_by_key)
+    return splits
 
 
 def _sync_listing_specs(
@@ -508,7 +556,7 @@ def _sync_contract_sources(
             by_security.setdefault(security_id, []).append(dict(
                 security_id=security_id, exchange_id=c.exchange_id, source=c.proposition_source,
                 source_hash=proposition_source_hash(c.proposition_source)))
-    several = db.securities_listed_more_than_once(list(by_security))
+    several = db.securities_with_several_open_listings(list(by_security))
     pending = []
     for security_id, items in by_security.items():
         if security_id not in several and len({item["source_hash"] for item in items}) == 1:
@@ -516,9 +564,9 @@ def _sync_contract_sources(
             continue
         # Securities from before identity was one per listing can hold two markets (two strikes), and their listings
         # need not arrive in the same batch; a proposition read from either source would be wrong for the other, so
-        # the security gets none, and a null source removes any stored earlier. The MultiMarketSecurities alarm counts
-        # this line.
-        logger.warning("security %s may be several markets (several listings, or listings with different sources); "
+        # the security gets none, and a null source removes any stored earlier (`split_merged_securities` gives each
+        # market its own). The MultiMarketSecurities alarm counts this line.
+        logger.warning("security %s may be several markets (several open listings, or listings with different sources); "
                        "not storing a source", security_id)
         pending.append(dict(security_id=security_id, exchange_id=items[0]["exchange_id"], source=None, source_hash=None))
     for _, chunk in bulk_create_chunked(pending, "contract sources"):

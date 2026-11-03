@@ -22,8 +22,11 @@ Python 3.13, Poetry, from the repo root:
 - `poetry run bootstrap ...` - one-time full load into the real registry (writes for real; see script header)
 - `poetry run backfill-taxonomy [--apply]` - re-derive categories/tags from the static taxonomy; dry run without `--apply`
 - `worker sync-names [--exchange X] [--apply]` - rename outcome labels, security symbols and listing names to what the
-  venues list now; dry run without `--apply`. It reads the database, so run it as a one-off ECS task on the Fetch task
-  definition with the command overridden (the API can't look securities up by id in bulk; paging them all times out)
+  venues list now; dry run without `--apply`
+- `worker split-securities [--exchange X] [--apply]` - give each open market its own security where one security holds
+  several (left from when symbols decided identity); dry run without `--apply`
+- Both read the database, so run them as a one-off ECS task on the Fetch task definition with the command overridden
+  (`aws ecs run-task ... --overrides '{"containerOverrides":[{"name":"FetchContainer","command":["sync-names"]}]}'`)
 - `poetry run tunnel` - currently broken: `<Stage>-DatabaseStack` no longer exports `BastionInstanceId`
 
 CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnome-trading-group/gnome-shared-cdk`):
@@ -159,6 +162,8 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   - `Classifier--WorkerHealth-PropositionCollisions-Warning`: two outcomes of one event were read as the same
     proposition (two candidates given one name), so derivation left both out. Read the `proposition collision` line
     and the two contracts' sources; usually a prompt fix for the next `EXTRACTOR_VERSION`.
+  - `Classifier--WorkerHealth-MultiMarketSecurities-Warning`: a security with several open listings, or listings with
+    different sources, got no source (`may be several markets`). Run `worker split-securities`.
   - `Classifier--WorkerHealth-ListingsReactivated-Warning`: 50+ retired listings on one venue listed as open again and
     turned back on; a venue misreporting closures.
 - Runbook: gnome-registry `docs/runbooks/cloudwatch/Classifier.md` (it lists fewer alarms than exist here).

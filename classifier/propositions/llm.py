@@ -75,7 +75,9 @@ is the decisive moment or deadline). Not when the market closes or the result is
 ends 2026-12-31 even if the data comes out in 2027. Convert local times; a date with no time in a Kalshi rule \
 is Eastern Time ("before Jan 1, 2027" is 2027-01-01T05:00:00Z).
 - entity: who must win (WINNER), as a short lowercase key: a candidate's entity key when it names the same team, \
-player or party; otherwise a short name (clemson, democratic, republican, zohran-mamdani).
+player or party; otherwise a short name (clemson, democratic, republican, zohran-mamdani). Two outcomes of one event \
+are always different entities, even when their names are alike or a candidate's entity key would fit both: key each \
+by its full listed name ("Dan Sullivan" dan-sullivan, "Daniel J. Sullivan Jr." daniel-j-sullivan-jr).
 - scope: the part of the contest when it matters: match (the whole fixture: one game, or a whole best-of series), \
 map:<n> (one game or map within a series, whatever the sport calls it: "Game 2 Winner" and "Map 2 Winner" are both \
 map:2), regulation, first_half, playoff_series (several fixtures, as an NBA playoff series), regular_season, season. Null when not a sports contest (elections, awards, charts have no scope). A soccer result with a draw outcome is decided after 90 minutes plus stoppage time: \

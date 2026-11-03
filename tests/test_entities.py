@@ -3,7 +3,7 @@ import dataclasses
 import pytest
 
 from classifier.adapters.types import AdapterContract
-from classifier.stages.entities import create_entities
+from classifier.stages.entities import create_entities, split_merged_securities
 from classifier.workers.sync_names import sync_exchange_names
 from gnomepy.registry.types import AssetClass, ContractType, Security, SecurityType
 
@@ -254,3 +254,53 @@ class TestSyncNames:
         assert sorted(s.symbol for s in stub_registry._securities) == ["EX1-UCL-FENERBAHCE", "EX1-UCL-TEAM-B"]
         assert sorted(ec.outcome_label for ec in stub_registry._event_contracts) == ["Fenerbahce", "Team B"]
         assert sync_exchange_names(stub_registry, stub_db, markets, apply=False).securities == []
+
+
+class TestSplitMergedSecurities:
+    def merged(self, stub_registry, stub_db, mock_converse):
+        """Two markets of one event on one security, as identity by symbol left them: "<8" and "8" normalized alike."""
+        under, eight = [dataclasses.replace(_make_contract("Texas seats", label, native_id="tx", symbol=f"PM-TX-{n}"),
+                                            proposition_source={"rules": f"resolves on {label}"})
+                        for label, n in (("<8", "LT8"), ("8", "8"))]
+        create_entities(stub_registry, mock_converse, [under, eight], db=stub_db)
+        kept = next(l for l in stub_registry._listings if l.exchange_security_id == under.exchange_security_id)
+        gone = next(l for l in stub_registry._listings if l.exchange_security_id == eight.exchange_security_id)
+        stub_registry.patch_listing(gone.listing_id, security_id=kept.security_id)
+        stub_registry._securities = [s for s in stub_registry._securities if s.security_id != gone.security_id]
+        stub_registry._event_contracts = [ec for ec in stub_registry._event_contracts
+                                          if ec.security_id != gone.security_id]
+        stub_registry.patch_security(kept.security_id, symbol="TEXAS-SEATS-8")
+        return under, eight, kept.security_id, gone.listing_id
+
+    def test_the_extra_market_gets_its_own_security_link_and_source(self, stub_registry, stub_db, mock_converse):
+        under, eight, sid, moved_listing = self.merged(stub_registry, stub_db, mock_converse)
+
+        splits = split_merged_securities(stub_registry, stub_db, [under, eight], apply=True)
+
+        assert [(s.security_id, s.listing_id, s.symbol) for s in splits] == [(sid, moved_listing, "PM-TX-8")]
+        new_sid = next(l.security_id for l in stub_registry._listings if l.listing_id == moved_listing)
+        assert new_sid != sid
+        labels = {ec.security_id: ec.outcome_label for ec in stub_registry._event_contracts}
+        assert (labels[sid], labels[new_sid]) == ("<8", "8")
+        assert {s.security_id: s.symbol for s in stub_registry._securities}[sid] == "PM-TX-LT8"
+        assert set(stub_registry._contract_sources) >= {sid, new_sid}
+        assert split_merged_securities(stub_registry, stub_db, [under, eight], apply=True) == []
+
+    def test_the_market_its_event_link_is_labelled_for_stays(self, stub_registry, stub_db, mock_converse):
+        under, eight, sid, moved_listing = self.merged(stub_registry, stub_db, mock_converse)
+        link = next(ec for ec in stub_registry._event_contracts if ec.security_id == sid)
+        stub_registry.bulk_patch_event_contracts([dict(event_contract_id=link.event_contract_id, outcome_label="8")])
+
+        splits = split_merged_securities(stub_registry, stub_db, [under, eight], apply=False)
+
+        assert [s.outcome_label for s in splits] == ["<8"]
+
+    def test_a_dry_run_writes_nothing_and_closed_listings_stay(self, stub_registry, stub_db, mock_converse):
+        under, eight, sid, moved_listing = self.merged(stub_registry, stub_db, mock_converse)
+        listings_before = list(stub_registry._listings)
+        assert len(split_merged_securities(stub_registry, stub_db, [under, eight], apply=False)) == 1
+        assert stub_registry._listings == listings_before
+
+        stub_registry.patch_listing(moved_listing, active=False)
+        assert split_merged_securities(stub_registry, stub_db, [under], apply=True) == []
+        assert next(l.security_id for l in stub_registry._listings if l.listing_id == moved_listing) == sid

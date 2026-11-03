@@ -6,6 +6,7 @@ from classifier.workers.fetch import FetchRunner
 from classifier.workers.normalize import NormalizeWorker
 from classifier.workers.notify import NotifyWorker
 from classifier.workers.relationships import RelationshipsWorker
+from classifier.workers.split_securities import split_securities
 from classifier.workers.sync_names import sync_names
 
 
@@ -39,6 +40,13 @@ def fetch():
 @click.option("--apply", "apply_", is_flag=True, help="Write the renames (default: only log them).")
 def sync_names_command(exchange: str | None, apply_: bool):
     sync_names(init_registry(), init_db(), exchange, apply_)
+
+
+@cli.command("split-securities")
+@click.option("--exchange", default=None, help="Only this exchange code (default: every venue).")
+@click.option("--apply", "apply_", is_flag=True, help="Write the splits (default: only log them).")
+def split_securities_command(exchange: str | None, apply_: bool):
+    split_securities(init_registry(), init_db(), exchange, apply_)
 
 
 if __name__ == "__main__":
