@@ -523,16 +523,25 @@ def derive_unit(unit: Unit) -> list[Derived]:
     A venue never lists the same contract twice in one event, so two of an event's outcomes read as equivalent are a
     misreading (two candidates given one name). Neither reading can be trusted against the other venues' contracts, so
     the colliding contracts are left out of the unit: a missed relationship rather than a wrong one."""
+    derived, collided = _settled(unit)
+    for event_id, ids in sorted(collided.items()):
+        # Counted by the PropositionCollisions metric filter (cdk/lib/stacks/classifier-stack.ts); keep the wording.
+        logger.warning("proposition collision: event=%d securities=%s subject=%s",
+                       event_id, sorted(ids), unit.contracts[0].proposition.subject)
+    return derived
+
+
+def _settled(unit: Unit) -> tuple[list[Derived], dict[int, set[int]]]:
+    """The unit's relationships once colliding contracts are left out, and {event_id: securities} left out."""
     left_out: set[int] = set()
+    found: dict[int, set[int]] = {}
     while True:
         derived = _derive_pairs(unit, left_out)
         collided = _collisions(unit, derived)
         if not collided:
-            return derived
-        for event_id, ids in sorted(collided.items()):
-            # Counted by the PropositionCollisions metric filter (cdk/lib/stacks/classifier-stack.ts); keep the wording.
-            logger.warning("proposition collision: event=%d securities=%s subject=%s",
-                           event_id, sorted(ids), unit.contracts[0].proposition.subject)
+            return derived, found
+        for event_id, ids in collided.items():
+            found.setdefault(event_id, set()).update(ids)
             left_out |= ids
 
 
@@ -598,6 +607,19 @@ def minimal_rows(unit: Unit, derived: list[Derived]) -> tuple[list[Derived], boo
 def derive(contracts: list[Contract]) -> list[Derived]:
     """All relationships among one subject's contracts."""
     return [d for unit in derivation_units(contracts) for d in derive_unit(unit)]
+
+
+def preview(contracts: list[Contract]) -> tuple[list[Derived], dict[int, set[int]]]:
+    """What deriving one subject's contracts would give, and the collisions it would leave out, without logging them:
+    for weighing a change (a subject merge) before making it, so a rejected one doesn't count as a collision."""
+    derived: list[Derived] = []
+    collided: dict[int, set[int]] = {}
+    for unit in derivation_units(contracts):
+        unit_derived, unit_collided = _settled(unit)
+        derived.extend(unit_derived)
+        for event_id, ids in unit_collided.items():
+            collided.setdefault(event_id, set()).update(ids)
+    return derived, collided
 
 
 def derive_all(contracts: list[Contract]) -> list[Derived]:

@@ -157,3 +157,9 @@ def test_claude_fills_thin_tags_and_open_categories_after_the_static_map(monkeyp
         {"event_id": 2, "category": "ECONOMICS", "tags": ["fed", "rates", "seahawks"]},
         {"event_id": 3, "tags": ["nfl", "seahawks"]},
     ]
+
+
+def test_a_closed_event_with_a_standardized_category_is_known(plan):
+    events = [_event(1, 2, "KXNFLGAME-26OCT01", "SPORTS", url="https://kalshi.com/markets/kxnflgame/x")]
+    patches, _, unknown = plan(events)
+    assert patches == [] and not unknown

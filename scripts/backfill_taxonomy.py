@@ -104,6 +104,9 @@ def _resolve(
 ) -> Resolution:
     if contract is not None and contract.mapped_category:
         return Resolution(contract.mapped_category, True, str(contract.event_category))
+    if contract is None and event.category in STANDARDIZED_CATEGORIES:
+        # A closed event already backfilled has nothing more for the labels to say; only its tags are missing.
+        return Resolution(event.category, True, event.category)
     label = contract.event_category if contract is not None else event.category
     if code == "KALSHI":
         series = _url_segment(event.native_url, 1) or event.native_event_id.split("-")[0]

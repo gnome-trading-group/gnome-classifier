@@ -13,7 +13,7 @@ from pathlib import Path
 
 import click
 
-from classifier.constants import DEFAULT_PROPOSITION_MODELS
+from classifier.constants import DEFAULT_SUBJECT_MERGE_MODELS
 from classifier.client.claude import ClaudeAsker
 from classifier.propositions.merge_evaluation import (
     GOLDEN_PATH,
@@ -54,7 +54,7 @@ def _print_pairs(title: str, rows: list[tuple[GoldenSubjectPair, Judgment | None
 @click.option("--source", multiple=True, help="Only score golden pairs from these candidate sources (token, shared, embedding, known).")
 @click.option("--show", multiple=True, type=click.Choice(["wrong", "missed", "all"]), default=["wrong"])
 @click.option("--min-precision", type=float, default=DEFAULT_MIN_PRECISION, show_default=True)
-@click.option("--provider", type=click.Choice(sorted(DEFAULT_PROPOSITION_MODELS)), default="anthropic", show_default=True)
+@click.option("--provider", type=click.Choice(sorted(DEFAULT_SUBJECT_MERGE_MODELS)), default="anthropic", show_default=True)
 @click.option("--model", default=None, help="The provider's model to judge with (default: the configured one).")
 @click.option("--judgments", "saved", type=click.Path(exists=True, path_type=Path), default=None,
               help="A saved run to re-score without model calls.")
@@ -68,7 +68,7 @@ def main(golden: Path, source: tuple[str, ...], show: tuple[str, ...], min_preci
     if saved:
         judgments = load_judgments(saved)
     else:
-        asker = ClaudeAsker(claude_client, [provider], {**DEFAULT_PROPOSITION_MODELS, **({provider: model} if model else {})})
+        asker = ClaudeAsker(claude_client, [provider], {**DEFAULT_SUBJECT_MERGE_MODELS, **({provider: model} if model else {})})
         judgments = SubjectMergeJudge(asker).judge([(p.a, p.b) for p in pairs])
         if save:
             save_judgments(save, judgments)

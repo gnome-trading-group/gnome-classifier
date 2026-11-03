@@ -15,11 +15,13 @@ from classifier.propositions.merges import (
     SubjectProfile,
     Verdict,
     candidate_pairs,
+    check_merge,
     crosses_venues,
     key_tokens,
     parse_answer,
     profile,
 )
+from classifier.propositions.derive import Contract
 from classifier.propositions.types import Comparator, Kind, Proposition
 
 ELECTION_DAY = datetime(2026, 11, 4, tzinfo=timezone.utc)
@@ -177,3 +179,31 @@ class TestEvaluation:
         path = tmp_path / "j.json"
         save_judgments(path, {**judgments, ("x", "y"): None})
         assert load_judgments(path) == {**judgments, ("x", "y"): None}
+
+
+def winner_contract(sid, subject, entity, venue, event_id, measure="winner"):
+    return Contract(sid, venue, Proposition(subject, Kind.WINNER, measure=measure, entity=entity,
+                                            window_end=ELECTION_DAY), event_id=event_id)
+
+
+class TestCheckMerge:
+    def test_counts_new_cross_venue_relationships(self):
+        a = [winner_contract(1, "georgia-governor-2026", "republican", "KALSHI", 10),
+             winner_contract(2, "georgia-governor-2026", "democratic", "KALSHI", 10)]
+        b = [winner_contract(3, "ga-governor-2026", "rep", "POLYMARKET_US", 20)]
+        check = check_merge(a, b, Judgment(Verdict.SAME, "", (("republican", "rep"),)))
+        assert check.gain == 1 and not check.new_collisions
+        assert {(d.security_id_a, d.security_id_b, d.relationship_type) for d in check.new_relationships} == {
+            (1, 3, "EQUIVALENT")}
+
+    def test_unmapped_entities_gain_nothing(self):
+        a = [winner_contract(1, "georgia-governor-2026", "republican", "KALSHI", 10)]
+        b = [winner_contract(3, "ga-governor-2026", "rep", "POLYMARKET_US", 20)]
+        assert check_merge(a, b).gain == 0
+
+    def test_a_merge_that_makes_two_outcomes_alike_collides(self):
+        a = [winner_contract(1, "us-house-2026", "democratic", "KALSHI", 10)]
+        b = [winner_contract(2, "us-house-2028", "democratic", "POLYMARKET_INTL", 20),
+             winner_contract(3, "us-house-2028", "dem", "POLYMARKET_INTL", 20)]
+        check = check_merge(a, b, Judgment(Verdict.SAME, "", (("democratic", "dem"),)))
+        assert check.new_collisions == {20: frozenset({2, 3})}

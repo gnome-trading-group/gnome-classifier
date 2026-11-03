@@ -660,6 +660,114 @@ class ClassifierDB:
                 )
                 return [KnownSubject(row[0], row[1], set(row[2]), set(row[3])) for row in cur.fetchall()]
 
+    # The open, derivable propositions of canonical subjects: what derivation would compare (see get_subject_contracts).
+    _OPEN_PROPOSITIONS = (
+        "SELECT p.subject_id, p.security_id, p.fields, x.exchange_code, ec.event_id, ec.outcome_label"
+        " FROM sm.contract_proposition p"
+        " JOIN sm.contract_source cs ON cs.security_id = p.security_id AND cs.source_hash = p.source_hash"
+        " JOIN sm.exchange x ON x.exchange_id = cs.exchange_id"
+        " JOIN sm.event_contract ec ON ec.security_id = p.security_id"
+        " JOIN sm.event e ON e.event_id = ec.event_id AND e.resolved = false"
+    )
+
+    def subject_clock(self) -> datetime:
+        """The database's time in the terms subjects record changes in (`timestamp`, no zone), so the two compare."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT localtimestamp")
+                return cur.fetchone()[0]
+
+    def subject_summaries(self) -> list[tuple[int, str, str, list[str], list[str], list[str], list[str], int, float,
+                                              datetime]]:
+        """For each canonical subject with open contracts: (subject_id, key, description, venues, winner entities,
+        measures, deadline dates, proposition count, its events' 24h volume, when it last changed), aggregated here so
+        a pass over every subject never holds every proposition. A subject changes when its propositions do."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "WITH open AS (" + self._OPEN_PROPOSITIONS + "),"
+                    " volume AS (SELECT d.subject_id, sum(COALESCE(e.volume_24h, 0)) AS volume"
+                    "            FROM (SELECT DISTINCT subject_id, event_id FROM open) d"
+                    "            JOIN sm.event e ON e.event_id = d.event_id GROUP BY d.subject_id)"
+                    " SELECT o.subject_id, s.key, s.description, array_agg(DISTINCT o.exchange_code),"
+                    " COALESCE(array_agg(DISTINCT o.fields->>'entity') FILTER (WHERE o.fields->>'kind' = 'WINNER'"
+                    "   AND o.fields->>'entity' IS NOT NULL AND NOT (o.fields->'unknown' ? 'entity')), '{}'),"
+                    " COALESCE(array_agg(DISTINCT o.fields->>'measure') FILTER (WHERE o.fields->>'measure' IS NOT NULL"
+                    "   AND NOT (o.fields->'unknown' ? 'measure')), '{}'),"
+                    " COALESCE(array_agg(DISTINCT left(o.fields->>'window_end', 10)) FILTER ("
+                    "   WHERE o.fields->>'window_end' IS NOT NULL AND NOT (o.fields->'unknown' ? 'window_end')), '{}'),"
+                    " count(*), COALESCE(max(v.volume), 0), max(GREATEST(s.date_created, s.date_modified))"
+                    " FROM open o"
+                    " JOIN sm.proposition_subject s ON s.subject_id = o.subject_id"
+                    " LEFT JOIN volume v ON v.subject_id = o.subject_id"
+                    " GROUP BY o.subject_id, s.key, s.description",
+                )
+                return [(r[0], r[1], r[2] or "", list(r[3]), list(r[4]), list(r[5]), list(r[6]), r[7], float(r[8]), r[9])
+                        for r in cur.fetchall()]
+
+    def subject_samples(self, subject_ids: list[int], per_venue: int = 10) -> dict[int, list[tuple]]:
+        """{subject_id: [(venue, event title, event description, outcome label, key, fields)]}, a few open contracts of
+        each venue per subject, for showing the subject to the merge judge."""
+        if not subject_ids:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT o.subject_id, o.exchange_code, e.title, e.description, o.outcome_label, s.key, o.fields"
+                    " FROM (SELECT q.*, row_number() OVER (PARTITION BY q.subject_id, q.exchange_code"
+                    "       ORDER BY q.security_id) AS n FROM (" + self._OPEN_PROPOSITIONS +
+                    "       WHERE p.subject_id = ANY(%s)) q) o"
+                    " JOIN sm.event e ON e.event_id = o.event_id"
+                    " JOIN sm.proposition_subject s ON s.subject_id = o.subject_id"
+                    " WHERE o.n <= %s ORDER BY o.subject_id, o.security_id",
+                    (list(subject_ids), per_venue),
+                )
+                out: dict[int, list[tuple]] = {}
+                for row in cur.fetchall():
+                    out.setdefault(row[0], []).append(row[1:])
+                return out
+
+    def subject_neighbours(self, subject_ids: list[int], limit: int, min_similarity: float) -> dict[int, list[int]]:
+        """{subject_id: the canonical subjects nearest it by embedding, at least `min_similarity` alike}."""
+        if not subject_ids:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT t.subject_id, n.subject_id FROM sm.proposition_subject t"
+                    " CROSS JOIN LATERAL ("
+                    "   SELECT o.subject_id, 1 - (o.embedding <=> t.embedding) AS similarity"
+                    "   FROM sm.proposition_subject o"
+                    "   LEFT JOIN sm.proposition_subject_alias a ON a.alias_subject_id = o.subject_id"
+                    "   WHERE o.subject_id <> t.subject_id AND o.embedding IS NOT NULL AND a.alias_subject_id IS NULL"
+                    "   ORDER BY o.embedding <=> t.embedding LIMIT %s) n"
+                    " WHERE t.subject_id = ANY(%s) AND t.embedding IS NOT NULL AND n.similarity >= %s",
+                    (limit, list(subject_ids), min_similarity),
+                )
+                out: dict[int, list[int]] = {}
+                for subject_id, neighbour in cur.fetchall():
+                    out.setdefault(subject_id, []).append(neighbour)
+                return out
+
+    def propositions_extracted_under(self, subject_id: int) -> list[tuple[int, int, str, dict, str, str, str]]:
+        """[(security_id, extracted_subject_id, extracted key, fields, method, extractor_version, source_hash)] of every
+        proposition read onto the subject or a subject merged into it."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "WITH RECURSIVE tree(subject_id) AS ("
+                    "  SELECT %s::int"
+                    "  UNION SELECT a.alias_subject_id FROM sm.proposition_subject_alias a"
+                    "  JOIN tree t ON a.canonical_subject_id = t.subject_id)"
+                    " SELECT p.security_id, p.extracted_subject_id, s.key, p.fields, p.method, p.extractor_version,"
+                    " p.source_hash"
+                    " FROM sm.contract_proposition p"
+                    " JOIN sm.proposition_subject s ON s.subject_id = p.extracted_subject_id"
+                    " WHERE p.extracted_subject_id IN (SELECT subject_id FROM tree)",
+                    (subject_id,),
+                )
+                return [tuple(row) for row in cur.fetchall()]
+
     def subjects_without_embeddings(self, limit: int = 1000) -> list[KnownSubject]:
         with self._conn() as conn:
             with conn.cursor() as cur:

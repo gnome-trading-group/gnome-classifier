@@ -436,6 +436,8 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 | `canonicalization_enabled` | NormalizeWorker calls Bedrock for category and tags |
 | `relationships_enabled` | RelationshipsWorker reads propositions and derives relationships |
 | `proposition_llm_enabled` | Claude reads the securities the venue code readers can't, and runs the daily drift check. Off: only code-read securities get propositions; the rest are read once it is turned on, while still open. Paid per contract |
+| `subject_merge_enabled` | The subject merge pass (`classifier/stages/subject_merges.py`), every `subject_merge_interval_seconds` (900) while the Relationships worker is idle: Claude judges subjects that may name the same thing on different venues; merges held for a price disagreement or a collision are queued for a person in the registry (`proposition-subjects/merge-candidates`). Paid, about $0.0005 a judged pair |
+| `subject_auto_merge_enabled` | The merge pass also makes the merges that pass every check, as `classifier:subject-merger`, and renames the merged subject's entity keys to the kept one's. Off: it logs them (`Subject merge (auto-merge off)`) |
 | `debug` | Verbose `[DEBUG]` logging across stages |
 
 **`Models`**
@@ -446,6 +448,7 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 | `fallback_provider` | `null` |
 | `proposition_models` | `{anthropic: claude-haiku-5-5, bedrock: anthropic.claude-haiku-5-5}` (Haiku passed the relationship precision gate at about an eighth of Sonnet's cost) |
 | `canonicalize_models` | `{anthropic: claude-haiku-5-5, bedrock: anthropic.claude-haiku-5-5}` |
+| `subject_merge_models` | `{anthropic: claude-haiku-5-5, bedrock: anthropic.claude-haiku-5-5}` (100% SAME precision on `eval-subject-merges`) |
 | `voyage_embedding_model` | `voyage-3` |
 
 **`Thresholds`**

@@ -40,6 +40,11 @@ from classifier.constants import (
     DEFAULT_STALE_MAX_SQS_MESSAGES,
     DEFAULT_STALE_MIN_FEED_RATIO,
     DEFAULT_STALE_MISS_THRESHOLD,
+    DEFAULT_SUBJECT_MERGE_INTERVAL_SECONDS,
+    DEFAULT_SUBJECT_MERGE_JUDGE_LIMIT,
+    DEFAULT_SUBJECT_MERGE_MAX_PRICE_GAP,
+    DEFAULT_SUBJECT_MERGE_MIN_VOLUME,
+    DEFAULT_SUBJECT_MERGE_MODELS,
     DEFAULT_VOYAGE_EMBEDDING_MODEL,
 )
 
@@ -59,6 +64,10 @@ class FeatureFlags:
     # Claude reads the securities the venue code readers can't; off, only code-read securities get propositions (the
     # rest are read once it is turned on, while still open). Paid per contract, so off where nobody needs the coverage.
     proposition_llm_enabled: bool = False
+    # The subject merge pass judges duplicate subjects with Claude (paid) and queues the merges it holds back; with
+    # subject_auto_merge_enabled it also makes the ones that pass every check, otherwise it only logs them.
+    subject_merge_enabled: bool = False
+    subject_auto_merge_enabled: bool = False
     stale_cleanup_enabled: bool = False
     settlement_enabled: bool = False
     reactivation_enabled: bool = False
@@ -75,6 +84,7 @@ class Models:
     fallback_provider: str | None = None
     proposition_models: dict[str, str] = dataclasses.field(default_factory=lambda: dict(DEFAULT_PROPOSITION_MODELS))
     canonicalize_models: dict[str, str] = dataclasses.field(default_factory=lambda: dict(DEFAULT_CANONICALIZE_MODELS))
+    subject_merge_models: dict[str, str] = dataclasses.field(default_factory=lambda: dict(DEFAULT_SUBJECT_MERGE_MODELS))
 
     def providers(self) -> list[str]:
         providers = [self.provider]
@@ -104,6 +114,9 @@ class Processing:
     reactivation_lookback_days: int = DEFAULT_REACTIVATION_LOOKBACK_DAYS
     relationships_derive_limit: int = DEFAULT_RELATIONSHIPS_DERIVE_LIMIT
     relationships_backlog_limit: int = DEFAULT_RELATIONSHIPS_BACKLOG_LIMIT
+    subject_merge_judge_limit: int = DEFAULT_SUBJECT_MERGE_JUDGE_LIMIT
+    subject_merge_min_volume: float = DEFAULT_SUBJECT_MERGE_MIN_VOLUME
+    subject_merge_max_price_gap: float = DEFAULT_SUBJECT_MERGE_MAX_PRICE_GAP
     drift_sample_size: int = DEFAULT_DRIFT_SAMPLE_SIZE
     stale_miss_threshold: int = DEFAULT_STALE_MISS_THRESHOLD
     stale_min_feed_ratio: float = DEFAULT_STALE_MIN_FEED_RATIO
@@ -119,6 +132,7 @@ class WorkerParams:
     relationships_max_messages: int = 200
     relationships_max_wait_seconds: int = DEFAULT_MAX_WAIT_SECONDS
     drift_interval_seconds: int = DEFAULT_DRIFT_INTERVAL_SECONDS
+    subject_merge_interval_seconds: int = DEFAULT_SUBJECT_MERGE_INTERVAL_SECONDS
     notify_max_messages: int = DEFAULT_NOTIFY_MAX_MESSAGES
     notify_max_wait_seconds: int = DEFAULT_NOTIFY_MAX_WAIT_SECONDS
     fetch_interval_seconds: int = DEFAULT_FETCH_INTERVAL_SECONDS

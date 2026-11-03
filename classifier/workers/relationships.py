@@ -6,9 +6,11 @@ import time
 import boto3
 import redis as redis_lib
 
+from classifier.client.claude import ClaudeAsker
 from classifier.constants import DEFAULT_VOYAGE_EMBEDDING_MODEL
 from classifier.propositions.attempts import RedisAttemptStore
 from classifier.propositions.llm import PropositionExtractor
+from classifier.propositions.merges import SubjectMergeJudge
 from classifier.propositions.venue import READERS_VERSION
 from classifier.stages.propositions import (
     READERS_VERSION_KEY,
@@ -20,6 +22,7 @@ from classifier.stages.propositions import (
     rederive_on_new_version,
     run_drift_check,
 )
+from classifier.stages.subject_merges import RedisMergeMemory, run_merge_pass
 from classifier.workers.base import BaseWorker, message_body, parse_security_messages
 from classifier.workers.config import WorkerConfig, claude_client, init_db, init_registry, init_runtime_config, init_voyage
 
@@ -49,6 +52,8 @@ class RelationshipsWorker(BaseWorker):
         self._client_for = claude_client
         self._last_idle_derive = 0.0
         self._last_drift_check = 0.0
+        self._last_merge_pass = 0.0
+        self._merge_memory = None
         self._backlog_after = 0
         self._markers = None
         # Where the walk re-checking the code readers' reads is, or None when this READERS_VERSION already walked.
@@ -61,6 +66,7 @@ class RelationshipsWorker(BaseWorker):
         self._runtime_config = init_runtime_config()
         self._sns = boto3.client("sns")
         self._attempts = RedisAttemptStore(os.environ["REDIS_ENDPOINT"])
+        self._merge_memory = RedisMergeMemory(os.environ["REDIS_ENDPOINT"])
         self._markers = redis_lib.Redis.from_url(os.environ["REDIS_ENDPOINT"], decode_responses=True)
         rederive_on_new_version(self._db, self._markers)
         if self._markers.get(READERS_VERSION_KEY) != READERS_VERSION:
@@ -149,6 +155,26 @@ class RelationshipsWorker(BaseWorker):
                             limit=cfg.processing.relationships_derive_limit, result=result)
         logger.info("Relationships pass: %s", result)
         self._maybe_check_drift()
+        self._maybe_merge_subjects()
+
+    def _maybe_merge_subjects(self) -> None:
+        """The subject merge pass, at most every `subject_merge_interval_seconds` and only while idle: it judges up to
+        `subject_merge_judge_limit` pairs, minutes of model calls a message batch shouldn't wait behind."""
+        cfg = self._runtime_config.config
+        if not cfg.feature_flags.subject_merge_enabled:
+            return
+        now = time.monotonic()
+        if self._last_merge_pass and now - self._last_merge_pass < cfg.worker_params.subject_merge_interval_seconds:
+            return
+        self._last_merge_pass = now
+        judge = SubjectMergeJudge(ClaudeAsker(self._client_for, cfg.models.providers(), cfg.models.subject_merge_models))
+        result = run_merge_pass(
+            db=self._db, registry=self._registry, judge=judge, memory=self._merge_memory,
+            auto_merge=cfg.feature_flags.subject_auto_merge_enabled,
+            min_volume=cfg.processing.subject_merge_min_volume, judge_limit=cfg.processing.subject_merge_judge_limit,
+            max_price_gap=cfg.processing.subject_merge_max_price_gap,
+        )
+        logger.info("Subject merge pass: %s", result)
 
     def _maybe_check_drift(self) -> None:
         cfg = self._runtime_config.config

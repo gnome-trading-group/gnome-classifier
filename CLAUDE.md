@@ -43,7 +43,7 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
 - `classifier/workers/` - `runner.py` (Click entrypoint, the Docker `ENTRYPOINT`), `fetch.py` (`FetchRunner`, the
   timed loop), `base.py` (SQS batch loop for the other three), `config.py` (env vars, client init)
 - `classifier/stages/` - the logic per step: `fetch` (diff + volume gate), `entities`, `canonicalize`,
-  `propositions` (the relationships pass), `resolve`, `stale`, `settle`, `reactivate`, `fees`, `volume` (events' 24h
+  `propositions` (the relationships pass), `subject_merges` (the merge pass), `resolve`, `stale`, `settle`, `reactivate`, `fees`, `volume` (events' 24h
   volume to the registry)
 - `classifier/adapters/` - one per venue (`kalshi`, `polymarket_intl`, `polymarket_us`, `hyperliquid`), registered in
   `ADAPTERS`; `types.py` (`AdapterContract`, `MarketState`), `settlement.py`
@@ -51,7 +51,8 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   per venue: `kalshi`, `polymarket_us`, `polymarket_intl`, `hyperliquid`; shared parsing in `common`), `llm` (Claude
   extractor), `claude` (structured Claude requests with the provider fallback), `extract` (venue first, LLM for the
   rest, binary second sides negated), `subjects` (candidate subjects, embedding indexes), `merges` (duplicate subjects
-  across venues: candidates and the Claude judge), `derive` (pure derivation), `drift`, `evaluation`,
+  across venues: candidates, the Claude judge, the consequence check), `quotes` (top of book for the merge price
+  check), `derive` (pure derivation), `drift`, `evaluation`,
   `merge_evaluation`; `classifier/relationships/evaluation.py` -
   scores relationships against `tests/fixtures/relationships/pairs.jsonl`
 - `classifier/client/` - Bedrock, Voyage, HTTP clients; `classifier/cache/` - Redis cache
@@ -96,8 +97,11 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
 - Feature flags (`feature_flags.*` in the controller service config `classifier`, all default false): `fetch_enabled`,
   `resolve_enabled`, `settlement_enabled`, `reactivation_enabled`, `stale_cleanup_enabled`, `fee_sync_enabled`,
   `canonicalization_enabled`, `relationships_enabled`, `proposition_llm_enabled` (Claude for what the code readers
-  can't read, plus the drift check; paid per contract, keep off in dev), `debug`. `RuntimeConfig` polls `/config/classifier` at
-  most every 30s and keeps the last good config on failure. Code defaults only apply to keys the controller lacks.
+  can't read, plus the drift check; paid per contract, keep off in dev), `subject_merge_enabled` (the subject merge
+  pass in Relationships, every 15 minutes while idle: Claude judges duplicate subjects, held-back merges go to the
+  registry's `proposition-subjects/merge-candidates` queue; paid, about $0.0005 a pair), `subject_auto_merge_enabled`
+  (that pass also makes the merges that pass every check, as `classifier:subject-merger`; off, it only logs them),
+  `debug`. `RuntimeConfig` polls `/config/classifier` at most every 30s and keeps the last good config on failure. Code defaults only apply to keys the controller lacks.
 - LLMs: every Claude call (proposition extraction in Relationships, canonicalization in Normalize, the subject merge
   judge) goes through `classifier/client/claude.py` with one provider, `models.provider` (`anthropic` API key, or
   `bedrock` via Bedrock's Messages endpoint, IAM `bedrock-mantle:*`), and `models.fallback_provider` on an outage.
@@ -106,8 +110,10 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   enabled per account. Embeddings are Voyage (proposition subjects). Model ids are cache keys: changing a model
   re-runs everything once.
 - Redis (single `cache.t3.micro`, private subnets): `fetch:known_contracts`, `fetch:sent_resolved`,
-  `fetch:stale_tracker`, `exchange_events`, `canon:*`, `prop:attempt:*` (proposition read backoff; every key
-  expires, since the node's `volatile-lru` only evicts keys that do). No bastion, SSM or ECS Exec reaches it, and
+  `fetch:stale_tracker`, `exchange_events`, `canon:*`, `prop:attempt:*` (proposition read backoff), `merge:judged:*`
+  (what the merge pass made of each subject pair: judgment, what it rested on, outcome) and `merge:last-sweep` (30
+  days each; losing them costs one full re-judging sweep, about $5–8). Every key expires, since the node's
+  `volatile-lru` only evicts keys that do. No bastion, SSM or ECS Exec reaches it, and
   `poetry run tunnel` is broken. TODO(verify): current access path; previously a temporary EC2 in the worker subnet/SG
   running a script from user-data.
 - `security_symbol` is computed at fetch and baked into ContractsQueue messages, and `contract_hash` excludes it: a

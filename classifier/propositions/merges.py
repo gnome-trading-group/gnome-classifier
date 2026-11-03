@@ -20,6 +20,7 @@ from datetime import date, timedelta
 from enum import StrEnum
 
 from classifier.client.claude import ClaudeAsker, is_unavailable
+from classifier.propositions.derive import Contract, Derived, preview
 from classifier.propositions.subjects import entity_of
 from classifier.propositions.types import Kind, Proposition
 
@@ -237,6 +238,11 @@ class Judgment:
         return {"verdict": self.verdict.value, "reason": self.reason,
                 "entity_map": [list(m) for m in self.entity_map], "measure_map": [list(m) for m in self.measure_map]}
 
+    def flipped(self) -> "Judgment":
+        """The same judgment with subjects a and b swapped."""
+        return dataclasses.replace(self, entity_map=tuple((b, a) for a, b in self.entity_map),
+                                   measure_map=tuple((b, a) for a, b in self.measure_map))
+
     @classmethod
     def from_json(cls, row: dict) -> "Judgment":
         return cls(Verdict(row["verdict"]), row.get("reason", ""),
@@ -368,3 +374,63 @@ class SubjectMergeJudge:
                     if not is_unavailable(e):
                         results.update({(a.key, b.key): None for a, b in chunk})
         return results
+
+
+@dataclasses.dataclass(frozen=True)
+class MergeCheck:
+    """What merging two subjects would change, before it is made."""
+    # Relationships the merge adds: between a contract of each subject, on different venues.
+    new_relationships: tuple[Derived, ...]
+    # {event_id: securities} two outcomes of one event that would read as equivalent once merged; derivation would
+    # drop them, so a merge that makes any is wrong somewhere.
+    new_collisions: dict[int, frozenset[int]]
+
+    @property
+    def gain(self) -> int:
+        return len(self.new_relationships)
+
+
+def key_maps(judgment: Judgment | None) -> tuple[dict[str, str], dict[str, str]]:
+    """The judge's maps as {subject b's key: subject a's key}, for entities and for measures."""
+    if judgment is None:
+        return {}, {}
+    return {b: a for a, b in judgment.entity_map}, {b: a for a, b in judgment.measure_map}
+
+
+def align(p: Proposition, entities: dict[str, str], measures: dict[str, str]) -> Proposition:
+    """The proposition with its entity and measure keys renamed to the subject it joins, including the entity a
+    per-entity measure names (`margin:ggo` to `margin:goias`)."""
+    measure = measures.get(p.measure, p.measure)
+    if measure and ":" in measure:
+        head, tail = measure.split(":", 1)
+        measure = f"{head}:{entities.get(tail, tail)}"
+    return dataclasses.replace(p, entity=entities.get(p.entity, p.entity), measure=measure)
+
+
+def with_samples(p: SubjectProfile, contracts: list[SubjectContract], samples: int = SAMPLES_PER_SUBJECT) -> SubjectProfile:
+    """A profile summarised elsewhere (from every contract) with sample contracts for the judge to read."""
+    return dataclasses.replace(p, samples=tuple(_sample(c) for c in _spread(contracts, samples)))
+
+
+def check_merge(a: list[Contract], b: list[Contract], judgment: Judgment | None = None) -> MergeCheck:
+    """Derives subject b's contracts together with subject a's, b's entity and measure keys renamed to a's where the
+    judge mapped them (as the re-read after a merge would align them), and keeps what neither subject derives alone."""
+    subject = a[0].proposition.subject
+    entities, measures = key_maps(judgment)
+    merged = list(a) + [
+        dataclasses.replace(c, proposition=dataclasses.replace(align(c.proposition, entities, measures), subject=subject))
+        for c in b
+    ]
+    derived, collided = preview(merged)
+    before: set[int] = set()
+    for side in (a, b):
+        for ids in preview(list(side))[1].values():
+            before |= ids
+
+    a_ids = {c.security_id for c in a}
+    venue = {c.security_id: c.venue for c in merged}
+    new = tuple(
+        d for d in derived
+        if (d.security_id_a in a_ids) != (d.security_id_b in a_ids) and venue[d.security_id_a] != venue[d.security_id_b]
+    )
+    return MergeCheck(new, {e: frozenset(ids) for e, ids in collided.items() if not ids <= before})
