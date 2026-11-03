@@ -5,8 +5,16 @@ from pathlib import Path
 
 import pytest
 
-from classifier.propositions.derive import EQUIVALENT, FLAG_SOURCE_DIFFERS, Contract, derive
-from classifier.propositions.types import Comparator, Kind, Observation
+from classifier.propositions.derive import (
+    EQUIVALENT,
+    FLAG_SOURCE_DIFFERS,
+    IMPLIES,
+    Contract,
+    derivation_units,
+    derive,
+    derive_unit,
+)
+from classifier.propositions.types import Comparator, Kind, Observation, Stability
 from classifier.propositions.venue import claims, extract_venue
 
 # Sources as the Polymarket adapters build them, from the live venues (2026-10-29).
@@ -156,3 +164,89 @@ class TestAcrossVenues:
         hour = read("cpc-btc-updown-1h-2026-10-29-2300z")
         last_quarter = dataclasses.replace(hour, window_start=utc(2026, 10, 29, 23, 45))
         assert derive([Contract(1, "POLYMARKET_US", hour), Contract(2, "KALSHI", last_quarter)]) == []
+
+
+# Rate-decision sources from both venues (prod registry, 2026-11-03).
+RATE_SOURCES = json.loads((Path(__file__).parent / "fixtures/relationships/rate_decision_sources.json").read_text())
+
+
+def rate(key: str):
+    source = RATE_SOURCES[key]
+    assert claims(source)
+    proposition = extract_venue(source)
+    assert proposition is not None
+    return proposition
+
+
+class TestPolymarketRateDecisions:
+    def test_most_banks_round_to_the_nearest_25(self):
+        cut, big_cut = rate("bank-of-england-decision:november:25 bps decrease"), rate(
+            "bank-of-england-decision:november:50+ bps decrease")
+        assert (cut.kind, cut.low, cut.high, cut.low_inclusive, cut.high_inclusive) == (Kind.RANGE, -37.5, 0.0, False, False)
+        assert (big_cut.comparator, big_cut.value) == (Comparator.LTE, -37.5)
+        hike = rate("bank-of-england-decision:november:50+ bps increase")
+        assert (hike.comparator, hike.value) == (Comparator.GTE, 37.5)
+        assert (cut.subject, cut.measure, cut.stability) == ("boe-bank-rate:2026-11-05", "bank_rate_change_bps",
+                                                             Stability.SETTLED)
+        assert cut.window_end == utc(2026, 11, 5, 23, 59)
+
+    def test_the_fed_rounds_up_to_the_next_25(self):
+        cut, big_cut = rate("fomc:january:25 bps decrease"), rate("fomc:january:50+ bps decrease")
+        assert (cut.low, cut.high, cut.low_inclusive, cut.high_inclusive) == (-25.0, 0.0, True, False)
+        assert (big_cut.comparator, big_cut.value) == (Comparator.LT, -25.0)
+        assert (cut.subject, cut.window_end) == ("fomc:2027-01-meeting", utc(2027, 1, 28, 4, 59))
+
+    def test_no_change_is_holding(self):
+        p = rate("fomc:january:No change")
+        assert (p.kind, p.low, p.high) == (Kind.RANGE, 0.0, 0.0)
+
+    def test_cut_and_hike_labels(self):
+        assert rate("bank-of-korea-decision:november:25 bps cut").high == 0.0
+        assert rate("bank-of-korea-decision:november:25 bps hike").low == 0.0
+
+    @pytest.mark.parametrize("key, subject", [
+        ("ecb-interest-rates:december:25 bps decrease", "ecb-deposit-rate:2026-12-17"),
+        ("reserve-bank-of-australia-decision:december:25 bps decrease", "rba-cash-rate:2026-12-08"),
+        ("reserve-bank-of-india-decision:december:25 bps decrease", "rbi-policy-repo:2026-12-04"),
+    ])
+    def test_the_meeting_is_its_last_day(self, key, subject):
+        assert rate(key).subject == subject
+
+    def test_unknown_rounding_goes_to_the_llm(self):
+        source = RATE_SOURCES["bank-of-england-decision:november:25 bps decrease"]
+        reworded = {**source, "market": {**source["market"], "description": source["market"]["description"].replace(
+            "rounded away from 0", "rounded toward 0")}}
+        assert extract_venue(reworded) is None and claims(reworded)
+
+    def test_a_meeting_date_in_another_month_than_the_event_goes_to_the_llm(self):
+        source = RATE_SOURCES["bank-of-england-decision:november:25 bps decrease"]
+        moved = {**source, "market": {**source["market"], "description": source["market"]["description"].replace(
+            "November 5, 2026", "December 17, 2026")}}
+        assert extract_venue(moved) is None
+
+    @pytest.mark.parametrize("kalshi, polymarket, expected", [
+        ("KXFEDDECISION-27JAN", "fomc:january", [
+            ("50+ bps decrease", EQUIVALENT, "Cut >25bps"), ("Cut 25bps", IMPLIES, "25 bps decrease"),
+            ("No change", EQUIVALENT, "Fed maintains rate"), ("Hike 25bps", IMPLIES, "25 bps increase"),
+            ("50+ bps increase", EQUIVALENT, "Hike >25bps"),
+        ]),
+        ("KXCBDECISIONENGLAND-26NOV05", "bank-of-england-decision:november", [
+            ("50+ bps decrease", IMPLIES, "Cut more than 25bps"), ("Cut 1-25bps", IMPLIES, "25 bps decrease"),
+            ("No change", EQUIVALENT, "Maintain current rate"), ("Hike 1-25bps", IMPLIES, "25 bps increase"),
+            ("50+ bps increase", IMPLIES, "Hike more than 25bps"),
+        ]),
+    ])
+    def test_the_venues_meetings_relate_without_caveats(self, kalshi, polymarket, expected):
+        keys = [k for k in RATE_SOURCES if k.startswith((kalshi, polymarket + ":"))]
+        label = {i: RATE_SOURCES[k]["market"].get("yes_sub_title") or RATE_SOURCES[k]["outcome"] for i, k in enumerate(keys)}
+        contracts = [Contract(i, RATE_SOURCES[k]["venue"], rate(k), None, 1 if k.startswith("KX") else 2)
+                     for i, k in enumerate(keys)]
+        rows = [d for unit in derivation_units(contracts) for d in derive_unit(unit)]
+
+        def unordered(a, kind, b):
+            # An equivalence is stored lower security first; which side that is doesn't matter here.
+            return (*sorted((a, b)), kind) if kind == EQUIVALENT else (a, b, kind)
+
+        got = sorted(unordered(label[d.security_id_a], d.relationship_type, label[d.security_id_b]) for d in rows)
+        assert got == sorted(unordered(*row) for row in expected)
+        assert all(d.flags == () for d in rows)

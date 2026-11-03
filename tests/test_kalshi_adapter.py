@@ -212,27 +212,27 @@ def kalshi_exchange():
     return ex
 
 
-def test_entity_creation_binary(stub_registry, stub_db, mock_converse, kalshi_exchange):
+def test_entity_creation_binary(stub_registry, stub_db, mock_canonicalizer, kalshi_exchange):
     contracts = _map("KXELONMARS-99")
-    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
     assert result.events_created == 1
     assert result.securities_created == 2
     assert result.listings_created == 2
     assert result.event_contracts_created == 2
 
 
-def test_entity_creation_multi_outcome(stub_registry, stub_db, mock_converse, kalshi_exchange):
+def test_entity_creation_multi_outcome(stub_registry, stub_db, mock_canonicalizer, kalshi_exchange):
     contracts = _map("KXNEWPOPE-70")
-    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
     assert result.events_created == 1
     assert result.securities_created == 7
     assert result.listings_created == 7
     assert result.event_contracts_created == 7
 
 
-def test_entity_creation_sub_markets(stub_registry, stub_db, mock_converse, kalshi_exchange):
+def test_entity_creation_sub_markets(stub_registry, stub_db, mock_canonicalizer, kalshi_exchange):
     contracts = _map("KXRAMPBREX-40")
-    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
     # 2 sub-events → 2 events, each with Yes+No → 4 securities
     assert result.events_created == 2
     assert result.securities_created == 4
@@ -282,9 +282,9 @@ def test_redundant_sub_title_not_duplicated():
     assert all(c.event_title == "Will Elon Musk visit Mars in his lifetime?" for c in contracts)
 
 
-def test_entity_creation_threshold_binary(stub_registry, stub_db, mock_converse):
+def test_entity_creation_threshold_binary(stub_registry, stub_db, mock_canonicalizer):
     contracts = _map("KXCS2TOTALMAPS-26AUG04EXG")
-    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
     assert result.events_created == 1
     assert result.securities_created == 2
     assert result.listings_created == 2

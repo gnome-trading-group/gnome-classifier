@@ -1,7 +1,6 @@
 import dataclasses
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
 
 from classifier.adapters import kalshi, polymarket_intl, polymarket_us
 from classifier.adapters.hyperliquid import HyperliquidAdapter, OutcomeTemplate
@@ -100,7 +99,7 @@ def test_a_source_change_changes_the_contract_hash():
 
 def test_entities_store_each_contracts_source(stub_registry, stub_db):
     contracts = _kalshi_contracts()
-    create_entities(stub_registry, MagicMock(), contracts, db=stub_db, canonicalize_enabled=False)
+    create_entities(stub_registry, None, contracts, db=stub_db)
     stored = stub_registry._contract_sources
     assert len(stored) == len({c.exchange_security_id for c in contracts})
     one = next(iter(stored.values()))
@@ -120,7 +119,7 @@ def test_a_security_listed_twice_stores_one_source_or_none_when_they_differ(stub
 
 def test_a_security_with_several_listings_loses_a_source_stored_earlier(stub_registry, stub_db):
     contracts = _kalshi_contracts()
-    create_entities(stub_registry, MagicMock(), contracts, db=stub_db, canonicalize_enabled=False)
+    create_entities(stub_registry, None, contracts, db=stub_db)
     sid, first = next(iter(stub_registry._contract_sources.items()))
     listing = next(l for l in stub_registry._listings if l.security_id == sid)
     stub_registry._listings.append(dataclasses.replace(listing, listing_id=10_000_000, exchange_security_id="OTHER"))

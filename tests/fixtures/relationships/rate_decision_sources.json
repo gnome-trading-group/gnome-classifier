@@ -1,0 +1,943 @@
+{
+ "KXCBDECISIONENGLAND-26NOV05-C25": {
+  "event": {
+   "category": "Economics",
+   "event_ticker": "KXCBDECISIONENGLAND-26NOV05",
+   "mutually_exclusive": true,
+   "series_ticker": "KXCBDECISIONENGLAND",
+   "settlement_sources": [
+    {
+     "name": "Bank of England",
+     "url": "https://www.bankofengland.co.uk/monetary-policy"
+    },
+    {
+     "name": "Trading Economics",
+     "url": "https://tradingeconomics.com/united-kingdom/interest-rate"
+    }
+   ],
+   "sub_title": "Nov 5, 2026 meeting",
+   "title": "Bank of England rate decision in November"
+  },
+  "market": {
+   "can_close_early": true,
+   "close_time": "2026-11-05T11:54:00Z",
+   "custom_strike": {
+    "Action": "Cut 1-25bps"
+   },
+   "early_close_condition": "This market will close and expire early if the central bank announces its decision.",
+   "expected_expiration_time": "2026-11-05T17:00:00Z",
+   "expiration_time": "2026-11-12T11:55:00Z",
+   "latest_expiration_time": "2026-11-12T11:55:00Z",
+   "market_type": "binary",
+   "no_sub_title": "Cut 1-25bps",
+   "open_time": "2026-08-25T19:00:00Z",
+   "rules_primary": "If the Bank of England takes the action of Cut 1-25bps at November Monetary Policy Committee meeting, then the market resolves to Yes.",
+   "rules_secondary": "The market resolves based on the official policy rate decision announced by the central bank. For central banks with multiple policy rates, only changes to the primary policy rate count. If the meeting is cancelled or delayed past the expiration date, markets for \"No change\" resolve to Yes and all others resolve to No. Emergency rate changes between scheduled meetings do not affect resolution of contracts tied to scheduled meetings. The specific basis point ranges are inclusive (e.g., \"25-50bp\" includes both 25bp and 50bp changes).",
+   "settlement_timer_seconds": 1800,
+   "strike_type": "custom",
+   "ticker": "KXCBDECISIONENGLAND-26NOV05-C25",
+   "title": "Will the Bank of England Cut 1-25bps at the November Monetary Policy Committee meeting?",
+   "yes_sub_title": "Cut 1-25bps"
+  },
+  "side": "yes",
+  "venue": "KALSHI"
+ },
+ "KXCBDECISIONENGLAND-26NOV05-C25P": {
+  "event": {
+   "category": "Economics",
+   "event_ticker": "KXCBDECISIONENGLAND-26NOV05",
+   "mutually_exclusive": true,
+   "series_ticker": "KXCBDECISIONENGLAND",
+   "settlement_sources": [
+    {
+     "name": "Bank of England",
+     "url": "https://www.bankofengland.co.uk/monetary-policy"
+    },
+    {
+     "name": "Trading Economics",
+     "url": "https://tradingeconomics.com/united-kingdom/interest-rate"
+    }
+   ],
+   "sub_title": "Nov 5, 2026 meeting",
+   "title": "Bank of England rate decision in November"
+  },
+  "market": {
+   "can_close_early": true,
+   "close_time": "2026-11-05T11:54:00Z",
+   "custom_strike": {
+    "Action": "Cut more than 25bps"
+   },
+   "early_close_condition": "This market will close and expire early if the central bank announces its decision.",
+   "expected_expiration_time": "2026-11-05T17:00:00Z",
+   "expiration_time": "2026-11-12T11:55:00Z",
+   "latest_expiration_time": "2026-11-12T11:55:00Z",
+   "market_type": "binary",
+   "no_sub_title": "Cut more than 25bps",
+   "open_time": "2026-08-25T19:00:00Z",
+   "rules_primary": "If the Bank of England takes the action of Cut more than 25bps at November Monetary Policy Committee meeting, then the market resolves to Yes.",
+   "rules_secondary": "The market resolves based on the official policy rate decision announced by the central bank. For central banks with multiple policy rates, only changes to the primary policy rate count. If the meeting is cancelled or delayed past the expiration date, markets for \"No change\" resolve to Yes and all others resolve to No. Emergency rate changes between scheduled meetings do not affect resolution of contracts tied to scheduled meetings. The specific basis point ranges are inclusive (e.g., \"25-50bp\" includes both 25bp and 50bp changes).",
+   "settlement_timer_seconds": 1800,
+   "strike_type": "custom",
+   "ticker": "KXCBDECISIONENGLAND-26NOV05-C25P",
+   "title": "Will the Bank of England Cut more than 25bps at the November Monetary Policy Committee meeting?",
+   "yes_sub_title": "Cut more than 25bps"
+  },
+  "side": "yes",
+  "venue": "KALSHI"
+ },
+ "KXCBDECISIONENGLAND-26NOV05-H25": {
+  "event": {
+   "category": "Economics",
+   "event_ticker": "KXCBDECISIONENGLAND-26NOV05",
+   "mutually_exclusive": true,
+   "series_ticker": "KXCBDECISIONENGLAND",
+   "settlement_sources": [
+    {
+     "name": "Bank of England",
+     "url": "https://www.bankofengland.co.uk/monetary-policy"
+    },
+    {
+     "name": "Trading Economics",
+     "url": "https://tradingeconomics.com/united-kingdom/interest-rate"
+    }
+   ],
+   "sub_title": "Nov 5, 2026 meeting",
+   "title": "Bank of England rate decision in November"
+  },
+  "market": {
+   "can_close_early": true,
+   "close_time": "2026-11-05T11:54:00Z",
+   "custom_strike": {
+    "Action": "Hike 1-25bps"
+   },
+   "early_close_condition": "This market will close and expire early if the central bank announces its decision.",
+   "expected_expiration_time": "2026-11-05T17:00:00Z",
+   "expiration_time": "2026-11-12T11:55:00Z",
+   "latest_expiration_time": "2026-11-12T11:55:00Z",
+   "market_type": "binary",
+   "no_sub_title": "Hike 1-25bps",
+   "open_time": "2026-08-25T19:00:00Z",
+   "rules_primary": "If the Bank of England takes the action of Hike 1-25bps at November Monetary Policy Committee meeting, then the market resolves to Yes.",
+   "rules_secondary": "The market resolves based on the official policy rate decision announced by the central bank. For central banks with multiple policy rates, only changes to the primary policy rate count. If the meeting is cancelled or delayed past the expiration date, markets for \"No change\" resolve to Yes and all others resolve to No. Emergency rate changes between scheduled meetings do not affect resolution of contracts tied to scheduled meetings. The specific basis point ranges are inclusive (e.g., \"25-50bp\" includes both 25bp and 50bp changes).",
+   "settlement_timer_seconds": 1800,
+   "strike_type": "custom",
+   "ticker": "KXCBDECISIONENGLAND-26NOV05-H25",
+   "title": "Will the Bank of England Hike 1-25bps at the November Monetary Policy Committee meeting?",
+   "yes_sub_title": "Hike 1-25bps"
+  },
+  "side": "yes",
+  "venue": "KALSHI"
+ },
+ "KXCBDECISIONENGLAND-26NOV05-H25P": {
+  "event": {
+   "category": "Economics",
+   "event_ticker": "KXCBDECISIONENGLAND-26NOV05",
+   "mutually_exclusive": true,
+   "series_ticker": "KXCBDECISIONENGLAND",
+   "settlement_sources": [
+    {
+     "name": "Bank of England",
+     "url": "https://www.bankofengland.co.uk/monetary-policy"
+    },
+    {
+     "name": "Trading Economics",
+     "url": "https://tradingeconomics.com/united-kingdom/interest-rate"
+    }
+   ],
+   "sub_title": "Nov 5, 2026 meeting",
+   "title": "Bank of England rate decision in November"
+  },
+  "market": {
+   "can_close_early": true,
+   "close_time": "2026-11-05T11:54:00Z",
+   "custom_strike": {
+    "Action": "Hike more than 25bps"
+   },
+   "early_close_condition": "This market will close and expire early if the central bank announces its decision.",
+   "expected_expiration_time": "2026-11-05T17:00:00Z",
+   "expiration_time": "2026-11-12T11:55:00Z",
+   "latest_expiration_time": "2026-11-12T11:55:00Z",
+   "market_type": "binary",
+   "no_sub_title": "Hike more than 25bps",
+   "open_time": "2026-08-25T19:00:00Z",
+   "rules_primary": "If the Bank of England takes the action of Hike more than 25bps at November Monetary Policy Committee meeting, then the market resolves to Yes.",
+   "rules_secondary": "The market resolves based on the official policy rate decision announced by the central bank. For central banks with multiple policy rates, only changes to the primary policy rate count. If the meeting is cancelled or delayed past the expiration date, markets for \"No change\" resolve to Yes and all others resolve to No. Emergency rate changes between scheduled meetings do not affect resolution of contracts tied to scheduled meetings. The specific basis point ranges are inclusive (e.g., \"25-50bp\" includes both 25bp and 50bp changes).",
+   "settlement_timer_seconds": 1800,
+   "strike_type": "custom",
+   "ticker": "KXCBDECISIONENGLAND-26NOV05-H25P",
+   "title": "Will the Bank of England Hike more than 25bps at the November Monetary Policy Committee meeting?",
+   "yes_sub_title": "Hike more than 25bps"
+  },
+  "side": "yes",
+  "venue": "KALSHI"
+ },
+ "KXCBDECISIONENGLAND-26NOV05-HOLD": {
+  "event": {
+   "category": "Economics",
+   "event_ticker": "KXCBDECISIONENGLAND-26NOV05",
+   "mutually_exclusive": true,
+   "series_ticker": "KXCBDECISIONENGLAND",
+   "settlement_sources": [
+    {
+     "name": "Bank of England",
+     "url": "https://www.bankofengland.co.uk/monetary-policy"
+    },
+    {
+     "name": "Trading Economics",
+     "url": "https://tradingeconomics.com/united-kingdom/interest-rate"
+    }
+   ],
+   "sub_title": "Nov 5, 2026 meeting",
+   "title": "Bank of England rate decision in November"
+  },
+  "market": {
+   "can_close_early": true,
+   "close_time": "2026-11-05T11:54:00Z",
+   "custom_strike": {
+    "Action": "Maintain current rate"
+   },
+   "early_close_condition": "This market will close and expire early if the central bank announces its decision.",
+   "expected_expiration_time": "2026-11-05T17:00:00Z",
+   "expiration_time": "2026-11-12T11:55:00Z",
+   "latest_expiration_time": "2026-11-12T11:55:00Z",
+   "market_type": "binary",
+   "no_sub_title": "Maintain current rate",
+   "open_time": "2026-08-25T19:00:00Z",
+   "rules_primary": "If the Bank of England takes the action of Maintain current rate at November Monetary Policy Committee meeting, then the market resolves to Yes.",
+   "rules_secondary": "The market resolves based on the official policy rate decision announced by the central bank. For central banks with multiple policy rates, only changes to the primary policy rate count. If the meeting is cancelled or delayed past the expiration date, markets for \"No change\" resolve to Yes and all others resolve to No. Emergency rate changes between scheduled meetings do not affect resolution of contracts tied to scheduled meetings. The specific basis point ranges are inclusive (e.g., \"25-50bp\" includes both 25bp and 50bp changes).",
+   "settlement_timer_seconds": 1800,
+   "strike_type": "custom",
+   "ticker": "KXCBDECISIONENGLAND-26NOV05-HOLD",
+   "title": "Will the Bank of England Maintain current rate at the November Monetary Policy Committee meeting?",
+   "yes_sub_title": "Maintain current rate"
+  },
+  "side": "yes",
+  "venue": "KALSHI"
+ },
+ "KXFEDDECISION-27JAN-C25": {
+  "event": {
+   "category": "Economics",
+   "event_ticker": "KXFEDDECISION-27JAN",
+   "mutually_exclusive": true,
+   "series_ticker": "KXFEDDECISION",
+   "settlement_sources": [
+    {
+     "name": "Federal Reserve",
+     "url": "https://www.federalreserve.gov"
+    }
+   ],
+   "strike_date": "2027-01-27T19:00:00Z",
+   "sub_title": "On Jan 27, 2027",
+   "title": "Fed decision in Jan 2027?"
+  },
+  "market": {
+   "can_close_early": true,
+   "close_time": "2027-01-27T18:59:00Z",
+   "custom_strike": {
+    "Cut": "25"
+   },
+   "expected_expiration_time": "2027-01-27T19:05:00Z",
+   "expiration_time": "2027-04-28T19:01:00Z",
+   "latest_expiration_time": "2027-04-28T19:01:00Z",
+   "market_type": "binary",
+   "no_sub_title": "Cut 25bps",
+   "open_time": "2025-09-29T14:00:00Z",
+   "rules_primary": "If the Federal Reserve does a Cut of 25bps on January 27, 2027, then the market resolves to Yes.",
+   "rules_secondary": "The outcomes are mutually exclusive: at most one can resolve to Yes. For example, a 50-basis-point hike resolves “Hike   25 bps” to Yes and “Hike 25 bps” to No.\n\nIf the scheduled FOMC meeting is canceled and does not occur on its scheduled date, “Fed maintains rate” resolves to Yes and all other outcomes resolve to No.",
+   "settlement_timer_seconds": 297,
+   "strike_type": "custom",
+   "subtitle": "Cut 25bps",
+   "ticker": "KXFEDDECISION-27JAN-C25",
+   "title": "Will the Federal Reserve Cut rates by 25bps at their January 2027 meeting?",
+   "yes_sub_title": "Cut 25bps"
+  },
+  "side": "yes",
+  "venue": "KALSHI"
+ },
+ "KXFEDDECISION-27JAN-C26": {
+  "event": {
+   "category": "Economics",
+   "event_ticker": "KXFEDDECISION-27JAN",
+   "mutually_exclusive": true,
+   "series_ticker": "KXFEDDECISION",
+   "settlement_sources": [
+    {
+     "name": "Federal Reserve",
+     "url": "https://www.federalreserve.gov"
+    }
+   ],
+   "strike_date": "2027-01-27T19:00:00Z",
+   "sub_title": "On Jan 27, 2027",
+   "title": "Fed decision in Jan 2027?"
+  },
+  "market": {
+   "can_close_early": true,
+   "close_time": "2027-01-27T18:59:00Z",
+   "custom_strike": {
+    "Cut": ">25"
+   },
+   "expected_expiration_time": "2027-01-27T19:05:00Z",
+   "expiration_time": "2027-04-28T19:01:00Z",
+   "latest_expiration_time": "2027-04-28T19:01:00Z",
+   "market_type": "binary",
+   "no_sub_title": "Cut >25bps",
+   "open_time": "2025-09-29T14:00:00Z",
+   "rules_primary": "If the Federal Reserve does a Cut of   25bps on January 27, 2027, then the market resolves to Yes.",
+   "rules_secondary": "The outcomes are mutually exclusive: at most one can resolve to Yes. For example, a 50-basis-point hike resolves “Hike   25 bps” to Yes and “Hike 25 bps” to No.\n\nIf the scheduled FOMC meeting is canceled and does not occur on its scheduled date, “Fed maintains rate” resolves to Yes and all other outcomes resolve to No.",
+   "settlement_timer_seconds": 297,
+   "strike_type": "custom",
+   "subtitle": "Cut >25bps",
+   "ticker": "KXFEDDECISION-27JAN-C26",
+   "title": "Will the Federal Reserve Cut rates by >25bps at their January 2027 meeting?",
+   "yes_sub_title": "Cut >25bps"
+  },
+  "side": "yes",
+  "venue": "KALSHI"
+ },
+ "KXFEDDECISION-27JAN-H0": {
+  "event": {
+   "category": "Economics",
+   "event_ticker": "KXFEDDECISION-27JAN",
+   "mutually_exclusive": true,
+   "series_ticker": "KXFEDDECISION",
+   "settlement_sources": [
+    {
+     "name": "Federal Reserve",
+     "url": "https://www.federalreserve.gov"
+    }
+   ],
+   "strike_date": "2027-01-27T19:00:00Z",
+   "sub_title": "On Jan 27, 2027",
+   "title": "Fed decision in Jan 2027?"
+  },
+  "market": {
+   "can_close_early": true,
+   "close_time": "2027-01-27T18:59:00Z",
+   "custom_strike": {
+    "Hike": "0"
+   },
+   "expected_expiration_time": "2027-01-27T19:05:00Z",
+   "expiration_time": "2027-04-28T19:01:00Z",
+   "latest_expiration_time": "2027-04-28T19:01:00Z",
+   "market_type": "binary",
+   "no_sub_title": "Fed maintains rate",
+   "open_time": "2025-09-29T14:00:00Z",
+   "rules_primary": "If the Federal Reserve does a Hike of 0bps on January 27, 2027, then the market resolves to Yes.",
+   "rules_secondary": "The outcomes are mutually exclusive: at most one can resolve to Yes. For example, a 50-basis-point hike resolves “Hike   25 bps” to Yes and “Hike 25 bps” to No.\n\nIf the scheduled FOMC meeting is canceled and does not occur on its scheduled date, “Fed maintains rate” resolves to Yes and all other outcomes resolve to No.",
+   "settlement_timer_seconds": 297,
+   "strike_type": "custom",
+   "subtitle": "Hike 0bps",
+   "ticker": "KXFEDDECISION-27JAN-H0",
+   "title": "Will the Federal Reserve Hike rates by 0bps at their January 2027 meeting?",
+   "yes_sub_title": "Fed maintains rate"
+  },
+  "side": "yes",
+  "venue": "KALSHI"
+ },
+ "KXFEDDECISION-27JAN-H25": {
+  "event": {
+   "category": "Economics",
+   "event_ticker": "KXFEDDECISION-27JAN",
+   "mutually_exclusive": true,
+   "series_ticker": "KXFEDDECISION",
+   "settlement_sources": [
+    {
+     "name": "Federal Reserve",
+     "url": "https://www.federalreserve.gov"
+    }
+   ],
+   "strike_date": "2027-01-27T19:00:00Z",
+   "sub_title": "On Jan 27, 2027",
+   "title": "Fed decision in Jan 2027?"
+  },
+  "market": {
+   "can_close_early": true,
+   "close_time": "2027-01-27T18:59:00Z",
+   "custom_strike": {
+    "Hike": "25"
+   },
+   "expected_expiration_time": "2027-01-27T19:05:00Z",
+   "expiration_time": "2027-04-28T19:01:00Z",
+   "latest_expiration_time": "2027-04-28T19:01:00Z",
+   "market_type": "binary",
+   "no_sub_title": "Hike 25bps",
+   "open_time": "2025-09-29T14:00:00Z",
+   "rules_primary": "If the Federal Reserve does a Hike of 25bps on January 27, 2027, then the market resolves to Yes.",
+   "rules_secondary": "The outcomes are mutually exclusive: at most one can resolve to Yes. For example, a 50-basis-point hike resolves “Hike   25 bps” to Yes and “Hike 25 bps” to No.\n\nIf the scheduled FOMC meeting is canceled and does not occur on its scheduled date, “Fed maintains rate” resolves to Yes and all other outcomes resolve to No.",
+   "settlement_timer_seconds": 297,
+   "strike_type": "custom",
+   "subtitle": "Hike 25bps",
+   "ticker": "KXFEDDECISION-27JAN-H25",
+   "title": "Will the Federal Reserve Hike rates by 25bps at their January 2027 meeting?",
+   "yes_sub_title": "Hike 25bps"
+  },
+  "side": "yes",
+  "venue": "KALSHI"
+ },
+ "KXFEDDECISION-27JAN-H26": {
+  "event": {
+   "category": "Economics",
+   "event_ticker": "KXFEDDECISION-27JAN",
+   "mutually_exclusive": true,
+   "series_ticker": "KXFEDDECISION",
+   "settlement_sources": [
+    {
+     "name": "Federal Reserve",
+     "url": "https://www.federalreserve.gov"
+    }
+   ],
+   "strike_date": "2027-01-27T19:00:00Z",
+   "sub_title": "On Jan 27, 2027",
+   "title": "Fed decision in Jan 2027?"
+  },
+  "market": {
+   "can_close_early": true,
+   "close_time": "2027-01-27T18:59:00Z",
+   "custom_strike": {
+    "Hike": ">25"
+   },
+   "expected_expiration_time": "2027-01-27T19:05:00Z",
+   "expiration_time": "2027-04-28T19:01:00Z",
+   "latest_expiration_time": "2027-04-28T19:01:00Z",
+   "market_type": "binary",
+   "no_sub_title": "Hike >25bps",
+   "open_time": "2025-09-29T14:00:00Z",
+   "rules_primary": "If the Federal Reserve does a Hike of   25bps on January 27, 2027, then the market resolves to Yes.",
+   "rules_secondary": "The outcomes are mutually exclusive: at most one can resolve to Yes. For example, a 50-basis-point hike resolves “Hike   25 bps” to Yes and “Hike 25 bps” to No.\n\nIf the scheduled FOMC meeting is canceled and does not occur on its scheduled date, “Fed maintains rate” resolves to Yes and all other outcomes resolve to No.",
+   "settlement_timer_seconds": 297,
+   "strike_type": "custom",
+   "subtitle": "Hike >25bps",
+   "ticker": "KXFEDDECISION-27JAN-H26",
+   "title": "Will the Federal Reserve Hike rates by >25bps at their January 2027 meeting?",
+   "yes_sub_title": "Hike >25bps"
+  },
+  "side": "yes",
+  "venue": "KALSHI"
+ },
+ "bank-of-england-decision:november:25 bps decrease": {
+  "event": {
+   "description": "This market will resolve according to the change in basis points in the Bank Rate resulting from the November 2026 meeting of the Bank of England’s Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of England, including the statement or release from its November 2026 Monetary Policy Committee meeting, scheduled for November 5, 2026, as listed on the official Bank of England calendar (https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates). This market may resolve as soon as the statement or release of the Bank of England's November 2026 Monetary Policy Committee meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "enableNegRisk": true,
+   "endDate": "2026-11-05T23:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "bank-of-england-decision",
+   "slug": "bank-of-england-decision-in-november-20260730150602252",
+   "startDate": "2026-07-31T21:45:06.284129Z",
+   "title": "Bank of England decision in November?"
+  },
+  "market": {
+   "conditionId": "0x80dd2c6c6b4d5edeb34097da5b8332a56dd593b7c4d110abe68cecd0f18d24d3",
+   "description": "This market will resolve according to the change in basis points in the Bank Rate resulting from the November 2026 meeting of the Bank of England’s Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of England, including the statement or release from its November 2026 Monetary Policy Committee meeting, scheduled for November 5, 2026, as listed on the official Bank of England calendar (https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates). This market may resolve as soon as the statement or release of the Bank of England's November 2026 Monetary Policy Committee meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "endDate": "2026-11-05T23:59:00Z",
+   "groupItemThreshold": "1",
+   "groupItemTitle": "25 bps decrease",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Bank of England decreases interest rates by 25 bps after November 2026 meeting?",
+   "resolutionSource": "https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates",
+   "slug": "bank-of-england-decreases-interest-rates-by-25-bps-after-november-2026-meeting-20260730150602308",
+   "startDate": "2026-07-31T21:47:00.225964Z"
+  },
+  "outcome": "25 bps decrease",
+  "token_id": "114751392990844349145629988801499640740311684267076595868730966703475136919723",
+  "venue": "POLYMARKET_INTL"
+ },
+ "bank-of-england-decision:november:25 bps increase": {
+  "event": {
+   "description": "This market will resolve according to the change in basis points in the Bank Rate resulting from the November 2026 meeting of the Bank of England’s Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of England, including the statement or release from its November 2026 Monetary Policy Committee meeting, scheduled for November 5, 2026, as listed on the official Bank of England calendar (https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates). This market may resolve as soon as the statement or release of the Bank of England's November 2026 Monetary Policy Committee meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "enableNegRisk": true,
+   "endDate": "2026-11-05T23:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "bank-of-england-decision",
+   "slug": "bank-of-england-decision-in-november-20260730150602252",
+   "startDate": "2026-07-31T21:45:06.284129Z",
+   "title": "Bank of England decision in November?"
+  },
+  "market": {
+   "conditionId": "0x9fee56ff658a4063a05c0d372c2854c4c5594ccfd899fc3922a78e61c05a72e4",
+   "description": "This market will resolve according to the change in basis points in the Bank Rate resulting from the November 2026 meeting of the Bank of England’s Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of England, including the statement or release from its November 2026 Monetary Policy Committee meeting, scheduled for November 5, 2026, as listed on the official Bank of England calendar (https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates). This market may resolve as soon as the statement or release of the Bank of England's November 2026 Monetary Policy Committee meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "endDate": "2026-11-05T23:59:00Z",
+   "groupItemThreshold": "3",
+   "groupItemTitle": "25 bps increase",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Bank of England increases interest rates by 25 bps after November 2026 meeting?",
+   "resolutionSource": "https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates",
+   "slug": "bank-of-england-increases-interest-rates-by-25-bps-after-november-2026-meeting-20260730150602310",
+   "startDate": "2026-07-31T21:45:08.32512Z"
+  },
+  "outcome": "25 bps increase",
+  "token_id": "84898183638368530003997197940806600768962072425288877833738032345744084637710",
+  "venue": "POLYMARKET_INTL"
+ },
+ "bank-of-england-decision:november:50+ bps decrease": {
+  "event": {
+   "description": "This market will resolve according to the change in basis points in the Bank Rate resulting from the November 2026 meeting of the Bank of England’s Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of England, including the statement or release from its November 2026 Monetary Policy Committee meeting, scheduled for November 5, 2026, as listed on the official Bank of England calendar (https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates). This market may resolve as soon as the statement or release of the Bank of England's November 2026 Monetary Policy Committee meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "enableNegRisk": true,
+   "endDate": "2026-11-05T23:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "bank-of-england-decision",
+   "slug": "bank-of-england-decision-in-november-20260730150602252",
+   "startDate": "2026-07-31T21:45:06.284129Z",
+   "title": "Bank of England decision in November?"
+  },
+  "market": {
+   "conditionId": "0xa6558a226e216765a4dc195ca8fbf8e1f74526fe0d0e3e77efb36a733f9ff42e",
+   "description": "This market will resolve according to the change in basis points in the Bank Rate resulting from the November 2026 meeting of the Bank of England’s Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of England, including the statement or release from its November 2026 Monetary Policy Committee meeting, scheduled for November 5, 2026, as listed on the official Bank of England calendar (https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates). This market may resolve as soon as the statement or release of the Bank of England's November 2026 Monetary Policy Committee meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "endDate": "2026-11-05T23:59:00Z",
+   "groupItemThreshold": "0",
+   "groupItemTitle": "50+ bps decrease",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Bank of England decreases interest rates by 50+ bps after November 2026 meeting?",
+   "resolutionSource": "https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates",
+   "slug": "bank-of-england-decreases-interest-rates-by-50-bps-after-november-2026-meeting-20260730150602307",
+   "startDate": "2026-07-31T21:45:06.284129Z"
+  },
+  "outcome": "50+ bps decrease",
+  "token_id": "9809315054705033380550332109517764277421611840908617065399500209351734474796",
+  "venue": "POLYMARKET_INTL"
+ },
+ "bank-of-england-decision:november:50+ bps increase": {
+  "event": {
+   "description": "This market will resolve according to the change in basis points in the Bank Rate resulting from the November 2026 meeting of the Bank of England’s Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of England, including the statement or release from its November 2026 Monetary Policy Committee meeting, scheduled for November 5, 2026, as listed on the official Bank of England calendar (https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates). This market may resolve as soon as the statement or release of the Bank of England's November 2026 Monetary Policy Committee meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "enableNegRisk": true,
+   "endDate": "2026-11-05T23:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "bank-of-england-decision",
+   "slug": "bank-of-england-decision-in-november-20260730150602252",
+   "startDate": "2026-07-31T21:45:06.284129Z",
+   "title": "Bank of England decision in November?"
+  },
+  "market": {
+   "conditionId": "0xff5c8b2413a9ceef8a03ad3558423bf6bd459c1afaa05578643289d53d3bbca0",
+   "description": "This market will resolve according to the change in basis points in the Bank Rate resulting from the November 2026 meeting of the Bank of England’s Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of England, including the statement or release from its November 2026 Monetary Policy Committee meeting, scheduled for November 5, 2026, as listed on the official Bank of England calendar (https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates). This market may resolve as soon as the statement or release of the Bank of England's November 2026 Monetary Policy Committee meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "endDate": "2026-11-05T23:59:00Z",
+   "groupItemThreshold": "4",
+   "groupItemTitle": "50+ bps increase",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Bank of England increases interest rates by 50+ bps after November 2026 meeting?",
+   "resolutionSource": "https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates",
+   "slug": "bank-of-england-increases-interest-rates-by-50-bps-after-november-2026-meeting-20260730150602311",
+   "startDate": "2026-07-31T21:47:53.253056Z"
+  },
+  "outcome": "50+ bps increase",
+  "token_id": "62144541001702959052922816789699992714136138516295325465072317716210957966511",
+  "venue": "POLYMARKET_INTL"
+ },
+ "bank-of-england-decision:november:No change": {
+  "event": {
+   "description": "This market will resolve according to the change in basis points in the Bank Rate resulting from the November 2026 meeting of the Bank of England’s Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of England, including the statement or release from its November 2026 Monetary Policy Committee meeting, scheduled for November 5, 2026, as listed on the official Bank of England calendar (https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates). This market may resolve as soon as the statement or release of the Bank of England's November 2026 Monetary Policy Committee meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "enableNegRisk": true,
+   "endDate": "2026-11-05T23:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "bank-of-england-decision",
+   "slug": "bank-of-england-decision-in-november-20260730150602252",
+   "startDate": "2026-07-31T21:45:06.284129Z",
+   "title": "Bank of England decision in November?"
+  },
+  "market": {
+   "conditionId": "0xe5f6842a69376f17c0b6b2b8181717cb266b3414bb6ddc070af1c1f7b40c8cb0",
+   "description": "This market will resolve according to the change in basis points in the Bank Rate resulting from the November 2026 meeting of the Bank of England’s Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of England, including the statement or release from its November 2026 Monetary Policy Committee meeting, scheduled for November 5, 2026, as listed on the official Bank of England calendar (https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates). This market may resolve as soon as the statement or release of the Bank of England's November 2026 Monetary Policy Committee meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "endDate": "2026-11-05T23:59:00Z",
+   "groupItemThreshold": "2",
+   "groupItemTitle": "No change",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "No change in Bank of England’s interest rates after November 2026 meeting?",
+   "resolutionSource": "https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates",
+   "slug": "no-change-in-bank-of-englands-interest-rates-after-november-2026-meeting-20260730150602309",
+   "startDate": "2026-07-31T21:47:26.283939Z"
+  },
+  "outcome": "No change",
+  "token_id": "89904936605594152863868406887671497001916079037316322532070614607329556200942",
+  "venue": "POLYMARKET_INTL"
+ },
+ "bank-of-korea-decision:november:25 bps cut": {
+  "event": {
+   "description": "This market will resolve according to the change in basis points in the base rate resulting from the November 2026 meeting of the Bank of Korea's Monetary Policy Board, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of Korea's Monetary Policy Board, including the statement or release from its November 2026 meeting, scheduled for November 26, 2026, as listed on the official Bank of Korea calendar (https://www.bok.or.kr/eng/bbs/E0000627/view.do?nttId=10094301&searchCnd=1&searchKwd=&depth2=400417&depth3=400022&depth=400022&pageUnit=10&pageIndex=1&programType=newsDataEng&menuNo=400022&oldMenuNo=400022). This market may resolve as soon as the statement or release of the Bank of Korea's Monetary Policy Board resulting from its November 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of \"Increase\" or \"Decrease\" will include policy rate increases or decreases of any size.",
+   "enableNegRisk": true,
+   "endDate": "2026-11-26T00:00:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "bank-of-korea-decision",
+   "slug": "bank-of-korea-decision-in-november",
+   "startDate": "2026-08-27T23:07:11Z",
+   "title": "Bank of Korea decision in November?"
+  },
+  "market": {
+   "conditionId": "0x933abb9dc8c6619d4aa5a9aba7a36d07faed105a35fa8c2b66754c694b4ff6ce",
+   "description": "This market will resolve according to the change in basis points in the base rate resulting from the November 2026 meeting of the Bank of Korea's Monetary Policy Board, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of Korea's Monetary Policy Board, including the statement or release from its November 2026 meeting, scheduled for November 26, 2026, as listed on the official Bank of Korea calendar (https://www.bok.or.kr/eng/bbs/E0000627/view.do?nttId=10094301&searchCnd=1&searchKwd=&depth2=400417&depth3=400022&depth=400022&pageUnit=10&pageIndex=1&programType=newsDataEng&menuNo=400022&oldMenuNo=400022). This market may resolve as soon as the statement or release of the Bank of Korea's Monetary Policy Board resulting from its November 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of \"Increase\" or \"Decrease\" will include policy rate increases or decreases of any size.",
+   "endDate": "2026-11-26T00:00:00Z",
+   "groupItemThreshold": "1",
+   "groupItemTitle": "25 bps cut",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the Bank of Korea cut by 25 bps at the November 2026 meeting?",
+   "resolutionSource": "https://www.bok.or.kr/eng/bbs/E0000627/view.do?nttId=10094301&searchCnd=1&searchKwd=&depth2=400417&depth3=400022&depth=400022&pageUnit=10&pageIndex=1&programType=newsDataEng&menuNo=400022&oldMenuNo=400022",
+   "slug": "will-the-bank-of-korea-cut-by-25-bps-at-the-november-2026-meeting",
+   "startDate": "2026-08-27T23:07:11Z"
+  },
+  "outcome": "25 bps cut",
+  "token_id": "82517333292798788651347407545823963300019043696224523278667234735673404005367",
+  "venue": "POLYMARKET_INTL"
+ },
+ "bank-of-korea-decision:november:25 bps hike": {
+  "event": {
+   "description": "This market will resolve according to the change in basis points in the base rate resulting from the November 2026 meeting of the Bank of Korea's Monetary Policy Board, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of Korea's Monetary Policy Board, including the statement or release from its November 2026 meeting, scheduled for November 26, 2026, as listed on the official Bank of Korea calendar (https://www.bok.or.kr/eng/bbs/E0000627/view.do?nttId=10094301&searchCnd=1&searchKwd=&depth2=400417&depth3=400022&depth=400022&pageUnit=10&pageIndex=1&programType=newsDataEng&menuNo=400022&oldMenuNo=400022). This market may resolve as soon as the statement or release of the Bank of Korea's Monetary Policy Board resulting from its November 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of \"Increase\" or \"Decrease\" will include policy rate increases or decreases of any size.",
+   "enableNegRisk": true,
+   "endDate": "2026-11-26T00:00:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "bank-of-korea-decision",
+   "slug": "bank-of-korea-decision-in-november",
+   "startDate": "2026-08-27T23:07:11Z",
+   "title": "Bank of Korea decision in November?"
+  },
+  "market": {
+   "conditionId": "0xe0361559f893c5c1bfb2638f6edfe66599014c6cf659f836bf448cce7bb53543",
+   "description": "This market will resolve according to the change in basis points in the base rate resulting from the November 2026 meeting of the Bank of Korea's Monetary Policy Board, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Bank of Korea's Monetary Policy Board, including the statement or release from its November 2026 meeting, scheduled for November 26, 2026, as listed on the official Bank of Korea calendar (https://www.bok.or.kr/eng/bbs/E0000627/view.do?nttId=10094301&searchCnd=1&searchKwd=&depth2=400417&depth3=400022&depth=400022&pageUnit=10&pageIndex=1&programType=newsDataEng&menuNo=400022&oldMenuNo=400022). This market may resolve as soon as the statement or release of the Bank of Korea's Monetary Policy Board resulting from its November 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of \"Increase\" or \"Decrease\" will include policy rate increases or decreases of any size.",
+   "endDate": "2026-11-26T00:00:00Z",
+   "groupItemThreshold": "3",
+   "groupItemTitle": "25 bps hike",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the Bank of Korea hike by 25 bps at the November 2026 meeting?",
+   "resolutionSource": "https://www.bok.or.kr/eng/bbs/E0000627/view.do?nttId=10094301&searchCnd=1&searchKwd=&depth2=400417&depth3=400022&depth=400022&pageUnit=10&pageIndex=1&programType=newsDataEng&menuNo=400022&oldMenuNo=400022",
+   "slug": "will-the-bank-of-korea-hike-by-25-bps-at-the-november-2026-meeting",
+   "startDate": "2026-08-27T23:07:11Z"
+  },
+  "outcome": "25 bps hike",
+  "token_id": "34183803759521638854989783568100642156381706019491238689667182981181837714629",
+  "venue": "POLYMARKET_INTL"
+ },
+ "ecb-interest-rates:december:25 bps decrease": {
+  "event": {
+   "description": "This market will resolve according to the change in basis points in the deposit facility rate resulting from the December 2026 meeting of the European Central Bank, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the European Central Bank, including the statement or release from its December 2026 meeting, scheduled for December 16-17, 2026, as listed on the official European Central Bank calendar (https://www.ecb.europa.eu/press/calendars/mgcgc/html/index.en.html). This market may resolve as soon as the statement or release of the European Central Bank's December 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "enableNegRisk": true,
+   "endDate": "2026-12-17T11:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "ecb-interest-rates",
+   "slug": "ecb-interest-rates-december-2026",
+   "startDate": "2026-09-14T22:13:13Z",
+   "title": "ECB Interest Rates: December 2026"
+  },
+  "market": {
+   "conditionId": "0x7d9d395143b2203aab70a80c291717442cab709d1fe50c7e5748eb2bab1f417d",
+   "description": "This market will resolve according to the change in basis points in the deposit facility rate resulting from the December 2026 meeting of the European Central Bank, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the European Central Bank, including the statement or release from its December 2026 meeting, scheduled for December 16-17, 2026, as listed on the official European Central Bank calendar (https://www.ecb.europa.eu/press/calendars/mgcgc/html/index.en.html). This market may resolve as soon as the statement or release of the European Central Bank's December 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "endDate": "2026-12-17T11:59:00Z",
+   "groupItemThreshold": "1",
+   "groupItemTitle": "25 bps decrease",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the ECB announce a 25 bps decrease at the December 2026 meeting?",
+   "resolutionSource": "https://www.ecb.europa.eu/press/calendars/mgcgc/html/index.en.html",
+   "slug": "will-the-ecb-announce-a-25-bps-decrease-at-the-december-2026-meeting",
+   "startDate": "2026-09-14T22:13:13Z"
+  },
+  "outcome": "25 bps decrease",
+  "token_id": "72800076173165835326652602694315736116994804269316901207911087504477811488209",
+  "venue": "POLYMARKET_INTL"
+ },
+ "ecb-interest-rates:december:25 bps increase": {
+  "event": {
+   "description": "This market will resolve according to the change in basis points in the deposit facility rate resulting from the December 2026 meeting of the European Central Bank, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the European Central Bank, including the statement or release from its December 2026 meeting, scheduled for December 16-17, 2026, as listed on the official European Central Bank calendar (https://www.ecb.europa.eu/press/calendars/mgcgc/html/index.en.html). This market may resolve as soon as the statement or release of the European Central Bank's December 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "enableNegRisk": true,
+   "endDate": "2026-12-17T11:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "ecb-interest-rates",
+   "slug": "ecb-interest-rates-december-2026",
+   "startDate": "2026-09-14T22:13:13Z",
+   "title": "ECB Interest Rates: December 2026"
+  },
+  "market": {
+   "conditionId": "0x27a97d1adfde916acf1866fab3c9da709cfa9c307e5bae334a5d0e4555277ca6",
+   "description": "This market will resolve according to the change in basis points in the deposit facility rate resulting from the December 2026 meeting of the European Central Bank, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the European Central Bank, including the statement or release from its December 2026 meeting, scheduled for December 16-17, 2026, as listed on the official European Central Bank calendar (https://www.ecb.europa.eu/press/calendars/mgcgc/html/index.en.html). This market may resolve as soon as the statement or release of the European Central Bank's December 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "endDate": "2026-12-17T11:59:00Z",
+   "groupItemThreshold": "3",
+   "groupItemTitle": "25 bps increase",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the ECB announce a 25 bps increase at the December 2026 meeting?",
+   "resolutionSource": "https://www.ecb.europa.eu/press/calendars/mgcgc/html/index.en.html",
+   "slug": "will-the-ecb-announce-a-25-bps-increase-at-the-december-2026-meeting",
+   "startDate": "2026-09-14T22:13:13Z"
+  },
+  "outcome": "25 bps increase",
+  "token_id": "5894310433948211085010478738141068202821763536534485666653342795641588151338",
+  "venue": "POLYMARKET_INTL"
+ },
+ "fomc:january:25 bps decrease": {
+  "event": {
+   "description": "The FED interest rates are defined in this market by the upper bound of the target federal funds range. The decisions on the target federal funds range are made by the Federal Open Market Committee (FOMC) meetings.\n\nThis market will resolve to the amount of basis points the upper bound of the target federal funds rate is changed by versus the level it was prior to the Federal Reserve's January 2027 meeting.\n\nIf the target federal funds rate is changed to a level not expressed in the displayed options, the change will be rounded up to the nearest 25 and will resolve to the relevant bracket. (e.g. if there's a cut/increase of 12.5 bps it will be considered to be 25 bps)\n\nThe resolution source for this market is the FOMC’s statement after its meeting scheduled for January 26-27, 2027 according to the official calendar: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm.\n\nThe level and change of the target federal funds rate is also published at the official website of the Federal Reserve at https://www.federalreserve.gov/monetarypolicy/openmarket.htm.\n\nThis market may resolve as soon as the FOMC’s statement for their January meeting with relevant data is issued. If no statement is released by the end date of the next scheduled meeting, this market will resolve to the \"No change\" bracket.",
+   "enableNegRisk": true,
+   "endDate": "2027-01-28T04:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "fomc",
+   "slug": "fed-decision-in-january-20260729233815502",
+   "startDate": "2026-07-30T00:48:09.895382Z",
+   "title": "Fed Decision in January?"
+  },
+  "market": {
+   "conditionId": "0x0bbe79a986a3f84ea82ebe714159fcfaa488f80df878599e2cd9297ea57ee60f",
+   "description": "The FED interest rates are defined in this market by the upper bound of the target federal funds range. The decisions on the target federal funds range are made by the Federal Open Market Committee (FOMC) meetings.\n\nThis market will resolve to the amount of basis points the upper bound of the target federal funds rate is changed by versus the level it was prior to the Federal Reserve's January 2027 meeting.\n\nIf the target federal funds rate is changed to a level not expressed in the displayed options, the change will be rounded up to the nearest 25 and will resolve to the relevant bracket. (e.g. if there's a cut/increase of 12.5 bps it will be considered to be 25 bps)\n\nThe resolution source for this market is the FOMC’s statement after its meeting scheduled for January 26-27, 2027 according to the official calendar: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm.\n\nThe level and change of the target federal funds rate is also published at the official website of the Federal Reserve at https://www.federalreserve.gov/monetarypolicy/openmarket.htm.\n\nThis market may resolve as soon as the FOMC’s statement for their January meeting with relevant data is issued. If no statement is released by the end date of the next scheduled meeting, this market will resolve to the \"No change\" bracket.",
+   "endDate": "2027-01-28T04:59:00Z",
+   "groupItemThreshold": "1",
+   "groupItemTitle": "25 bps decrease",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the Fed decrease interest rates by 25 bps after the January 2027 meeting?",
+   "resolutionSource": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+   "slug": "will-the-fed-decrease-interest-rates-by-25-bps-after-the-january-2027-meeting-20260729233815504",
+   "startDate": "2026-07-30T00:59:14.079503Z"
+  },
+  "outcome": "25 bps decrease",
+  "token_id": "55531205670373260499988385930313327116586167390725681551489621136380793885916",
+  "venue": "POLYMARKET_INTL"
+ },
+ "fomc:january:25 bps increase": {
+  "event": {
+   "description": "The FED interest rates are defined in this market by the upper bound of the target federal funds range. The decisions on the target federal funds range are made by the Federal Open Market Committee (FOMC) meetings.\n\nThis market will resolve to the amount of basis points the upper bound of the target federal funds rate is changed by versus the level it was prior to the Federal Reserve's January 2027 meeting.\n\nIf the target federal funds rate is changed to a level not expressed in the displayed options, the change will be rounded up to the nearest 25 and will resolve to the relevant bracket. (e.g. if there's a cut/increase of 12.5 bps it will be considered to be 25 bps)\n\nThe resolution source for this market is the FOMC’s statement after its meeting scheduled for January 26-27, 2027 according to the official calendar: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm.\n\nThe level and change of the target federal funds rate is also published at the official website of the Federal Reserve at https://www.federalreserve.gov/monetarypolicy/openmarket.htm.\n\nThis market may resolve as soon as the FOMC’s statement for their January meeting with relevant data is issued. If no statement is released by the end date of the next scheduled meeting, this market will resolve to the \"No change\" bracket.",
+   "enableNegRisk": true,
+   "endDate": "2027-01-28T04:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "fomc",
+   "slug": "fed-decision-in-january-20260729233815502",
+   "startDate": "2026-07-30T00:48:09.895382Z",
+   "title": "Fed Decision in January?"
+  },
+  "market": {
+   "conditionId": "0x50642b28be893e8752649e9ae6d687558fc5dcfeeecd10713cf59ef6ea0edce4",
+   "description": "The FED interest rates are defined in this market by the upper bound of the target federal funds range. The decisions on the target federal funds range are made by the Federal Open Market Committee (FOMC) meetings.\n\nThis market will resolve to the amount of basis points the upper bound of the target federal funds rate is changed by versus the level it was prior to the Federal Reserve's January 2027 meeting.\n\nIf the target federal funds rate is changed to a level not expressed in the displayed options, the change will be rounded up to the nearest 25 and will resolve to the relevant bracket. (e.g. if there's a cut/increase of 12.5 bps it will be considered to be 25 bps)\n\nThe resolution source for this market is the FOMC’s statement after its meeting scheduled for January 26-27, 2027 according to the official calendar: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm.\n\nThe level and change of the target federal funds rate is also published at the official website of the Federal Reserve at https://www.federalreserve.gov/monetarypolicy/openmarket.htm.\n\nThis market may resolve as soon as the FOMC’s statement for their January meeting with relevant data is issued. If no statement is released by the end date of the next scheduled meeting, this market will resolve to the \"No change\" bracket.",
+   "endDate": "2027-01-28T04:59:00Z",
+   "groupItemThreshold": "3",
+   "groupItemTitle": "25 bps increase",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the Fed increase interest rates by 25 bps after the January 2027 meeting?",
+   "resolutionSource": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+   "slug": "will-the-fed-increase-interest-rates-by-25-bps-after-the-january-2027-meeting-20260729233815506",
+   "startDate": "2026-07-30T00:49:40.350956Z"
+  },
+  "outcome": "25 bps increase",
+  "token_id": "58421987972100586826330616250690474504359298033602990223828098109695719571344",
+  "venue": "POLYMARKET_INTL"
+ },
+ "fomc:january:50+ bps decrease": {
+  "event": {
+   "description": "The FED interest rates are defined in this market by the upper bound of the target federal funds range. The decisions on the target federal funds range are made by the Federal Open Market Committee (FOMC) meetings.\n\nThis market will resolve to the amount of basis points the upper bound of the target federal funds rate is changed by versus the level it was prior to the Federal Reserve's January 2027 meeting.\n\nIf the target federal funds rate is changed to a level not expressed in the displayed options, the change will be rounded up to the nearest 25 and will resolve to the relevant bracket. (e.g. if there's a cut/increase of 12.5 bps it will be considered to be 25 bps)\n\nThe resolution source for this market is the FOMC’s statement after its meeting scheduled for January 26-27, 2027 according to the official calendar: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm.\n\nThe level and change of the target federal funds rate is also published at the official website of the Federal Reserve at https://www.federalreserve.gov/monetarypolicy/openmarket.htm.\n\nThis market may resolve as soon as the FOMC’s statement for their January meeting with relevant data is issued. If no statement is released by the end date of the next scheduled meeting, this market will resolve to the \"No change\" bracket.",
+   "enableNegRisk": true,
+   "endDate": "2027-01-28T04:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "fomc",
+   "slug": "fed-decision-in-january-20260729233815502",
+   "startDate": "2026-07-30T00:48:09.895382Z",
+   "title": "Fed Decision in January?"
+  },
+  "market": {
+   "conditionId": "0xfd0fb47daa40f79ed1bd8a0645d028c4583391b70860e4447f93b3b9fe797865",
+   "description": "The FED interest rates are defined in this market by the upper bound of the target federal funds range. The decisions on the target federal funds range are made by the Federal Open Market Committee (FOMC) meetings.\n\nThis market will resolve to the amount of basis points the upper bound of the target federal funds rate is changed by versus the level it was prior to the Federal Reserve's January 2027 meeting.\n\nIf the target federal funds rate is changed to a level not expressed in the displayed options, the change will be rounded up to the nearest 25 and will resolve to the relevant bracket. (e.g. if there's a cut/increase of 12.5 bps it will be considered to be 25 bps)\n\nThe resolution source for this market is the FOMC’s statement after its meeting scheduled for January 26-27, 2027 according to the official calendar: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm.\n\nThe level and change of the target federal funds rate is also published at the official website of the Federal Reserve at https://www.federalreserve.gov/monetarypolicy/openmarket.htm.\n\nThis market may resolve as soon as the FOMC’s statement for their January meeting with relevant data is issued. If no statement is released by the end date of the next scheduled meeting, this market will resolve to the \"No change\" bracket.",
+   "endDate": "2027-01-28T04:59:00Z",
+   "groupItemThreshold": "0",
+   "groupItemTitle": "50+ bps decrease",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the Fed decrease interest rates by 50+ bps after the January 2027 meeting?",
+   "resolutionSource": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+   "slug": "will-the-fed-decrease-interest-rates-by-50-bps-after-the-january-2027-meeting-20260729233815503",
+   "startDate": "2026-07-30T00:56:07.392315Z"
+  },
+  "outcome": "50+ bps decrease",
+  "token_id": "45053521911672808043600263178798111402897730682087979734684574823004307023433",
+  "venue": "POLYMARKET_INTL"
+ },
+ "fomc:january:50+ bps increase": {
+  "event": {
+   "description": "The FED interest rates are defined in this market by the upper bound of the target federal funds range. The decisions on the target federal funds range are made by the Federal Open Market Committee (FOMC) meetings.\n\nThis market will resolve to the amount of basis points the upper bound of the target federal funds rate is changed by versus the level it was prior to the Federal Reserve's January 2027 meeting.\n\nIf the target federal funds rate is changed to a level not expressed in the displayed options, the change will be rounded up to the nearest 25 and will resolve to the relevant bracket. (e.g. if there's a cut/increase of 12.5 bps it will be considered to be 25 bps)\n\nThe resolution source for this market is the FOMC’s statement after its meeting scheduled for January 26-27, 2027 according to the official calendar: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm.\n\nThe level and change of the target federal funds rate is also published at the official website of the Federal Reserve at https://www.federalreserve.gov/monetarypolicy/openmarket.htm.\n\nThis market may resolve as soon as the FOMC’s statement for their January meeting with relevant data is issued. If no statement is released by the end date of the next scheduled meeting, this market will resolve to the \"No change\" bracket.",
+   "enableNegRisk": true,
+   "endDate": "2027-01-28T04:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "fomc",
+   "slug": "fed-decision-in-january-20260729233815502",
+   "startDate": "2026-07-30T00:48:09.895382Z",
+   "title": "Fed Decision in January?"
+  },
+  "market": {
+   "conditionId": "0x21cd6160d9de634104b719d50afa4a8ebfa3d0cd10609bf752c77b66f7bbd6a7",
+   "description": "The FED interest rates are defined in this market by the upper bound of the target federal funds range. The decisions on the target federal funds range are made by the Federal Open Market Committee (FOMC) meetings.\n\nThis market will resolve to the amount of basis points the upper bound of the target federal funds rate is changed by versus the level it was prior to the Federal Reserve's January 2027 meeting.\n\nIf the target federal funds rate is changed to a level not expressed in the displayed options, the change will be rounded up to the nearest 25 and will resolve to the relevant bracket. (e.g. if there's a cut/increase of 12.5 bps it will be considered to be 25 bps)\n\nThe resolution source for this market is the FOMC’s statement after its meeting scheduled for January 26-27, 2027 according to the official calendar: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm.\n\nThe level and change of the target federal funds rate is also published at the official website of the Federal Reserve at https://www.federalreserve.gov/monetarypolicy/openmarket.htm.\n\nThis market may resolve as soon as the FOMC’s statement for their January meeting with relevant data is issued. If no statement is released by the end date of the next scheduled meeting, this market will resolve to the \"No change\" bracket.",
+   "endDate": "2027-01-28T04:59:00Z",
+   "groupItemThreshold": "4",
+   "groupItemTitle": "50+ bps increase",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the Fed increase interest rates by 50+ bps after the January 2027 meeting?",
+   "resolutionSource": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+   "slug": "will-the-fed-increase-interest-rates-by-50-bps-after-the-january-2027-meeting-20260729233815507",
+   "startDate": "2026-07-30T00:48:09.895382Z"
+  },
+  "outcome": "50+ bps increase",
+  "token_id": "42452047366442275682382090045397807109079755041679563479952649068752467853296",
+  "venue": "POLYMARKET_INTL"
+ },
+ "fomc:january:No change": {
+  "event": {
+   "description": "The FED interest rates are defined in this market by the upper bound of the target federal funds range. The decisions on the target federal funds range are made by the Federal Open Market Committee (FOMC) meetings.\n\nThis market will resolve to the amount of basis points the upper bound of the target federal funds rate is changed by versus the level it was prior to the Federal Reserve's January 2027 meeting.\n\nIf the target federal funds rate is changed to a level not expressed in the displayed options, the change will be rounded up to the nearest 25 and will resolve to the relevant bracket. (e.g. if there's a cut/increase of 12.5 bps it will be considered to be 25 bps)\n\nThe resolution source for this market is the FOMC’s statement after its meeting scheduled for January 26-27, 2027 according to the official calendar: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm.\n\nThe level and change of the target federal funds rate is also published at the official website of the Federal Reserve at https://www.federalreserve.gov/monetarypolicy/openmarket.htm.\n\nThis market may resolve as soon as the FOMC’s statement for their January meeting with relevant data is issued. If no statement is released by the end date of the next scheduled meeting, this market will resolve to the \"No change\" bracket.",
+   "enableNegRisk": true,
+   "endDate": "2027-01-28T04:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "seriesSlug": "fomc",
+   "slug": "fed-decision-in-january-20260729233815502",
+   "startDate": "2026-07-30T00:48:09.895382Z",
+   "title": "Fed Decision in January?"
+  },
+  "market": {
+   "conditionId": "0xf6e7c89ec4b5d3c887ed9b70dfbcac9392e287367783ce475d32e8c16ed9f61c",
+   "description": "The FED interest rates are defined in this market by the upper bound of the target federal funds range. The decisions on the target federal funds range are made by the Federal Open Market Committee (FOMC) meetings.\n\nThis market will resolve to the amount of basis points the upper bound of the target federal funds rate is changed by versus the level it was prior to the Federal Reserve's January 2027 meeting.\n\nIf the target federal funds rate is changed to a level not expressed in the displayed options, the change will be rounded up to the nearest 25 and will resolve to the relevant bracket. (e.g. if there's a cut/increase of 12.5 bps it will be considered to be 25 bps)\n\nThe resolution source for this market is the FOMC’s statement after its meeting scheduled for January 26-27, 2027 according to the official calendar: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm.\n\nThe level and change of the target federal funds rate is also published at the official website of the Federal Reserve at https://www.federalreserve.gov/monetarypolicy/openmarket.htm.\n\nThis market may resolve as soon as the FOMC’s statement for their January meeting with relevant data is issued. If no statement is released by the end date of the next scheduled meeting, this market will resolve to the \"No change\" bracket.",
+   "endDate": "2027-01-28T04:59:00Z",
+   "groupItemThreshold": "2",
+   "groupItemTitle": "No change",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will there be no change in Fed interest rates after the January 2027 meeting?",
+   "resolutionSource": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+   "slug": "will-there-be-no-change-in-fed-interest-rates-after-the-january-2027-meeting-20260729233815505",
+   "startDate": "2026-07-30T00:51:46.069038Z"
+  },
+  "outcome": "No change",
+  "token_id": "63563009510989471204377539732457086916124654411092982704760023438039220215330",
+  "venue": "POLYMARKET_INTL"
+ },
+ "reserve-bank-of-australia-decision:december:25 bps decrease": {
+  "event": {
+   "description": "This market will resolve according to the change in basis points in the cash rate target resulting from the December 2026 meeting of the Reserve Bank of Australia (RBA) Monetary Policy Board, relative to the level it was prior to this meeting. \n\nThe resolution source will be official information from the Reserve Bank of Australia, including the statement or release from its December 2026 meeting, scheduled for December 7 and December 8, 2026, as listed on the official RBA calendar (https://www.rba.gov.au/schedules-events/calendar/?topics=monetary-policy-board). This market may resolve as soon as the statement or release of the Reserve Bank of Australia Monetary Policy Board resulting from its December 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of \"Increase\" or \"Decrease\" will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting.\n\nIf the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the \"No Change\" bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "enableNegRisk": true,
+   "endDate": "2026-12-08T23:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://www.rba.gov.au/schedules-events/calendar/?topics=monetary-policy-board",
+   "seriesSlug": "reserve-bank-of-australia-decision",
+   "slug": "reserve-bank-of-australia-decision-in-december-2026",
+   "startDate": "2026-10-06T03:30:36Z",
+   "title": "Reserve Bank of Australia Decision in December"
+  },
+  "market": {
+   "conditionId": "0x5a0fd4a892fe4550dfba4a16469d1e5bc5ad9b9a9f85e5e1174ff4288fdf79a0",
+   "description": "This market will resolve according to the change in basis points in the cash rate target resulting from the December 2026 meeting of the Reserve Bank of Australia (RBA) Monetary Policy Board, relative to the level it was prior to this meeting. \n\nThe resolution source will be official information from the Reserve Bank of Australia, including the statement or release from its December 2026 meeting, scheduled for December 7 and December 8, 2026, as listed on the official RBA calendar (https://www.rba.gov.au/schedules-events/calendar/?topics=monetary-policy-board). This market may resolve as soon as the statement or release of the Reserve Bank of Australia Monetary Policy Board resulting from its December 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of \"Increase\" or \"Decrease\" will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting.\n\nIf the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the \"No Change\" bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "endDate": "2026-12-08T23:59:00Z",
+   "groupItemThreshold": "1",
+   "groupItemTitle": "25 bps decrease",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Reserve Bank of Australia decreases interest rates by 25 bps at the December 2026 meeting?",
+   "resolutionSource": "https://www.rba.gov.au/schedules-events/calendar/?topics=monetary-policy-board",
+   "slug": "reserve-bank-of-australia-decreases-interest-rates-by-25-bps-at-the-december-2026-meeting",
+   "startDate": "2026-10-06T03:30:36Z"
+  },
+  "outcome": "25 bps decrease",
+  "token_id": "63204061178345599018136347429164300957608392482295933066937385323448373275705",
+  "venue": "POLYMARKET_INTL"
+ },
+ "reserve-bank-of-australia-decision:december:25 bps increase": {
+  "event": {
+   "description": "This market will resolve according to the change in basis points in the cash rate target resulting from the December 2026 meeting of the Reserve Bank of Australia (RBA) Monetary Policy Board, relative to the level it was prior to this meeting. \n\nThe resolution source will be official information from the Reserve Bank of Australia, including the statement or release from its December 2026 meeting, scheduled for December 7 and December 8, 2026, as listed on the official RBA calendar (https://www.rba.gov.au/schedules-events/calendar/?topics=monetary-policy-board). This market may resolve as soon as the statement or release of the Reserve Bank of Australia Monetary Policy Board resulting from its December 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of \"Increase\" or \"Decrease\" will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting.\n\nIf the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the \"No Change\" bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "enableNegRisk": true,
+   "endDate": "2026-12-08T23:59:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://www.rba.gov.au/schedules-events/calendar/?topics=monetary-policy-board",
+   "seriesSlug": "reserve-bank-of-australia-decision",
+   "slug": "reserve-bank-of-australia-decision-in-december-2026",
+   "startDate": "2026-10-06T03:30:36Z",
+   "title": "Reserve Bank of Australia Decision in December"
+  },
+  "market": {
+   "conditionId": "0xb336bf71dc4243083af9936305df7017f4d99b86b204fcd00b8bd660dfca9482",
+   "description": "This market will resolve according to the change in basis points in the cash rate target resulting from the December 2026 meeting of the Reserve Bank of Australia (RBA) Monetary Policy Board, relative to the level it was prior to this meeting. \n\nThe resolution source will be official information from the Reserve Bank of Australia, including the statement or release from its December 2026 meeting, scheduled for December 7 and December 8, 2026, as listed on the official RBA calendar (https://www.rba.gov.au/schedules-events/calendar/?topics=monetary-policy-board). This market may resolve as soon as the statement or release of the Reserve Bank of Australia Monetary Policy Board resulting from its December 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of \"Increase\" or \"Decrease\" will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting.\n\nIf the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the \"No Change\" bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "endDate": "2026-12-08T23:59:00Z",
+   "groupItemThreshold": "3",
+   "groupItemTitle": "25 bps increase",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Reserve Bank of Australia increases interest rates by 25 bps at the December 2026 meeting?",
+   "resolutionSource": "https://www.rba.gov.au/schedules-events/calendar/?topics=monetary-policy-board",
+   "slug": "reserve-bank-of-australia-increases-interest-rates-by-25-bps-at-the-december-2026-meeting",
+   "startDate": "2026-10-06T03:30:36Z"
+  },
+  "outcome": "25 bps increase",
+  "token_id": "16664293427984192196775739194735216790536139146370670855614746464179679693264",
+  "venue": "POLYMARKET_INTL"
+ },
+ "reserve-bank-of-india-decision:december:25 bps decrease": {
+  "event": {
+   "description": "This market will resolve according to the change in basis points in the policy repo rate resulting from the December 2026 meeting of the Reserve Bank of India Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Reserve Bank of India Monetary Policy Committee, including the statement or release from its December 2026 meeting, with the decision to be announced on December 4, 2026, as listed on the official Reserve Bank of India calendar (https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=62422). This market may resolve as soon as the statement or release of the Reserve Bank of India Monetary Policy Committee resulting from its December 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "enableNegRisk": true,
+   "endDate": "2026-12-04T00:00:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=62422",
+   "seriesSlug": "reserve-bank-of-india-decision",
+   "slug": "reserve-bank-of-india-decision-in-december-2026",
+   "startDate": "2026-10-02T04:30:44Z",
+   "title": "Reserve Bank of India decision in December"
+  },
+  "market": {
+   "conditionId": "0x687ce5c995504c7cebd5e8022062bb1c1fd9f8642e086c450f4ccb41d399a796",
+   "description": "This market will resolve according to the change in basis points in the policy repo rate resulting from the December 2026 meeting of the Reserve Bank of India Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Reserve Bank of India Monetary Policy Committee, including the statement or release from its December 2026 meeting, with the decision to be announced on December 4, 2026, as listed on the official Reserve Bank of India calendar (https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=62422). This market may resolve as soon as the statement or release of the Reserve Bank of India Monetary Policy Committee resulting from its December 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "endDate": "2026-12-04T00:00:00Z",
+   "groupItemThreshold": "3",
+   "groupItemTitle": "25 bps decrease",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the Reserve Bank of India decrease the policy repo rate by 25 bps at the December meeting?",
+   "resolutionSource": "https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=62422",
+   "slug": "will-the-reserve-bank-of-india-decrease-the-policy-repo-rate-by-25-bps-at-the-december-2026-meeting",
+   "startDate": "2026-10-02T04:30:44Z"
+  },
+  "outcome": "25 bps decrease",
+  "token_id": "96370270663623797478829968505229616236825117115250387966405815758547131536372",
+  "venue": "POLYMARKET_INTL"
+ },
+ "reserve-bank-of-india-decision:december:25 bps increase": {
+  "event": {
+   "description": "This market will resolve according to the change in basis points in the policy repo rate resulting from the December 2026 meeting of the Reserve Bank of India Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Reserve Bank of India Monetary Policy Committee, including the statement or release from its December 2026 meeting, with the decision to be announced on December 4, 2026, as listed on the official Reserve Bank of India calendar (https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=62422). This market may resolve as soon as the statement or release of the Reserve Bank of India Monetary Policy Committee resulting from its December 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "enableNegRisk": true,
+   "endDate": "2026-12-04T00:00:00Z",
+   "negRisk": true,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=62422",
+   "seriesSlug": "reserve-bank-of-india-decision",
+   "slug": "reserve-bank-of-india-decision-in-december-2026",
+   "startDate": "2026-10-02T04:30:44Z",
+   "title": "Reserve Bank of India decision in December"
+  },
+  "market": {
+   "conditionId": "0x81938aefeef766087294d3d45de2e24018f34b18a4dd7b758a00918bb279b935",
+   "description": "This market will resolve according to the change in basis points in the policy repo rate resulting from the December 2026 meeting of the Reserve Bank of India Monetary Policy Committee, relative to the level it was prior to this meeting.\n\nThe resolution source will be official information from the Reserve Bank of India Monetary Policy Committee, including the statement or release from its December 2026 meeting, with the decision to be announced on December 4, 2026, as listed on the official Reserve Bank of India calendar (https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=62422). This market may resolve as soon as the statement or release of the Reserve Bank of India Monetary Policy Committee resulting from its December 2026 meeting with relevant data is issued.\n\nIf the specified rate is defined by an upper and lower bound, the relevant change will be the change to the upper bound.\n\nIf the specified rate is changed to a level not expressed in the displayed options, the change will be rounded according to the following guidelines. Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of 10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or decrease of 50 bps). Displayed options of “Increase” or “Decrease” will include policy rate increases or decreases of any size.\n\nIf the specified meeting is postponed to a date and time before the start of the next scheduled meeting, this market will resolve based on the outcome of that postponed meeting. If the specified meeting is cancelled, or postponed such that no decision is announced by the start of the next scheduled meeting, this market will resolve to the “No Change” bracket. Emergency changes to the specified rate not resulting from the specified meeting will not be considered.",
+   "endDate": "2026-12-04T00:00:00Z",
+   "groupItemThreshold": "1",
+   "groupItemTitle": "25 bps increase",
+   "negRisk": true,
+   "outcomes": "[\"Yes\", \"No\"]",
+   "question": "Will the Reserve Bank of India increase the policy repo rate by 25 bps at the December meeting?",
+   "resolutionSource": "https://www.rbi.org.in/scripts/BS_PressReleaseDisplay.aspx?prid=62422",
+   "slug": "will-the-reserve-bank-of-india-increase-the-policy-repo-rate-by-25-bps-at-the-december-2026-meeting",
+   "startDate": "2026-10-02T04:30:44Z"
+  },
+  "outcome": "25 bps increase",
+  "token_id": "24588056188627209661190500711667763085700456656353556936138167071413948265078",
+  "venue": "POLYMARKET_INTL"
+ }
+}

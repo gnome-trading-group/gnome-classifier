@@ -9,10 +9,13 @@ only the LLM can read while it is off, waits (see `attempts`) instead of being a
 contract that changed since its last derivation, and each unit's relationships are replaced as one set, which makes
 redelivery and re-derivation idempotent. Only the fewest rows that rebuild a unit's relationships are stored;
 consumers rebuild the rest (gnomepy `RelationshipGraph`). A new DERIVATION_VERSION re-derives every subject once (see
-`rederive_on_new_version`), since an incremental pass would leave rows the old rules wrote.
+`rederive_on_new_version`), since an incremental pass would leave rows the old rules wrote. A change to the code
+readers re-reads, without the model, every open security they now read differently (see `recheck_readers`), so a
+reader fix needs no new EXTRACTOR_VERSION and its re-read of everything the model read.
 """
 import dataclasses
 import logging
+from collections.abc import Collection
 from datetime import datetime, timezone
 from typing import Protocol
 
@@ -33,7 +36,7 @@ from classifier.propositions.subjects import (
     embed_subjects,
 )
 from classifier.propositions.types import EXTRACTOR_VERSION, Method
-from classifier.propositions.venue import READERS_VERSION
+from classifier.propositions.venue import READERS_VERSION, extract_venue
 from classifier.utils import bulk_create_chunked
 
 logger = logging.getLogger(__name__)
@@ -44,6 +47,7 @@ DEFAULT_DERIVE_LIMIT = 200
 # under Lambda's 6 MB.
 RECONCILE_CHUNK_ROWS = 2000
 DRIFT_POOL = 500
+RECHECK_PAGE = 5000
 
 
 @dataclasses.dataclass
@@ -66,13 +70,15 @@ class PassResult:
 
 def _plan_reads(
     db: ClassifierDB, security_ids: list[int], attempts: AttemptStore | None, llm_enabled: bool, result: PassResult,
+    reread: Collection[int] = (),
 ) -> tuple[list[ExtractionInput], dict]:
     """The inputs to read this pass, and stored first sides for second sides read without theirs. A security is read
-    when its source or the extractor changed and it isn't waiting out an earlier attempt; a changed first side brings
-    its second side (a negation, no model call)."""
+    when its source or the extractor changed, or it is in `reread`, and it isn't waiting out an earlier attempt; a
+    changed first side brings its second side (a negation, no model call)."""
     inputs = {i.security_id: i for i in db.get_extraction_inputs(security_ids)}
     stored = db.get_proposition_versions(security_ids)
     due = {sid for sid, item in inputs.items() if stored.get(sid) != (item.source_hash, EXTRACTOR_VERSION)}
+    due |= set(reread) & set(inputs)
     if attempts is not None and due:
         skip = waiting(attempts, {sid: inputs[sid].source_hash for sid in due}, EXTRACTOR_VERSION, llm_enabled,
                        READERS_VERSION)
@@ -119,9 +125,10 @@ def read_propositions(
     extractor: PropositionExtractor | None,
     embed: Embed,
     attempts: AttemptStore | None = None,
+    reread: Collection[int] = (),
 ) -> PassResult:
     result = PassResult()
-    items, partners = _plan_reads(db, security_ids, attempts, extractor is not None, result)
+    items, partners = _plan_reads(db, security_ids, attempts, extractor is not None, result, reread)
     if not items:
         return result
     index = CombinedSubjectIndex(StoredSubjectIndex(db, embed), InMemorySubjectIndex(embed))
@@ -184,6 +191,30 @@ def read_backlog(
     if not due:
         return PassResult(), following
     return read_propositions(due, db=db, registry=registry, extractor=extractor, embed=embed, attempts=attempts), following
+
+
+def recheck_readers(
+    *,
+    db: ClassifierDB,
+    registry: RegistryClient,
+    embed: Embed,
+    limit: int = RECHECK_PAGE,
+    after: int = 0,
+) -> tuple[PassResult, int]:
+    """Re-reads, by code alone, the open securities after `after` (up to `limit` of them) whose stored proposition
+    differs from what the code readers read now: a family a reader newly handles, or one it reads differently.
+    Returns the pass and where the next page starts, 0 once every open security was looked at. Nothing else would
+    re-read them, since their source and the extractor version are unchanged."""
+    security_ids = db.securities_with_open_sources(limit, after)
+    following = security_ids[-1] if len(security_ids) == limit else 0
+    readings = {i.security_id: p for i in db.get_extraction_inputs(security_ids)
+                if is_primary_side(i) and (p := extract_venue(i.source)) is not None}
+    stored = db.get_stored_propositions(sorted(readings))
+    changed = sorted(sid for sid, p in readings.items()
+                     if sid in stored and stored[sid][:2] != (p, Method.VENUE.value))
+    if not changed:
+        return PassResult(), following
+    return read_propositions(changed, db=db, registry=registry, extractor=None, embed=embed, reread=changed), following
 
 
 def _chunks(security_ids: list[int], rows: list[Derived]) -> list[tuple[list[int], list[Derived]]]:
@@ -274,6 +305,7 @@ class VersionMarker(Protocol):
 
 
 DERIVATION_VERSION_KEY = "derive:version"
+READERS_VERSION_KEY = "readers:version"
 
 
 def rederive_on_new_version(db: ClassifierDB, marker: VersionMarker) -> int:

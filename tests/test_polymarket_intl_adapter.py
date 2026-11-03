@@ -221,9 +221,9 @@ def test_non_sports_binary_event_title_unchanged():
 
 # ── Entity creation ───────────────────────────────────────────────────────────
 
-def test_entity_creation_neg_risk(stub_registry, stub_db, mock_converse):
+def test_entity_creation_neg_risk(stub_registry, stub_db, mock_canonicalizer):
     contracts = _map("harvey-weinstein-prison-time")
-    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
     # All 3 contracts share one native_id → 1 event
     assert result.events_created == 1
     assert result.securities_created == 3
@@ -231,9 +231,9 @@ def test_entity_creation_neg_risk(stub_registry, stub_db, mock_converse):
     assert result.event_contracts_created == 3
 
 
-def test_entity_creation_ladder(stub_registry, stub_db, mock_converse):
+def test_entity_creation_ladder(stub_registry, stub_db, mock_canonicalizer):
     contracts = _map("kraken-ipo-by")
-    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
     # 3 markets with different native_ids → 3 events, each with Yes+No
     assert result.events_created == 3
     assert result.securities_created == 6
@@ -241,9 +241,9 @@ def test_entity_creation_ladder(stub_registry, stub_db, mock_converse):
     assert result.event_contracts_created == 6
 
 
-def test_entity_creation_sports(stub_registry, stub_db, mock_converse):
+def test_entity_creation_sports(stub_registry, stub_db, mock_canonicalizer):
     contracts = _map("wnba-sea-nyl-2026-08-05")
-    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
     # 4 distinct event_titles → 4 events, each with 2 outcomes
     assert result.events_created == 4
     assert result.securities_created == 8
@@ -418,23 +418,23 @@ def test_lot_size_unchanged():
 
 # ── Listing spec update detection ─────────────────────────────────────────────
 
-def test_listing_spec_updated_on_tick_size_change(stub_registry, stub_db, mock_converse):
+def test_listing_spec_updated_on_tick_size_change(stub_registry, stub_db, mock_canonicalizer):
     contracts = _map("elon-mars")
-    result1 = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    result1 = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
     assert result1.listing_specs_created == 2
     assert result1.listing_specs_updated == 0
 
     for c in contracts:
         c.tick_size = 1_000_000  # changed from 10_000_000
-    result2 = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    result2 = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
     assert result2.listing_specs_updated == 2
     assert result2.listing_specs_created == 0
 
 
-def test_listing_spec_not_updated_when_unchanged(stub_registry, stub_db, mock_converse):
+def test_listing_spec_not_updated_when_unchanged(stub_registry, stub_db, mock_canonicalizer):
     contracts = _map("elon-mars")
-    create_entities(stub_registry, mock_converse, contracts, db=stub_db)
-    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
     assert result.listing_specs_created == 0
     assert result.listing_specs_updated == 0
 
@@ -474,13 +474,13 @@ def test_closed_event_resolves_all_its_markets(monkeypatch):
     assert adapter.fetch_resolved(EXCHANGE_ID, 3) == {"0xclosed:1", "0xclosed:2", "0xarchived:3", "0xarchived:4"}
 
 
-def test_listing_spec_updated_on_min_size_change(stub_registry, stub_db, mock_converse):
+def test_listing_spec_updated_on_min_size_change(stub_registry, stub_db, mock_canonicalizer):
     contracts = _map("elon-mars")
-    create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
 
     for c in contracts:
         c.min_size = 10_000_000
-    result = create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    result = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
     assert result.listing_specs_updated == 2
     assert result.listing_specs_created == 0
 

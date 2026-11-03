@@ -29,12 +29,6 @@ def format_security_symbol(prefix: str, *parts: str) -> str:
     return "-".join([prefix, *cleaned])
 
 
-def strip_code_fences(text: str) -> str:
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    return text
-
-
 def bulk_create_chunked(items: list[dict], label: str, batch_size: int = DEFAULT_BULK_CREATE_BATCH_SIZE) -> Iterator[tuple[int, list[dict]]]:
     total_chunks = -(-len(items) // batch_size)
     for chunk_start in range(0, len(items), batch_size):

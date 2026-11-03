@@ -10,7 +10,7 @@ import boto3
 import voyageai
 
 from classifier.cache import RedisClassifierCache
-from classifier.client import BatchVoyageClient, BedrockConverseClient, bedrock_runtime_client
+from classifier.client import BatchVoyageClient
 
 from classifier.db import ClassifierDB
 from classifier.runtime_config import RuntimeConfig
@@ -58,10 +58,6 @@ def claude_client(provider: str) -> anthropic.Anthropic | anthropic.AnthropicBed
     if provider == "bedrock":
         return anthropic.AnthropicBedrockMantle(aws_region=os.environ.get("AWS_REGION", "us-east-1"))
     raise ValueError(f"No Claude client for provider {provider!r}")
-
-
-def init_bedrock() -> BedrockConverseClient:
-    return BedrockConverseClient(client=bedrock_runtime_client())
 
 
 def init_voyage() -> BatchVoyageClient:

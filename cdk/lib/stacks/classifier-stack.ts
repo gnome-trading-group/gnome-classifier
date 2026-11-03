@@ -288,6 +288,17 @@ export class ClassifierStack extends cdk.Stack {
     this.listingsReactivated = logMetric(workerLogGroups.Fetch, 'ListingsReactivated',
       logs.FilterPattern.literal('"retired listings as open again"'));
 
+    // Canonicalization (Normalize) and proposition extraction (Relationships) reach Claude through the provider the
+    // service config names, either one at runtime: the Anthropic API key, or Bedrock's Messages endpoint, which signs
+    // as the bedrock-mantle service. Which models are called is runtime config, so the grant can't be pinned to one.
+    const grantClaude = (role: iam.IRole) => {
+      anthropicApiKeySecret.grantRead(role);
+      role.addToPrincipalPolicy(new iam.PolicyStatement({
+        actions: ['bedrock-mantle:*'],
+        resources: ['*'],
+      }));
+    };
+
     // ── NormalizeWorker ───────────────────────────────────────────────
 
     this.normalizeService = createWorkerService('Normalize', 'normalize', {
@@ -302,15 +313,7 @@ export class ClassifierStack extends cdk.Stack {
         actions: ['apigateway:GET'],
         resources: [cdk.Fn.importValue('RegistryApiKeyArn'), controllerApiKeyArn],
       }));
-      // The canonicalize model is runtime config, and cross-region profiles route to foundation models in other
-      // regions (global profiles to a region-less ARN), so neither resource can be pinned at deploy time.
-      role.addToPolicy(new iam.PolicyStatement({
-        actions: ['bedrock:InvokeModel'],
-        resources: [
-          `arn:aws:bedrock:${this.region}:${this.account}:inference-profile/*`,
-          'arn:aws:bedrock:*::foundation-model/*',
-        ],
-      }));
+      grantClaude(role);
     });
 
     // Entities are created by the normalize worker, which logs when it refuses to link a security a second time.
@@ -322,7 +325,7 @@ export class ClassifierStack extends cdk.Stack {
     this.relationshipsService = createWorkerService('Relationships', 'relationships', sharedEnv, 512, (role) => {
       this.entitiesQueue.grantConsumeMessages(role);
       this.notificationsTopic.grantPublish(role);
-      anthropicApiKeySecret.grantRead(role);
+      grantClaude(role);
       voyageApiKeySecret.grantRead(role);
       dbSecret.grantRead(role);
       role.addToPolicy(new iam.PolicyStatement({

@@ -17,10 +17,14 @@ Python 3.13, Poetry, from the repo root:
 - `poetry run eval-relationships --derive` - score propositions + derivation against the 256 golden pairs (paid model
   calls; `--save-propositions F` / `--propositions F` to re-score free); `poetry run eval-propositions` - score
   extraction (`--venue-only` free, `--stored` replays stored sources, `--stored --drift` the drift check)
+- `poetry run eval-subject-merges` - score the subject merge judge against the 182 golden subject pairs
+  (`tests/fixtures/subjects/pairs.jsonl`; paid model calls; `--save F` / `--judgments F` to re-score free); fails
+  under 99% SAME precision
 - `poetry run dry-run <fetch|canonicalize|entities> ...` - run stages locally against in-memory
   stubs; real Postgres/Redis only when `DATABASE_URL`/`REDIS_URL` are set. Flags in the `scripts/dry_run.py` docstring.
 - `poetry run bootstrap ...` - one-time full load into the real registry (writes for real; see script header)
-- `poetry run backfill-taxonomy [--apply]` - re-derive categories/tags from the static taxonomy; dry run without `--apply`
+- `poetry run backfill-taxonomy [--llm] [--apply]` - re-derive categories/tags from the static taxonomy, then with
+  `--llm` have Claude fill missing categories and thin tags (paid); dry run without `--apply`
 - `worker sync-names [--exchange X] [--apply]` - rename outcome labels, security symbols and listing names to what the
   venues list now; dry run without `--apply`
 - `worker split-securities [--exchange X] [--apply]` - give each open market its own security where one security holds
@@ -45,8 +49,10 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   `ADAPTERS`; `types.py` (`AdapterContract`, `MarketState`), `settlement.py`
 - `classifier/propositions/` - `types` (Proposition), `venue/` (code readers for fixed-template families, one module
   per venue: `kalshi`, `polymarket_us`, `polymarket_intl`, `hyperliquid`; shared parsing in `common`), `llm` (Claude
-  extractor), `extract` (venue first, LLM for the rest, binary second sides negated), `subjects` (candidate subjects,
-  embedding indexes), `derive` (pure derivation), `drift`, `evaluation`; `classifier/relationships/evaluation.py` -
+  extractor), `claude` (structured Claude requests with the provider fallback), `extract` (venue first, LLM for the
+  rest, binary second sides negated), `subjects` (candidate subjects, embedding indexes), `merges` (duplicate subjects
+  across venues: candidates and the Claude judge), `derive` (pure derivation), `drift`, `evaluation`,
+  `merge_evaluation`; `classifier/relationships/evaluation.py` -
   scores relationships against `tests/fixtures/relationships/pairs.jsonl`
 - `classifier/client/` - Bedrock, Voyage, HTTP clients; `classifier/cache/` - Redis cache
 - `classifier/runtime_config.py` - `ClassifierConfig` read from the controller; `constants.py` - its defaults
@@ -65,9 +71,11 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
 - Relationships are derived, never judged: a security's proposition is read once per source hash and
   `EXTRACTOR_VERSION`, relationships are derived per subject by `propositions/derive.py` (`DERIVATION_VERSION`) and
   each subject's set is replaced as a whole (`contract-relationships/reconcile`); manual rows always win. Bumping
-  either version re-reads or re-derives. Only `EQUIVALENT` and `IMPLIES` exist; exclusion and complements come from
-  `contract_type` and event membership. A field the extractor couldn't determine is in `unknown` and blocks every rule
-  that needs it.
+  either version re-reads or re-derives. A change to the code readers needs no bump: once per `READERS_VERSION` (a
+  hash of `propositions/venue/`, marked in Redis `readers:version`) the Relationships worker walks the open
+  securities and re-reads, by code alone, those the readers now read differently. Only `EQUIVALENT` and `IMPLIES`
+  exist; exclusion and complements come from `contract_type` and event membership. A field the extractor couldn't
+  determine is in `unknown` and blocks every rule that needs it.
 - An adapter must never move a security to another event; `entities.py` refuses and logs `already in event`
   (`IdentityRegressions`). Changing how an adapter derives `exchange_event_native_id` or `exchange_security_id` splits
   or orphans markets that collectors and sessions already reference.
@@ -90,12 +98,13 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   `canonicalization_enabled`, `relationships_enabled`, `proposition_llm_enabled` (Claude for what the code readers
   can't read, plus the drift check; paid per contract, keep off in dev), `debug`. `RuntimeConfig` polls `/config/classifier` at
   most every 30s and keeps the last good config on failure. Code defaults only apply to keys the controller lacks.
-- LLMs: categorization runs on Bedrock Converse (`canonicalize_model`, default `us.amazon.nova-lite-v1:0`) and is billed
-  to AWS, so Normalize needs `bedrock:InvokeModel`, not the Anthropic key. Proposition extraction uses Claude through
-  `models.proposition_provider` (`anthropic` API key, or `bedrock`; `proposition_fallback_provider` on an outage) with
-  `models.proposition_models[provider]`. Dev and prod have no Claude access on Bedrock yet (2026-10-29), so keep
-  `anthropic` until it is enabled per account. Embeddings are Voyage (proposition subjects). Model ids are
-  cache keys: changing a model re-runs everything once.
+- LLMs: every Claude call (proposition extraction in Relationships, canonicalization in Normalize, the subject merge
+  judge) goes through `classifier/client/claude.py` with one provider, `models.provider` (`anthropic` API key, or
+  `bedrock` via Bedrock's Messages endpoint, IAM `bedrock-mantle:*`), and `models.fallback_provider` on an outage.
+  Each task has its own model per provider: `models.proposition_models`, `models.canonicalize_models` (default Haiku
+  5.5 for both). Dev and prod have no Claude access on Bedrock yet (2026-10-29), so keep `anthropic` until it is
+  enabled per account. Embeddings are Voyage (proposition subjects). Model ids are cache keys: changing a model
+  re-runs everything once.
 - Redis (single `cache.t3.micro`, private subnets): `fetch:known_contracts`, `fetch:sent_resolved`,
   `fetch:stale_tracker`, `exchange_events`, `canon:*`, `prop:attempt:*` (proposition read backoff; every key
   expires, since the node's `volatile-lru` only evicts keys that do). No bastion, SSM or ECS Exec reaches it, and
@@ -156,16 +165,18 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
     at once; treated as a feed fault, left to the resolve cycle.
   - `Classifier--WorkerHealth-VenueReaderFallbacks-Warning`: 25+ in an hour of `venue reader fell back`: a family the
     proposition code readers handle (`classifier/propositions/venue/`) stopped parsing, usually a venue rewording its
-    rules. `poetry run eval-propositions --stored` shows which family; fix the reader and bump `EXTRACTOR_VERSION`.
+    rules. `poetry run eval-propositions --stored` shows which family; fix the reader (deployed, it re-reads what it
+    now reads differently; no version bump).
   - `Classifier--WorkerHealth-PropositionDrift-Warning`: any `proposition drift`: the daily re-read by Claude disagreed
     with a code reader on a field. Read the line (family, field, both values) and the contract's stored source.
   - `Classifier--WorkerHealth-PropositionCollisions-Warning`: two outcomes of one event were read as the same
     proposition (two candidates given one name), so derivation left both out. Read the `proposition collision` line
-    and the two contracts' sources; usually a prompt fix for the next `EXTRACTOR_VERSION`.
+    and the two contracts' sources; a code reader for a fixed-template family (no version bump), else a prompt fix
+    for the next `EXTRACTOR_VERSION`.
   - `Classifier--WorkerHealth-MultiMarketSecurities-Warning`: a security with several open listings, or listings with
     different sources, got no source (`may be several markets`). Run `worker split-securities`.
   - `Classifier--WorkerHealth-ListingsReactivated-Warning`: 50+ retired listings on one venue listed as open again and
     turned back on; a venue misreporting closures.
 - Runbook: gnome-registry `docs/runbooks/cloudwatch/Classifier.md` (it lists fewer alarms than exist here).
 - TODO(verify): README drift to fix separately: Fetch memory (says 1024, is 3072), `min_event_volume` default (5000 vs
-  1000), Normalize's Anthropic secret (it uses Bedrock), alarms "routed to Slack" (they have no actions), fee sync interval missing.
+  1000), alarms "routed to Slack" (they have no actions), fee sync interval missing.

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 
 from classifier.cache.base import ClassifierCache
-from classifier.client import BedrockConverseClient, ConverseResult
+from classifier.client.claude import Answer, ClaudeAsker
 from classifier.db import EventLink
 from classifier.propositions.attempts import Attempt
 from classifier.propositions.derive import Contract
@@ -47,28 +47,23 @@ class MemoryClassifierCache(ClassifierCache):
         self._canon[self._canon_hash(model, exchange_id, native_id)] = result
 
 
-class FakeConverseClient(BedrockConverseClient):
-    """Answers canonicalization prompts with a fixed category and tags, echoing each event's id and key."""
+class FakeCanonicalizer(ClaudeAsker):
+    """Answers canonicalization requests with a fixed category and tags, echoing each event's id and key."""
 
-    def __init__(self, category: str = "OTHER", tags: list[str] | None = None):
-        super().__init__(client=None)
+    def __init__(self, category: str = "OTHER", tags: list[str] | None = None, model: str = "fake-model"):
+        super().__init__(lambda provider: None, ["anthropic"], {"anthropic": model})
         self._category = category
         self._tags = tags or []
         self.calls = 0
 
-    def converse(self, model: str, prompt: str, max_tokens: int) -> ConverseResult:
+    def ask_with_usage(self, system: str, prompt: str, schema: dict, max_tokens: int, effort: str) -> Answer:
         self.calls += 1
-        items = []
-        single = None
-        for line in prompt.splitlines():
-            if line.startswith("[") and "(key: " in line:
-                items.append({
-                    "id": int(line[1:line.index("]")]), "key": line.split("(key: ", 1)[1].split(")", 1)[0],
-                    "category": self._category, "tags": self._tags,
-                })
-            elif line.startswith("Exchange-provided title:"):
-                single = {"category": self._category, "tags": self._tags}
-        return ConverseResult(text=json.dumps(single if single is not None else items), input_tokens=0, output_tokens=0)
+        events = [
+            {"id": int(line[1:line.index("]")]), "key": line.split("(key: ", 1)[1].split(")", 1)[0],
+             "category": self._category, "tags": self._tags}
+            for line in prompt.splitlines() if line.startswith("[") and "(key: " in line
+        ]
+        return Answer(text=json.dumps({"events": events}), input_tokens=0, output_tokens=0)
 
 
 class StubRegistry(RegistryClient):
@@ -696,6 +691,10 @@ class StubDB:
                if sid > after and ((p := self._r._propositions.get(sid)) is None
                or (p["source_hash"], p["extractor_version"]) != (self._r._contract_sources[sid]["source_hash"], extractor_version))]
         return due[:limit]
+
+    def securities_with_open_sources(self, limit: int, after: int = 0) -> list[int]:
+        open_sids = {i.security_id for i in self.get_extraction_inputs(sorted(self._r._contract_sources))}
+        return [sid for sid in sorted(open_sids) if sid > after][:limit]
 
     def get_proposition_versions(self, security_ids: list[int]) -> dict[int, tuple[str, str]]:
         return {sid: (p["source_hash"], p["extractor_version"]) for sid, p in self._r._propositions.items()

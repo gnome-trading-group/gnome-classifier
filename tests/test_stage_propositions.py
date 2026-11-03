@@ -1,13 +1,17 @@
-from unittest.mock import MagicMock
-
 from gnomepy.registry.relations import Edge, close
 
 from classifier.adapters import kalshi
 from classifier.propositions.derive import IMPLIES
-from classifier.propositions.types import EXTRACTOR_VERSION, Kind, Proposition
+from classifier.propositions.types import EXTRACTOR_VERSION, Comparator, Kind, Observation, Proposition
 from classifier.stages.entities import create_entities
 from classifier.stages import propositions as stage
-from classifier.stages.propositions import derive_due_subjects, read_backlog, read_propositions, rederive_on_new_version
+from classifier.stages.propositions import (
+    derive_due_subjects,
+    read_backlog,
+    read_propositions,
+    recheck_readers,
+    rederive_on_new_version,
+)
 
 RULE = ("If the simple average of the sixty seconds of CF Benchmarks' Bitcoin Real-Time Index (BRTI) before {h} PM EDT "
         "is above {v} at {h} PM EDT on Oct 29, 2026, then the market resolves to Yes.")
@@ -73,7 +77,7 @@ def rebuilt(stub_registry, stub_db) -> dict:
 
 def load(stub_registry, stub_db, event):
     contracts = kalshi._with_sources(event, kalshi.KalshiAdapter()._map_event(2, event))
-    create_entities(stub_registry, MagicMock(), contracts, db=stub_db, canonicalize_enabled=False)
+    create_entities(stub_registry, None, contracts, db=stub_db)
     by_listing = {(src["source"]["market"]["ticker"], src["source"]["side"]): sid
                   for sid, src in stub_registry._contract_sources.items()}
     return {c.exchange_security_id: by_listing[tuple(c.exchange_security_id.split(":"))] for c in contracts}
@@ -248,3 +252,86 @@ def test_a_new_derivation_version_rederives_every_subject_once(stub_registry, st
     assert rederive_on_new_version(stub_db, marker) == 0
     derive_due_subjects(db=stub_db, registry=stub_registry)
     assert stale not in stub_registry._relationships
+
+
+def fed_meeting() -> dict:
+    event = "KXFEDDECISION-27JAN"
+    rules = "If the Federal Reserve does a {} on January 27, 2027, then the market resolves to Yes."
+    outcomes = [("C26", "Cut >25bps", "Cut of   25bps"), ("C25", "Cut 25bps", "Cut of 25bps"),
+                ("H0", "Fed maintains rate", "Hike of 0bps"), ("H25", "Hike 25bps", "Hike of 25bps"),
+                ("H26", "Hike >25bps", "Hike of   25bps")]
+    return {
+        "event_ticker": event, "series_ticker": "KXFEDDECISION", "title": "Fed decision in Jan 2027?",
+        "mutually_exclusive": True, "settlement_sources": [{"name": "Federal Reserve"}],
+        "markets": [{"ticker": f"{event}-{code}", "status": "active", "yes_sub_title": subtitle,
+                     "rules_primary": rules.format(action), "close_time": "2027-01-27T18:59:00Z"}
+                    for code, subtitle, action in outcomes],
+    }
+
+
+class ReadsCutsAsHikes:
+    """The model's reading before the code reader: "Cut >25bps" as a change of more than +25, like the hike."""
+
+    def extract(self, groups, candidates):
+        items = [i for _, (_, chunk) in groups.items() for i in chunk]
+        return {i.security_id: (Proposition(subject="fed-funds-target:2027-01-27", kind=Kind.THRESHOLD,
+                                            measure="target_rate_change_bps", comparator=Comparator.GT, value=25.0,
+                                            unit="bps", observation=Observation.AT_TIME), "The Fed's January decision")
+                for i in items}
+
+
+class TestRecheckReaders:
+    def _read_by_the_model(self, stub_registry, stub_db, monkeypatch, event) -> dict:
+        contracts = kalshi._with_sources(event, kalshi.KalshiAdapter()._map_event(2, event))
+        create_entities(stub_registry, None, contracts, db=stub_db)
+        sids = {src["source"]["market"]["ticker"].rsplit("-", 1)[1]: sid
+                for sid, src in stub_registry._contract_sources.items()
+                if src["source"]["market"]["ticker"].startswith(event["event_ticker"])}
+        monkeypatch.setattr("classifier.propositions.extract.extract_venue", lambda source: None)
+        read_propositions(sorted(sids.values()), db=stub_db, registry=stub_registry, extractor=ReadsCutsAsHikes(),
+                          embed=embed)
+        monkeypatch.undo()
+        return sids
+
+    def test_what_a_reader_now_reads_is_stored_from_code(self, stub_registry, stub_db, monkeypatch):
+        sids = self._read_by_the_model(stub_registry, stub_db, monkeypatch, fed_meeting())
+        assert {p["method"] for p in stub_registry._propositions.values()} == {"LLM"}
+
+        result, following = recheck_readers(db=stub_db, registry=stub_registry, embed=embed)
+        assert following == 0
+        assert (result.read, result.stored) == (5, 5)
+        assert {p["method"] for p in stub_registry._propositions.values()} == {"VENUE"}
+        cut = stub_db.get_stored_propositions([sids["C26"]])[sids["C26"]][0]
+        assert (cut.subject, cut.comparator, cut.value) == ("fomc:2027-01-meeting", Comparator.LT, -25.0)
+        assert stub_db.securities_needing_propositions(EXTRACTOR_VERSION, 100) == []
+
+    def test_a_second_walk_reads_nothing(self, stub_registry, stub_db, monkeypatch):
+        self._read_by_the_model(stub_registry, stub_db, monkeypatch, fed_meeting())
+        recheck_readers(db=stub_db, registry=stub_registry, embed=embed)
+        again, _ = recheck_readers(db=stub_db, registry=stub_registry, embed=embed)
+        assert (again.read, again.stored) == (0, 0)
+
+    def test_the_walk_pages_and_leaves_what_no_reader_reads(self, stub_registry, stub_db, monkeypatch):
+        mention = load(stub_registry, stub_db, mention_market())
+        read_propositions(sorted(mention.values()), db=stub_db, registry=stub_registry, extractor=AnswersEverything(),
+                          embed=embed)
+        sids = self._read_by_the_model(stub_registry, stub_db, monkeypatch, fed_meeting())
+        stored, after, pages = 0, 0, 0
+        while True:
+            result, after = recheck_readers(db=stub_db, registry=stub_registry, embed=embed, limit=4, after=after)
+            stored, pages = stored + result.stored, pages + 1
+            if not after:
+                break
+        assert (stored, pages) == (5, 2)
+        assert {stub_registry._propositions[sid]["method"] for sid in mention.values()} == {"LLM"}
+        assert {stub_registry._propositions[sid]["method"] for sid in sids.values()} == {"VENUE"}
+
+    def test_the_rederived_meeting_has_no_collision(self, stub_registry, stub_db, monkeypatch, caplog):
+        self._read_by_the_model(stub_registry, stub_db, monkeypatch, fed_meeting())
+        derive_due_subjects(db=stub_db, registry=stub_registry)
+        assert "proposition collision" in caplog.text
+
+        caplog.clear()
+        recheck_readers(db=stub_db, registry=stub_registry, embed=embed)
+        assert derive_due_subjects(db=stub_db, registry=stub_registry).subjects_derived >= 1
+        assert "proposition collision" not in caplog.text

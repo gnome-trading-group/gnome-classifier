@@ -8,7 +8,9 @@ import pytest
 from moto import mock_aws
 
 from classifier.adapters.types import AdapterContract
+from classifier.propositions.venue import READERS_VERSION
 from classifier.runtime_config import ClassifierConfig, FeatureFlags
+from classifier.stages.propositions import READERS_VERSION_KEY, PassResult
 from classifier.workers.config import WorkerConfig
 from classifier.workers.normalize import NormalizeWorker
 from classifier.workers.notify import NotifyWorker
@@ -81,11 +83,11 @@ def _make_mock_runtime_config():
     return rc
 
 
-def _patch_normalize_setup(worker, stub_registry, stub_db, mock_converse, sns_client):
+def _patch_normalize_setup(worker, stub_registry, stub_db, mock_canonicalizer, sns_client):
     def _setup(self):
         self._runtime_config = _make_mock_runtime_config()
         self._registry = stub_registry
-        self._canon_client = mock_converse
+        self._client_for = lambda provider: None
         self._cache = _make_no_op_cache()
         self._db = stub_db
         self._sns = sns_client
@@ -106,11 +108,11 @@ def _patch_relationships_setup(worker, stub_registry, stub_db, sns_client, relat
 
 
 class TestNormalizeWorker:
-    def test_new_contracts_produces_entity_messages(self, moto_env, stub_registry, stub_db, mock_converse):
+    def test_new_contracts_produces_entity_messages(self, moto_env, stub_registry, stub_db, mock_canonicalizer):
         sns_client = boto3.client("sns", region_name="us-east-1")
         config = WorkerConfig()
         worker = NormalizeWorker(config)
-        _patch_normalize_setup(worker, stub_registry, stub_db, mock_converse, sns_client)
+        _patch_normalize_setup(worker, stub_registry, stub_db, mock_canonicalizer, sns_client)
         worker._setup()
 
         contract = _make_adapter_contract()
@@ -123,11 +125,11 @@ class TestNormalizeWorker:
             assert "security_id" in msg
             assert "security_symbol" in msg
 
-    def test_new_contracts_enriches_messages_with_event_info(self, moto_env, stub_registry, stub_db, mock_converse):
+    def test_new_contracts_enriches_messages_with_event_info(self, moto_env, stub_registry, stub_db, mock_canonicalizer):
         sns_client = boto3.client("sns", region_name="us-east-1")
         config = WorkerConfig()
         worker = NormalizeWorker(config)
-        _patch_normalize_setup(worker, stub_registry, stub_db, mock_converse, sns_client)
+        _patch_normalize_setup(worker, stub_registry, stub_db, mock_canonicalizer, sns_client)
         worker._setup()
 
         contract = _make_adapter_contract(event_title="Will BTC hit $100k?")
@@ -140,11 +142,11 @@ class TestNormalizeWorker:
         assert len(event_msgs) > 0
         assert all("created_event_name" in m for m in event_msgs)
 
-    def test_new_contracts_does_not_publish_to_sns(self, moto_env, stub_registry, stub_db, mock_converse):
+    def test_new_contracts_does_not_publish_to_sns(self, moto_env, stub_registry, stub_db, mock_canonicalizer):
         sns_client = boto3.client("sns", region_name="us-east-1")
         config = WorkerConfig()
         worker = NormalizeWorker(config)
-        _patch_normalize_setup(worker, stub_registry, stub_db, mock_converse, sns_client)
+        _patch_normalize_setup(worker, stub_registry, stub_db, mock_canonicalizer, sns_client)
         worker._setup()
 
         contract = _make_adapter_contract()
@@ -158,7 +160,7 @@ class TestNormalizeWorker:
         assert "new_events" not in types_seen
 
     def test_closed_contracts_deactivate_listings_without_resolving_or_announcing(
-        self, moto_env, stub_registry, stub_db, mock_converse,
+        self, moto_env, stub_registry, stub_db, mock_canonicalizer,
     ):
         stub_registry.bulk_create_events([{"title": "Test event", "exchange_id": 1, "native_event_id": "evt-1"}])
         event_id = stub_registry._events[0].event_id
@@ -170,7 +172,7 @@ class TestNormalizeWorker:
         sns_client = boto3.client("sns", region_name="us-east-1")
         config = WorkerConfig()
         worker = NormalizeWorker(config)
-        _patch_normalize_setup(worker, stub_registry, stub_db, mock_converse, sns_client)
+        _patch_normalize_setup(worker, stub_registry, stub_db, mock_canonicalizer, sns_client)
         worker._setup()
 
         messages = [_sqs_msg({"type": "closed", "exchange_id": 1, "native_id": "sec-native-1"})]
@@ -180,6 +182,11 @@ class TestNormalizeWorker:
         assert stub_registry._securities[0].active is False
         assert stub_registry._events[0].resolved is False
         assert _drain_queue(moto_env["sqs"], moto_env["slack_queue"]) == []
+
+
+class DictMarker(dict):
+    def set(self, key, value):
+        self[key] = value
 
 
 class TestRelationshipsWorker:
@@ -265,6 +272,19 @@ class TestRelationshipsWorker:
             worker.on_idle()
         assert derive.call_count == 1
 
+    def test_a_new_readers_version_is_walked_once_then_marked(self, moto_env, stub_registry, stub_db):
+        _, (sid_yes, _) = self._event_with_two_sides(stub_registry)
+        worker = self._worker(stub_registry, stub_db, relationships_enabled=True)
+        worker._markers, worker._recheck_after = DictMarker(), 0
+        msg = _sqs_msg({"type": "security", "security_id": sid_yes, "security_symbol": "SYM-YES"})
+        with patch("classifier.workers.relationships.recheck_readers",
+                   side_effect=[(PassResult(), 7), (PassResult(), 0)]) as recheck, \
+                patch("classifier.workers.relationships.derive_due_subjects"):
+            for _ in range(3):
+                worker.process_batch([msg])
+        assert [c.kwargs["after"] for c in recheck.call_args_list] == [0, 7]
+        assert worker._markers == {READERS_VERSION_KEY: READERS_VERSION}
+
 class TestNotifyWorker:
     def test_aggregates_and_calls_slack(self, moto_env):
         config = WorkerConfig()
@@ -334,12 +354,12 @@ class TestNotifyWorker:
 
 
 class TestPipelineMessageCompat:
-    def test_normalize_output_feeds_relationships(self, moto_env, stub_registry, stub_db, mock_converse):
+    def test_normalize_output_feeds_relationships(self, moto_env, stub_registry, stub_db, mock_canonicalizer):
         """Messages NormalizeWorker produces are the relationships worker's input, created-event info included."""
         sns_client = boto3.client("sns", region_name="us-east-1")
         config = WorkerConfig()
         normalize = NormalizeWorker(config)
-        _patch_normalize_setup(normalize, stub_registry, stub_db, mock_converse, sns_client)
+        _patch_normalize_setup(normalize, stub_registry, stub_db, mock_canonicalizer, sns_client)
         normalize._setup()
 
         norm_output = normalize.process_batch([

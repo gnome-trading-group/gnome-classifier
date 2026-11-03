@@ -1,5 +1,4 @@
 import os
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -50,7 +49,7 @@ def mention_event(words=("AI", "Tariff")) -> dict:
 def load_multi(stub_registry, stub_db, event) -> dict[str, int]:
     """{market ticker: security id} for a multi-outcome event, whose securities have no Yes/No side."""
     contracts = kalshi._with_sources(event, kalshi.KalshiAdapter()._map_event(2, event))
-    create_entities(stub_registry, MagicMock(), contracts, db=stub_db, canonicalize_enabled=False)
+    create_entities(stub_registry, None, contracts, db=stub_db)
     by_ticker = {src["source"]["market"]["ticker"]: sid for sid, src in stub_registry._contract_sources.items()}
     return {c.exchange_security_id: by_ticker[c.exchange_security_id] for c in contracts}
 

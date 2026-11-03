@@ -1,12 +1,23 @@
-"""Kalshi markets read by code: crypto and S&P snapshots (CF Benchmarks indices, 15-minute windows), and per-game
+"""Kalshi markets read by code: crypto and S&P snapshots (CF Benchmarks indices, 15-minute windows), per-game
 markets keyed by the ticker's game segment (totals, first halves, team totals, spreads, winners, map winners, player
-props, tennis games). A game's markets share one subject, `game:<league>:<date>:<teams>[-<hhmm>]`, so its ladders
-compare with each other.
+props, tennis games), and central bank rate decisions (the Fed and the KXCBD* series). A game's markets share one
+subject, `game:<league>:<date>:<teams>[-<hhmm>]`, so its ladders compare with each other; a rate decision's subject,
+measure and time come from the bank table Polymarket's reader shares (`common.RATE_BANKS`), so the venues' meetings
+compare.
 """
 import re
+from datetime import datetime
 
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability, subject_key
-from classifier.propositions.venue.common import CF_INDICES, comparison, eastern, number, price_rise
+from classifier.propositions.venue.common import (
+    CF_INDICES,
+    RATE_BANKS,
+    comparison,
+    eastern,
+    number,
+    price_rise,
+    rate_decision,
+)
 
 _MONTHS = {m: i for i, m in enumerate(("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"), 1)}
 
@@ -55,6 +66,24 @@ _TENNIS_GAMES = re.compile(r"^(?P<tour>ATP|WTA|ATPCHALLENGER|WTACHALLENGER)G$")
 _SPREAD_RULE = re.compile(r"wins? by (?:more than|over) (?P<v>[\d.]+) (?P<unit>runs|points|goals|maps|games)")
 _GAME_SEGMENT = re.compile(r"^(?P<yy>\d{2})(?P<mon>[A-Z]{3})(?P<dd>\d{2})(?P<hhmm>\d{4})?(?P<teams>[A-Z][A-Z0-9]+)$")
 _FAMILY_SUFFIXES = ("TEAMTOTAL", "1HTOTAL", "TOTAL", "SPREAD", "GAME", "MAP") + _PROP_SUFFIXES
+
+_RATE_SERIES_PREFIX = "KXCBD"
+_FED_SERIES = "KXFEDDECISION"
+_RATE_RULE = re.compile(r"^If the (?P<bank>.+?) takes the action of (?P<action>.+?) at (?:its |the )?.*?meeting, then", re.I)
+_RATE_ACTION = re.compile(
+    r"^(?P<dir>cut|hike) (?:(?P<more>more than|greater than) )?(?:(?P<from>\d+)-)?(?P<bps>\d+) ?bps$", re.I
+)
+_RATE_HOLD = re.compile(r"^maintains? (?:the )?current rate$", re.I)
+# Kalshi's Fed rules render ">25bps" with the ">" dropped ("a Cut of   25bps"): the subtitle keeps it.
+_FED_RULE = re.compile(r"^If the Federal Reserve does a (?P<dir>Cut|Hike) of(?P<gap>\s+)(?P<more>>)?(?P<bps>\d+)bps on ")
+_FED_SUBTITLE = re.compile(r"^(?P<dir>Cut|Hike) (?P<more>>)?(?P<bps>\d+)bps$")
+# Kalshi's rules name the bank; its tickers and subtitles date a meeting in US time (the RBA's Nov 3 decision is "Nov 2").
+_KALSHI_BANKS = {
+    "Federal Reserve": "fed", "Bank of England": "boe", "European Central Bank": "ecb", "Bank of Japan": "boj",
+    "Bank of Mexico": "banxico", "Bank of Canada": "boc", "Central Bank of Brazil": "bcb",
+    "Reserve Bank of Australia": "rba", "Reserve Bank of New Zealand": "rbnz", "Central Bank of Chile": "bcch",
+    "Banco de la República": "banrep", "Czech National Bank": "cnb", "Narodowy Bank Polski": "nbp",
+}
 
 _STRIKE_TYPES = {"greater": Comparator.GT, "greater_or_equal": Comparator.GTE, "less": Comparator.LT,
                  "less_or_equal": Comparator.LTE}
@@ -119,7 +148,74 @@ def read(source: dict) -> Proposition | None:
             subject=subject, measure="price", unit="points", observation=Observation.AT_TIME, window_end=at,
             stability=Stability.LIVE, resolution_source=resolution, **_with_strike_check(market, comparison(m)),
         )
+    if _rate_series(series):
+        return _rate_decision(series, market, rules)
     return _kalshi_game(series, rest, market, rules)
+
+
+def _rate_series(series: str) -> bool:
+    return series == _FED_SERIES or series.startswith(_RATE_SERIES_PREFIX)
+
+
+def _rate_change(direction: str, bps: int, more: bool, start: int | None) -> dict:
+    """Fields for a rate change of `bps` basis points, negative for a cut: exactly that, more than that, or from
+    `start` up to it ("1-25bps": any cut of at most 25, but some cut)."""
+    sign = -1 if direction.lower() == "cut" else 1
+    if bps == 0:
+        return {"kind": Kind.RANGE, "low": 0.0, "high": 0.0}
+    if more:
+        return {"kind": Kind.THRESHOLD, "comparator": Comparator.LT if sign < 0 else Comparator.GT,
+                "value": float(sign * bps)}
+    if start is None:
+        return {"kind": Kind.RANGE, "low": float(sign * bps), "high": float(sign * bps)}
+    near, far = float(sign * (start - 1)), float(sign * bps)
+    if sign < 0:
+        return {"kind": Kind.RANGE, "low": far, "high": near, "high_inclusive": False}
+    return {"kind": Kind.RANGE, "low": near, "high": far, "low_inclusive": False}
+
+
+def _fed_change(market: dict, rules: str) -> dict | None:
+    m = _FED_RULE.match(rules)
+    if m is None:
+        return None
+    bps = int(m.group("bps"))
+    if bps == 0:
+        return _rate_change(m.group("dir"), 0, False, None)
+    sub = _FED_SUBTITLE.match(market.get("yes_sub_title") or "")
+    if sub is None or sub.group("dir") != m.group("dir") or int(sub.group("bps")) != bps:
+        return None
+    # Only a gap wider than one space is a dropped ">"; a subtitle saying more than the rules otherwise disagrees.
+    if bool(m.group("more")) != bool(sub.group("more")) and (m.group("more") or m.group("gap") == " "):
+        return None
+    return _rate_change(m.group("dir"), bps, bool(sub.group("more")), None)
+
+
+def _bank_change(rules: str) -> tuple[str, dict] | None:
+    m = _RATE_RULE.match(rules)
+    if m is None or m.group("bank") not in _KALSHI_BANKS:
+        return None
+    action = m.group("action").strip()
+    if _RATE_HOLD.match(action):
+        return m.group("bank"), _rate_change("hike", 0, False, None)
+    a = _RATE_ACTION.match(action)
+    if a is None:
+        return None
+    start = int(a.group("from")) if a.group("from") else None
+    return m.group("bank"), _rate_change(a.group("dir"), int(a.group("bps")), bool(a.group("more")), start)
+
+
+def _rate_decision(series: str, market: dict, rules: str) -> Proposition | None:
+    if series == _FED_SERIES:
+        bank, fields = "Federal Reserve", _fed_change(market, rules)
+    else:
+        bank, fields = _bank_change(rules) or (None, None)
+    close = market.get("close_time")
+    if fields is None or not close:
+        return None
+    rate_bank = RATE_BANKS[_KALSHI_BANKS[bank]]
+    # Trading closes just before the announcement, so its date where the bank sits is the meeting's.
+    meeting = datetime.fromisoformat(close.replace("Z", "+00:00")).astimezone(rate_bank.zone).date()
+    return rate_decision(rate_bank, meeting, fields)
 
 
 def _kalshi_crypto_claimed(series: str) -> bool:
@@ -200,6 +296,6 @@ def is_no_side(source: dict) -> bool:
 
 def claims(source: dict) -> bool:
     series, _, rest = ((source.get("market") or {}).get("ticker") or "").partition("-")
-    if _kalshi_crypto_claimed(series) or series in _KALSHI_INDEX:
+    if _kalshi_crypto_claimed(series) or series in _KALSHI_INDEX or _rate_series(series):
         return True
     return _game_subject(series, rest.split("-")[0]) is not None if rest else False

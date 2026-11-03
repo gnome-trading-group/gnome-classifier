@@ -180,19 +180,19 @@ def _contract(outcome: str, **fees) -> AdapterContract:
     )
 
 
-def test_listings_carry_fee_keys_and_follow_the_venue(stub_registry, stub_db, mock_converse):
+def test_listings_carry_fee_keys_and_follow_the_venue(stub_registry, stub_db, mock_canonicalizer):
     contracts = [_contract(side, fee_group="KXT", fee_event="KXT-A") for side in ("Yes", "No")]
-    create_entities(stub_registry, mock_converse, contracts, db=stub_db)
+    create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
     assert set(stub_registry._fee_keys_by_listing.values()) == {("KXT", "KXT-A")}
 
     moved = [dataclasses.replace(c, fee_event="KXT-B") for c in contracts]
-    create_entities(stub_registry, mock_converse, moved, db=stub_db)
+    create_entities(stub_registry, mock_canonicalizer, moved, db=stub_db)
     assert set(stub_registry._fee_keys_by_listing.values()) == {("KXT", "KXT-B")}
 
 
-def test_a_lifted_event_override_keeps_its_fee_event(stub_registry, stub_db, mock_converse):
-    create_entities(stub_registry, mock_converse, [_contract("Yes", fee_group="KXT", fee_event="KXT-A")], db=stub_db)
-    create_entities(stub_registry, mock_converse, [_contract("Yes")], db=stub_db)
+def test_a_lifted_event_override_keeps_its_fee_event(stub_registry, stub_db, mock_canonicalizer):
+    create_entities(stub_registry, mock_canonicalizer, [_contract("Yes", fee_group="KXT", fee_event="KXT-A")], db=stub_db)
+    create_entities(stub_registry, mock_canonicalizer, [_contract("Yes")], db=stub_db)
     assert set(stub_registry._fee_keys_by_listing.values()) == {(None, "KXT-A")}
 
 

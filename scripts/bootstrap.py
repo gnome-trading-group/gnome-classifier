@@ -11,9 +11,10 @@ Usage:
   export REDIS_URL=...               # printed by tunnel command
   export REGISTRY_API_URL=...        # e.g. https://api.example.com
   export REGISTRY_API_KEY=...
+  export ANTHROPIC_API_KEY_SECRET=anthropic-api-key   # read from Secrets Manager, as the workers do
   poetry run bootstrap [ADAPTER] [--batch-size N]
 
-Fetches all adapters, categorizes new events via Bedrock (cached in Redis), and writes events (one per native
+Fetches all adapters, categorizes new events via Claude (cached in Redis), and writes events (one per native
 exchange event), securities, listings and their venue sources to the real registry + Postgres DB. Propositions and
 relationships are not written here: the relationships worker reads every security that has a source and no
 proposition, so they follow once it runs with `feature_flags.relationships_enabled`.
@@ -31,10 +32,12 @@ import click
 from gnomepy.registry import RegistryClient
 
 from classifier.cache import RedisClassifierCache
-from classifier.client import BedrockConverseClient, bedrock_runtime_client
+from classifier.client import ClaudeAsker
+from classifier.constants import DEFAULT_CANONICALIZE_MODELS
 from classifier.db import ClassifierDB
 from classifier.stages.entities import create_entities
 from classifier.stages.fetch import fetch_all, fetch_exchanges
+from classifier.workers.config import claude_client
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -52,7 +55,7 @@ def main(adapter: str | None, batch_size: int | None) -> None:
         base_url=os.environ["REGISTRY_API_URL"],
         api_key=os.environ["REGISTRY_API_KEY"],
     )
-    canon_client = BedrockConverseClient(client=bedrock_runtime_client())
+    canonicalizer = ClaudeAsker(claude_client, ["anthropic"], DEFAULT_CANONICALIZE_MODELS)
     redis_url = os.environ.get("REDIS_URL")
     if redis_url:
         logger.info("Using Redis cache (SSM tunnel mode)")
@@ -80,7 +83,7 @@ def main(adapter: str | None, batch_size: int | None) -> None:
     for i, batch in enumerate(batches, 1):
         if n_batches > 1:
             print(f"\n=== BATCH {i}/{n_batches} ({len(batch)} contracts) ===\n", flush=True)
-        entity_result = create_entities(registry, canon_client, batch, cache=cache, db=db)
+        entity_result = create_entities(registry, canonicalizer, batch, cache=cache, db=db)
         for k, v in entity_result.counts.items():
             totals[k] = totals.get(k, 0) + v
             if n_batches > 1 and v:

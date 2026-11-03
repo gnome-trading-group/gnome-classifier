@@ -5,12 +5,17 @@ candle (`bitcoin-price-on-november-3-2026`), up or down over an hourly Binance c
 different question from where the price ends (the average can sit above the start while the close is below it), so
 they get their own measure and never match a close-versus-open market. The daily up or down markets are left to the
 LLM: a tie there settles 50-50, so Down is not the negation of Up. So are the 4-hour ones.
+
+Central bank rate decisions (`bank-of-england-decision`, `fomc`, ...) list one market per change bracket. A change
+between brackets is rounded into one, and the rounding says what each bracket holds: under 25 bps counts as 25 and
+the rest go to the nearest 25, ties away from 0 (most banks: "25 bps decrease" is any cut under 37.5), or the Fed's
+rounding up to the next 25 ("25 bps decrease" is any cut up to 25).
 """
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
-from classifier.propositions.venue.common import EASTERN, number, price_rise
+from classifier.propositions.venue.common import EASTERN, RATE_BANKS, number, price_rise, rate_decision
 
 _ASSETS = {"bitcoin": "BTC", "btc": "BTC", "ethereum": "ETH", "eth": "ETH", "solana": "SOL", "sol": "SOL",
            "xrp": "XRP", "dogecoin": "DOGE", "doge": "DOGE", "hype": "HYPE", "bnb": "BNB"}
@@ -37,6 +42,25 @@ _BINANCE_HOURLY_RULE = re.compile(
 _TITLE_WINDOW = re.compile(
     r"(?P<start>\d{1,2}(?::\d{2})?[AP]M)(?:-(?P<end>\d{1,2}(?::\d{2})?[AP]M))? ET$"
 )
+_RATE_SERIES = {
+    "fomc": "fed", "ecb-interest-rates": "ecb", "bank-of-england-decision": "boe", "bank-of-canada-decision": "boc",
+    "bank-of-brazil-decision": "bcb", "bank-of-mexico-decision": "banxico", "bank-of-israel-decision": "boi",
+    "bank-of-korea-decision": "bok", "bank-of-russia-decision": "cbr", "central-bank-of-chile-decision": "bcch",
+    "central-bank-of-colombia-decision": "banrep", "reserve-bank-of-australia-decision": "rba",
+    "reserve-bank-of-india-decision": "rbi", "reserve-bank-of-new-zealand-decision": "rbnz",
+    "swiss-national-bank-decision": "snb",
+}
+_RATE_BRACKET = re.compile(r"^(?P<bps>25|50\+) bps (?P<dir>decrease|cut|increase|hike)$", re.I)
+_RATE_HOLD = re.compile(r"^no change$", re.I)
+_NEAREST_ROUNDING = ("Increases or decreases of less than 25 bps will be rounded to 25 bps",
+                     "rounded to the nearest 25 bps and will be rounded away from 0 in cases of equidistance")
+_FED_ROUNDING = "the change will be rounded up to the nearest 25"
+# The meeting's last day: "scheduled for December 8-9, 2026", "January 26 and January 27, 2027", "scheduled to
+# conclude on April 28, 2027", "announced on December 4, 2026".
+_MEETING = re.compile(
+    r"(?:scheduled (?:for|to conclude on)|announced on) (?P<month>[A-Z][a-z]+) (?P<day>\d{1,2})"
+    r"(?:(?:-| and (?:(?P<last_month>[A-Z][a-z]+) )?)(?P<last_day>\d{1,2}))?, (?P<year>\d{4})"
+)
 _BELOW = re.compile(r"^<\s?(?P<v>[\d,.]+)$")
 _ABOVE = re.compile(r"^>\s?(?P<v>[\d,.]+)$")
 _BETWEEN = re.compile(r"^(?P<low>[\d,.]+)\s?-\s?(?P<high>[\d,.]+)$")
@@ -53,8 +77,12 @@ def _family(slug: str) -> tuple[str, re.Match] | None:
     return None
 
 
+def _rate_series(source: dict) -> str | None:
+    return _RATE_SERIES.get((source.get("event") or {}).get("seriesSlug") or "")
+
+
 def claims(source: dict) -> bool:
-    return _family(_slug(source)) is not None
+    return _family(_slug(source)) is not None or _rate_series(source) is not None
 
 
 def is_no_side(source: dict) -> bool:
@@ -88,7 +116,60 @@ def _bracket(label: str) -> dict | None:
     return None
 
 
+def _rate_bracket(label: str, rules: str) -> dict | None:
+    if _RATE_HOLD.match(label):
+        return {"kind": Kind.RANGE, "low": 0.0, "high": 0.0}
+    m = _RATE_BRACKET.match(label)
+    if m is None:
+        return None
+    if _FED_ROUNDING in rules:
+        edge = 25.0
+    elif all(phrase in rules for phrase in _NEAREST_ROUNDING):
+        edge = 37.5
+    else:
+        return None
+    cut = m.group("dir").lower() in ("decrease", "cut")
+    if m.group("bps") == "25":
+        # The 25 bracket holds every change from just past 0 to the edge; the Fed's includes 25 itself, the nearest-25
+        # rounding's stops short of 37.5 (which rounds away, to 50).
+        closed = edge == 25.0
+        if cut:
+            return {"kind": Kind.RANGE, "low": -edge, "high": 0.0, "low_inclusive": closed, "high_inclusive": False}
+        return {"kind": Kind.RANGE, "low": 0.0, "high": edge, "low_inclusive": False, "high_inclusive": closed}
+    beyond = {(True, 25.0): Comparator.LT, (True, 37.5): Comparator.LTE, (False, 25.0): Comparator.GT,
+              (False, 37.5): Comparator.GTE}[(cut, edge)]
+    return {"kind": Kind.THRESHOLD, "comparator": beyond, "value": -edge if cut else edge}
+
+
+def _rate_meeting(rules: str, slug: str) -> date | None:
+    m = _MEETING.search(rules)
+    if m is None:
+        return None
+    month = m.group("last_month") or m.group("month")
+    # The event's slug names the meeting's month ("...-decision-in-december-2026"); a date in another month is some
+    # other day the rules mention.
+    if m.group("month").lower() not in slug:
+        return None
+    day = m.group("last_day") or m.group("day")
+    try:
+        return datetime.strptime(f"{month} {day} {m.group('year')}", "%B %d %Y").date()
+    except ValueError:
+        return None
+
+
+def _rate_decision(bank: str, source: dict) -> Proposition | None:
+    market = source.get("market") or {}
+    rules = re.sub(r"\s+", " ", market.get("description") or "")
+    fields = _rate_bracket((market.get("groupItemTitle") or source.get("outcome") or "").strip(), rules)
+    meeting = _rate_meeting(rules, _slug(source))
+    if fields is None or meeting is None:
+        return None
+    return rate_decision(RATE_BANKS[bank], meeting, fields)
+
+
 def read(source: dict) -> Proposition | None:
+    if bank := _rate_series(source):
+        return _rate_decision(bank, source)
     found = _family(_slug(source))
     if found is None:
         return None

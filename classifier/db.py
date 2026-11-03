@@ -552,6 +552,19 @@ class ClassifierDB:
                 )
                 return [row[0] for row in cur.fetchall()]
 
+    def securities_with_open_sources(self, limit: int, after: int = 0) -> list[int]:
+        """Open securities after `after` that have a venue source, in id order."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT cs.security_id FROM sm.contract_source cs"
+                    " JOIN sm.event_contract ec ON ec.security_id = cs.security_id"
+                    " JOIN sm.event e ON e.event_id = ec.event_id AND e.resolved = false"
+                    " WHERE cs.security_id > %s ORDER BY cs.security_id LIMIT %s",
+                    (after, limit),
+                )
+                return [row[0] for row in cur.fetchall()]
+
     def get_proposition_versions(self, security_ids: list[int]) -> dict[int, tuple[str, str]]:
         """{security_id: (source_hash, extractor_version)} of stored propositions."""
         if not security_ids:

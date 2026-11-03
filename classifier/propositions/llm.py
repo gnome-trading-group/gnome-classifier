@@ -1,5 +1,5 @@
 """Propositions read by Claude for contracts the venue readers don't cover, through the Anthropic API or Amazon
-Bedrock as the service config says (`models.proposition_provider`).
+Bedrock as the service config says (`models.provider`, see `classifier/client/claude.py`).
 
 One request covers one event's contracts (in chunks, so the answer stays well inside max_tokens), with the event's
 rules and the venue's resolution fields, and the nearest existing subjects as candidates. The answer is constrained to
@@ -12,8 +12,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
-import anthropic
-
+from classifier.client.claude import ClaudeAsker, is_unavailable
 from classifier.propositions.inputs import ExtractionInput
 from classifier.propositions.subjects import KnownSubject, add_known
 from classifier.propositions.types import FIELDS, Comparator, Kind, Observation, Proposition, Stability
@@ -234,52 +233,16 @@ def parse_answer(text: str, items: list[ExtractionInput]) -> dict[int, tuple[Pro
     return out
 
 
-def is_unavailable(error: Exception) -> bool:
-    """Errors another provider might not have. A 400 is usually our request's fault, except running out of credit,
-    which the API also reports as a 400."""
-    if isinstance(error, (anthropic.AuthenticationError, anthropic.PermissionDeniedError, anthropic.NotFoundError,
-                          anthropic.InternalServerError, anthropic.APIConnectionError, anthropic.RateLimitError)):
-        return True
-    return isinstance(error, anthropic.BadRequestError) and "credit balance" in str(error).lower()
-
-
 class PropositionExtractor:
-    """Asks each provider in order (the configured one, then the fallback when the first is unavailable). Both
-    clients (`anthropic.Anthropic`, `anthropic.AnthropicBedrockMantle`) take the same Messages request."""
+    """Asks each provider in order (the configured one, then the fallback when the first is unavailable)."""
 
     def __init__(self, client_for: Callable[[str], object], providers: list[str], models: dict[str, str],
                  max_workers: int = MAX_WORKERS):
-        missing = [p for p in providers if not models.get(p)]
-        if not providers or missing:
-            raise ValueError(f"proposition providers {providers} need a model each (missing {missing})")
-        self._client_for = client_for
-        self._providers = providers
-        self._models = models
+        self._asker = ClaudeAsker(client_for, providers, models)
         self._max_workers = max_workers
 
     def _ask(self, prompt: str) -> str:
-        last_error: Exception | None = None
-        for provider in self._providers:
-            try:
-                return self._ask_one(provider, prompt)
-            except Exception as error:
-                if not is_unavailable(error):
-                    raise
-                logger.warning("Proposition provider %s unavailable: %s", provider, error)
-                last_error = error
-        raise last_error
-
-    def _ask_one(self, provider: str, prompt: str) -> str:
-        response = self._client_for(provider).messages.create(
-            model=self._models[provider],
-            max_tokens=MAX_TOKENS,
-            system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": prompt}],
-            output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": RESPONSE_SCHEMA}},
-        )
-        if response.stop_reason in ("max_tokens", "refusal"):
-            raise RuntimeError(f"proposition request stopped: {response.stop_reason}")
-        return next(b.text for b in response.content if b.type == "text")
+        return self._asker.ask(_SYSTEM, prompt, RESPONSE_SCHEMA, MAX_TOKENS, EFFORT)
 
     def extract(
         self,

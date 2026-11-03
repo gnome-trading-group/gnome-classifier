@@ -179,8 +179,8 @@ def test_fetch_resolved_covers_closed_and_early_resolved_markets(monkeypatch):
 
 # ── Entity creation ───────────────────────────────────────────────────────────
 
-def test_entity_creation_futures(stub_registry, stub_db, mock_converse):
-    result = create_entities(stub_registry, mock_converse, _map(FUTURES), db=stub_db)
+def test_entity_creation_futures(stub_registry, stub_db, mock_canonicalizer):
+    result = create_entities(stub_registry, mock_canonicalizer, _map(FUTURES), db=stub_db)
     assert result.events_created == 4
     assert result.securities_created == 8
     assert result.listings_created == 8

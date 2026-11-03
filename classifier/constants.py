@@ -32,13 +32,12 @@ DEFAULT_MAX_WAIT_SECONDS = 60
 DEFAULT_NOTIFY_MAX_WAIT_SECONDS = 300
 DEFAULT_VISIBILITY_TIMEOUT = 900
 
-# Bedrock model or inference profile id, called through the Converse API.
-DEFAULT_CANONICALIZE_MODEL = "us.amazon.nova-lite-v1:0"
-# Proposition extraction reaches Claude through either provider; the service config picks one and can switch without a
-# deploy. Each provider names the same model its own way.
-PROPOSITION_PROVIDERS = ("anthropic", "bedrock")
-DEFAULT_PROPOSITION_PROVIDER = "anthropic"
+# Every task that uses Claude reaches it through one provider, which the service config picks and can switch without
+# a deploy; each task has its own model, and each provider names the same model its own way.
+CLAUDE_PROVIDERS = ("anthropic", "bedrock")
+DEFAULT_CLAUDE_PROVIDER = "anthropic"
 DEFAULT_PROPOSITION_MODELS = {"anthropic": "claude-haiku-5-5", "bedrock": "anthropic.claude-haiku-5-5"}
+DEFAULT_CANONICALIZE_MODELS = {"anthropic": "claude-haiku-5-5", "bedrock": "anthropic.claude-haiku-5-5"}
 DEFAULT_VOYAGE_EMBEDDING_MODEL = "voyage-3"
 
 # Subjects due a derivation that one relationships pass derives; the rest wait for the next pass.

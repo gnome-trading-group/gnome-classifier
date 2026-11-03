@@ -6,6 +6,7 @@ from gnomepy.registry.types import AssetClass, ContractType, Event, Exchange, Se
 
 from classifier.adapters.types import AdapterContract
 from scripts import backfill_taxonomy
+from scripts.testing import FakeCanonicalizer
 
 EXCHANGES = {
     code: Exchange(exchange_id=eid, exchange_code=code, exchange_name=code, region="", 
@@ -139,3 +140,20 @@ def test_resolved_events_are_left_alone(plan):
 def test_failed_fetch_aborts(plan):
     with pytest.raises(click.ClickException):
         plan([_event(1, 2, "KXHIGHNY-1", "Climate and Weather")], failed=["KALSHI"])
+
+
+def test_claude_fills_thin_tags_and_open_categories_after_the_static_map(monkeypatch):
+    monkeypatch.setattr(backfill_taxonomy, "fetch_exchanges", lambda registry: EXCHANGES)
+    monkeypatch.setattr(backfill_taxonomy, "fetch_all", lambda exchanges: ([], []))
+    monkeypatch.setattr(backfill_taxonomy.KalshiAdapter, "_fetch_series_tags", lambda self: {})
+    monkeypatch.setattr(backfill_taxonomy, "_fetch_polymarket_intl_tags", lambda slugs: {})
+    events = [
+        _event(1, 3, "btc", "CRYPTO", tags=["bitcoin", "crypto"]),
+        _event(2, 3, "fed", "OTHER", tags=["fed", "rates"]),
+        _event(3, 3, "nfl", "SPORTS", tags=["nfl"]),
+    ]
+    patches, _, _ = backfill_taxonomy.plan_backfill(_Registry(events), FakeCanonicalizer("ECONOMICS", ["seahawks"]))
+    assert sorted(patches, key=lambda p: p["event_id"]) == [
+        {"event_id": 2, "category": "ECONOMICS", "tags": ["fed", "rates", "seahawks"]},
+        {"event_id": 3, "tags": ["nfl", "seahawks"]},
+    ]

@@ -5,10 +5,10 @@ from typing import NamedTuple
 
 from classifier.adapters.types import AdapterContract, proposition_source_hash
 from classifier.cache import ClassifierCache
-from classifier.client import BedrockConverseClient
+from classifier.client import ClaudeAsker
 from classifier.db import ClassifierDB
 from classifier.types import CanonicalizeInput, EntityResult, EventId, NativeKey, SecurityId
-from classifier.constants import DEFAULT_CANONICALIZE_BATCH_SIZE, DEFAULT_CANONICALIZE_MODEL
+from classifier.constants import DEFAULT_CANONICALIZE_BATCH_SIZE
 from classifier.stages.canonicalize import canonicalize_events, static_result
 from classifier.utils import bulk_create_chunked
 from gnomepy.registry import RegistryClient
@@ -158,23 +158,22 @@ def create_entities_from_canonical(
 
 def create_entities(
     registry: RegistryClient,
-    canon_client: BedrockConverseClient,
+    canonicalizer: ClaudeAsker | None,
     contracts: list[AdapterContract],
     *,
     cache: ClassifierCache | None = None,
     db: ClassifierDB,
-    canonicalize_enabled: bool = True,
-    canonicalize_model: str = DEFAULT_CANONICALIZE_MODEL,
     canonicalize_batch_size: int = DEFAULT_CANONICALIZE_BATCH_SIZE,
     debug: bool = False,
 ) -> EntityResult:
+    """`canonicalizer` is Claude for the categories and tags the exchange labels leave open, or None to use the
+    labels alone."""
     if not contracts:
         return _empty_result()
     events_to_canon, entity_ctx = prepare_canonicalization_inputs(contracts, db)
-    if canonicalize_enabled:
+    if canonicalizer is not None:
         canonical = canonicalize_events(
-            canon_client, events_to_canon, cache=cache,
-            model=canonicalize_model, batch_size=canonicalize_batch_size, debug=debug,
+            canonicalizer, events_to_canon, cache=cache, batch_size=canonicalize_batch_size, debug=debug,
         )
     else:
         canonical = {(ev.exchange_id, ev.native_id): static_result(ev) for ev in events_to_canon}

@@ -8,11 +8,12 @@ import requests
 
 from classifier.constants import (
     DEFAULT_CANONICALIZE_BATCH_SIZE,
-    DEFAULT_CANONICALIZE_MODEL,
+    DEFAULT_CANONICALIZE_MODELS,
     DEFAULT_CLOSURE_CHECK_MAX_LOOKUPS,
     DEFAULT_DRIFT_INTERVAL_SECONDS,
     DEFAULT_DRIFT_SAMPLE_SIZE,
     DEFAULT_BULK_CREATE_BATCH_SIZE,
+    DEFAULT_CLAUDE_PROVIDER,
     DEFAULT_FEE_SYNC_INTERVAL_SECONDS,
     DEFAULT_VOLUME_INTERVAL_SECONDS,
     DEFAULT_VOLUME_MAX_AGE_SECONDS,
@@ -29,7 +30,6 @@ from classifier.constants import (
     DEFAULT_RESOLVE_INTERVAL_SECONDS,
     DEFAULT_RESOLVE_MAX_SQS_MESSAGES,
     DEFAULT_PROPOSITION_MODELS,
-    DEFAULT_PROPOSITION_PROVIDER,
     DEFAULT_RELATIONSHIPS_BACKLOG_LIMIT,
     DEFAULT_RELATIONSHIPS_DERIVE_LIMIT,
     DEFAULT_SETTLE_MAX_CANDIDATES,
@@ -68,17 +68,18 @@ class FeatureFlags:
 
 @dataclasses.dataclass
 class Models:
-    canonicalize_model: str = DEFAULT_CANONICALIZE_MODEL
     voyage_embedding_model: str = DEFAULT_VOYAGE_EMBEDDING_MODEL
-    proposition_provider: str = DEFAULT_PROPOSITION_PROVIDER
+    # Claude, for proposition extraction and canonicalization alike: `anthropic` (API key) or `bedrock`.
+    provider: str = DEFAULT_CLAUDE_PROVIDER
     # Tried once when the first provider is unavailable (refused credentials, out of credit, down).
-    proposition_fallback_provider: str | None = None
+    fallback_provider: str | None = None
     proposition_models: dict[str, str] = dataclasses.field(default_factory=lambda: dict(DEFAULT_PROPOSITION_MODELS))
+    canonicalize_models: dict[str, str] = dataclasses.field(default_factory=lambda: dict(DEFAULT_CANONICALIZE_MODELS))
 
-    def proposition_providers(self) -> list[str]:
-        providers = [self.proposition_provider]
-        if self.proposition_fallback_provider and self.proposition_fallback_provider != self.proposition_provider:
-            providers.append(self.proposition_fallback_provider)
+    def providers(self) -> list[str]:
+        providers = [self.provider]
+        if self.fallback_provider and self.fallback_provider != self.provider:
+            providers.append(self.fallback_provider)
         return providers
 
 

@@ -7,14 +7,15 @@ Subcommands run progressively deeper pipeline stages:
       Fetch raw contracts from an adapter and display them grouped by event.
 
   dry-run canonicalize [ADAPTER] [-n N] [--no-cache]
-      Fetch + categorize events via Bedrock (category and tags). Shows the per-event
+      Fetch + categorize events via Claude (category and tags). Shows the per-event
       result and the category distribution.
-      Requires AWS credentials with Bedrock access (e.g. AWS_PROFILE=dev).
+      Reads the Anthropic key the way the workers do (AWS_PROFILE=dev
+      ANTHROPIC_API_KEY_SECRET=anthropic-api-key).
 
   dry-run entities [ADAPTER] [-n N] [--no-canonicalize] [--no-cache] [--verbose]
       Fetch + create entities (events, securities, listings). Prints summary counts.
       --verbose shows every created entity in detail.
-      --no-canonicalize skips Bedrock and uses the exchange category with no tags (no AWS credentials required).
+      --no-canonicalize skips Claude and uses the exchange labels alone (no credentials required).
 
 Propositions and relationships are scored offline by `poetry run eval-propositions` and
 `poetry run eval-relationships --derive` instead of a dry run.
@@ -45,7 +46,8 @@ from classifier.constants import (
 )
 from classifier.db import ClassifierDB
 from classifier.stages.entities import create_entities
-from classifier.client import BedrockConverseClient, bedrock_runtime_client
+from classifier.client import ClaudeAsker
+from classifier.constants import DEFAULT_CANONICALIZE_MODELS
 from classifier.stages.canonicalize import canonicalize_events
 from classifier.stages.fetch import diff_contracts, fetch_all, fetch_exchanges, fetch_resolved_outcomes
 from classifier.stages.resolve import deactivate_closed_listings
@@ -53,7 +55,8 @@ from classifier.stages.settle import record_settlements
 from classifier.stages.stale import deactivate_stale_events
 from classifier.types import CanonicalizeInput
 from gnomepy.registry import RegistryClient
-from scripts.testing import FakeConverseClient, StubDB, StubRegistry
+from classifier.workers.config import claude_client
+from scripts.testing import StubDB, StubRegistry
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -69,10 +72,12 @@ def _build_cache(no_cache: bool):
     return None
 
 
-def _build_clients(*, no_canonicalize: bool, no_cache: bool):
-    canon_client = FakeConverseClient() if no_canonicalize else BedrockConverseClient(client=bedrock_runtime_client())
+def _canonicalizer() -> ClaudeAsker:
+    return ClaudeAsker(claude_client, ["anthropic"], DEFAULT_CANONICALIZE_MODELS)
 
-    return canon_client, _build_cache(no_cache)
+
+def _build_clients(*, no_canonicalize: bool, no_cache: bool):
+    return (None if no_canonicalize else _canonicalizer()), _build_cache(no_cache)
 
 
 def _fetch_contracts(adapter: str | None, max_contracts: int | None):
@@ -272,8 +277,8 @@ def fetch(adapter: str, max_contracts: int | None, min_volume: float, tag_volume
 @click.option("--no-cache", is_flag=True, help="Ignore the Redis cache even if REDIS_URL is set")
 @click.pass_context
 def canonicalize(ctx, adapter: str | None, max_contracts: int | None, no_cache: bool):
-    """Fetch + categorize events via Bedrock. Shows category and tags per event."""
-    canon_client = BedrockConverseClient(client=bedrock_runtime_client())
+    """Fetch + categorize events via Claude. Shows category and tags per event."""
+    canon_client = _canonicalizer()
 
     _, _, contracts, _ = _fetch_contracts(adapter, max_contracts)
     if not contracts:
@@ -286,7 +291,7 @@ def canonicalize(ctx, adapter: str | None, max_contracts: int | None, no_cache: 
 @main.command()
 @click.argument("adapter", required=False, default=None)
 @click.option("-n", "max_contracts", type=int, default=None, help="Limit to first N contracts")
-@click.option("--no-canonicalize", is_flag=True, help="Skip Bedrock — use exchange category, no tags (no AWS credentials required)")
+@click.option("--no-canonicalize", is_flag=True, help="Skip Claude and use the exchange labels alone (no credentials required)")
 @click.option("--no-cache", is_flag=True, help="Ignore the Redis cache even if REDIS_URL is set")
 @click.option("--verbose", is_flag=True, help="Show every created event, security, and event_contract")
 @click.pass_context

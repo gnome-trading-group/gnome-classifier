@@ -8,7 +8,7 @@ import pytest
 from moto import mock_aws
 
 
-from scripts.testing import FakeConverseClient, StubDB, StubRegistry
+from scripts.testing import FakeCanonicalizer, StubDB, StubRegistry
 from gnomepy.registry.types import Event, EventContract
 
 
@@ -23,8 +23,8 @@ def stub_db(stub_registry):
 
 
 @pytest.fixture
-def mock_converse():
-    return FakeConverseClient(category="POLITICS", tags=["test", "tag", "here"])
+def mock_canonicalizer():
+    return FakeCanonicalizer(category="POLITICS", tags=["test", "tag", "here"])
 
 
 @pytest.fixture

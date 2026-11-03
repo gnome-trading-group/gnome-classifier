@@ -1,18 +1,20 @@
 import hashlib
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from classifier import taxonomy
 from classifier.cache import ClassifierCache
-from classifier.client import BedrockConverseClient
-from classifier.constants import DEFAULT_CANONICALIZE_BATCH_SIZE, DEFAULT_CANONICALIZE_MODEL, STANDARDIZED_CATEGORIES
+from classifier.client.claude import ClaudeAsker
+from classifier.constants import DEFAULT_CANONICALIZE_BATCH_SIZE, STANDARDIZED_CATEGORIES
 from classifier.types import CanonicalizeInput, NativeKey
-from classifier.utils import strip_code_fences
 
 logger = logging.getLogger(__name__)
 
 _MAX_TOKENS_PER_EVENT = 300
+EFFORT = "low"
+MAX_WORKERS = 8
 
 # The boundaries between neighbouring categories are where models disagree, so each definition says what it excludes.
 _CATEGORY_DEFINITIONS = """\
@@ -52,18 +54,6 @@ Title: Who will Trump pardon?: Bob Menendez | Exchange tags: trump | Category: P
 -> {{"category": "POLITICS", "tags": ["bob menendez", "pardon"]}}
 Title: Will GameStop acquire eBay? | Exchange tags: acquisitions | Category: choose
 -> {{"category": "FINANCE", "tags": ["gamestop", "ebay"]}}"""
-
-
-def _parse_response(text: str) -> Any:
-    text = strip_code_fences(text.strip())
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        # Some models open with a sentence ("Here is the categorization...") before the JSON.
-        starts = [i for i in (text.find("["), text.find("{")) if i >= 0]
-        if not starts:
-            raise
-        return json.JSONDecoder().raw_decode(text[min(starts):].replace("```", " "))[0]
 
 
 def _parse_canonical_result(item: dict) -> dict:
@@ -115,38 +105,46 @@ def _title_key(raw_title: str) -> str:
     return hashlib.sha256(raw_title.encode()).hexdigest()[:6]
 
 
-def _build_chunk_prompt(batch: list[CanonicalizeInput]) -> str:
-    event_lines = "\n".join(f"[{j + 1}] (key: {_title_key(ev.raw_title)}) {_fields(ev)}" for j, ev in enumerate(batch))
-    return f"""{_INSTRUCTIONS}
+RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "events": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "integer"},
+                    "key": {"type": "string"},
+                    "category": {"type": "string", "enum": sorted(STANDARDIZED_CATEGORIES)},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["id", "key", "category", "tags"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["events"],
+    "additionalProperties": False,
+}
 
-Events:
+
+def _build_prompt(batch: list[CanonicalizeInput]) -> str:
+    event_lines = "\n".join(f"[{j + 1}] (key: {_title_key(ev.raw_title)}) {_fields(ev)}" for j, ev in enumerate(batch))
+    return f"""Events:
 {event_lines}
 
-Respond with a JSON array, one object per event, echoing the input number as "id" and the key as "key":
-[{{"id": 1, "key": "a3f2b1", "category": "...", "tags": ["..."]}}, ...]"""
-
-
-def _build_single_prompt(ev: CanonicalizeInput) -> str:
-    return f"""{_INSTRUCTIONS}
-
-Event:
-Exchange-provided title: {ev.raw_title}
-{_fields(ev)}
-
-Respond with JSON only: {{"category": "...", "tags": ["..."]}}"""
+Return one entry per event, echoing its number as "id" and its key as "key"."""
 
 
 def _match_chunk(text: str | None, chunk: list[CanonicalizeInput], request_id: str) -> tuple[dict[NativeKey, dict], list[CanonicalizeInput]]:
-    """Match a chunk response back to its events by id, validated by the echoed key. Returns (matched, missed)."""
+    """Match an answer back to its events by id, validated by the echoed key. Returns (matched, missed)."""
     by_id: dict[int, dict] = {}
     if text is not None:
         try:
-            parsed = _parse_response(text)
-            if isinstance(parsed, list):
-                for item in parsed:
-                    if isinstance(item, dict) and isinstance(item.get("id"), int):
-                        by_id[item["id"]] = item
-        except Exception as e:
+            for item in json.loads(text)["events"]:
+                if isinstance(item, dict) and isinstance(item.get("id"), int):
+                    by_id[item["id"]] = item
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
             logger.warning("Chunk %s parse failed: %s raw=%r", request_id, e, text[:500])
 
     matched: dict[NativeKey, dict] = {}
@@ -170,12 +168,12 @@ def _match_chunk(text: str | None, chunk: list[CanonicalizeInput], request_id: s
 
 
 def canonicalize_events(
-    client: BedrockConverseClient,
+    asker: ClaudeAsker,
     events: list[CanonicalizeInput],
     cache: ClassifierCache | None = None,
-    model: str = DEFAULT_CANONICALIZE_MODEL,
     batch_size: int = DEFAULT_CANONICALIZE_BATCH_SIZE,
     debug: bool = False,
+    max_workers: int = MAX_WORKERS,
 ) -> dict[NativeKey, dict[str, Any]]:
     """Categorize a list of CanonicalizeInput records.
 
@@ -185,24 +183,51 @@ def canonicalize_events(
         return {}
     results = {(ev.exchange_id, ev.native_id): static_result(ev) for ev in events if not needs_llm(ev)}
     pending = [ev for ev in events if needs_llm(ev)]
-    logger.info("canonicalize: %d events from exchange labels, %d need %s", len(results), len(pending), model)
-    llm_results = _llm_canonicalize(client, pending, cache, model, batch_size, debug)
+    logger.info("canonicalize: %d events from exchange labels, %d need %s", len(results), len(pending), asker.model)
+    llm_results = _llm_canonicalize(asker, pending, cache, batch_size, debug, max_workers)
     for ev in pending:
         results[(ev.exchange_id, ev.native_id)] = _merge(ev, llm_results[(ev.exchange_id, ev.native_id)])
     return results
 
 
+def _ask_chunks(asker: ClaudeAsker, chunks: dict[str, list[CanonicalizeInput]], max_workers: int) -> tuple[dict[str, str], int, int]:
+    """{request id: answer text} for the requests that got an answer, and the tokens they used. A failed request is
+    logged and left out, so its events count as missed."""
+    answers: dict[str, str] = {}
+    input_tokens = output_tokens = 0
+    if not chunks:
+        return answers, 0, 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(asker.ask_with_usage, _INSTRUCTIONS, _build_prompt(chunk), RESPONSE_SCHEMA,
+                        _MAX_TOKENS_PER_EVENT * len(chunk), EFFORT): request_id
+            for request_id, chunk in chunks.items()
+        }
+        for future in as_completed(futures):
+            request_id = futures[future]
+            try:
+                answer = future.result()
+            except Exception as e:
+                logger.warning("Canonicalization request %s failed: %s", request_id, e)
+                continue
+            answers[request_id] = answer.text
+            input_tokens += answer.input_tokens
+            output_tokens += answer.output_tokens
+    return answers, input_tokens, output_tokens
+
+
 def _llm_canonicalize(
-    client: BedrockConverseClient,
+    asker: ClaudeAsker,
     events: list[CanonicalizeInput],
     cache: ClassifierCache | None,
-    model: str,
     batch_size: int,
     debug: bool,
+    max_workers: int,
 ) -> dict[NativeKey, dict[str, Any]]:
     """The model's category and tags per event, cached per model; chunk misses are retried one event at a time."""
     if not events:
         return {}
+    model = asker.model
 
     results: dict[NativeKey, dict] = {}
     uncached: list[CanonicalizeInput] = []
@@ -221,40 +246,25 @@ def _llm_canonicalize(
         return results
 
     chunks = {f"canon_{i}": uncached[i:i + batch_size] for i in range(0, len(uncached), batch_size)}
-    responses = client.converse_many(
-        model,
-        {request_id: _build_chunk_prompt(chunk) for request_id, chunk in chunks.items()},
-        max_tokens=_MAX_TOKENS_PER_EVENT * batch_size,
-    )
-    input_tokens = sum(r.input_tokens for r in responses.values())
-    output_tokens = sum(r.output_tokens for r in responses.values())
+    answers, input_tokens, output_tokens = _ask_chunks(asker, chunks, max_workers)
 
     fresh: dict[NativeKey, dict] = {}
     missed: list[CanonicalizeInput] = []
     for request_id, chunk in chunks.items():
-        response = responses.get(request_id)
-        matched, chunk_missed = _match_chunk(response.text if response else None, chunk, request_id)
+        matched, chunk_missed = _match_chunk(answers.get(request_id), chunk, request_id)
         fresh.update(matched)
         missed.extend(chunk_missed)
         if chunk_missed:
             logger.warning("Chunk %s: %d/%d matched, retrying %d individually",
                            request_id, len(matched), len(chunk), len(chunk_missed))
 
-    retry_responses = client.converse_many(
-        model,
-        {f"single_{i}": _build_single_prompt(ev) for i, ev in enumerate(missed)},
-        max_tokens=_MAX_TOKENS_PER_EVENT,
-    )
-    input_tokens += sum(r.input_tokens for r in retry_responses.values())
-    output_tokens += sum(r.output_tokens for r in retry_responses.values())
-    for i, ev in enumerate(missed):
-        response = retry_responses.get(f"single_{i}")
-        if response is None:
-            continue
-        try:
-            fresh[(ev.exchange_id, ev.native_id)] = _parse_canonical_result(_parse_response(response.text))
-        except Exception as e:
-            logger.warning("Canonicalization failed for %r: %s raw=%r", ev.raw_title, e, response.text[:500])
+    singles = {f"single_{i}": [ev] for i, ev in enumerate(missed)}
+    retry_answers, retry_in, retry_out = _ask_chunks(asker, singles, max_workers)
+    input_tokens += retry_in
+    output_tokens += retry_out
+    for request_id, chunk in singles.items():
+        matched, _ = _match_chunk(retry_answers.get(request_id), chunk, request_id)
+        fresh.update(matched)
 
     logger.info(
         "canonicalize: %d events via %s (%d individual retries), %d input / %d output tokens",

@@ -9,10 +9,14 @@ import redis as redis_lib
 from classifier.constants import DEFAULT_VOYAGE_EMBEDDING_MODEL
 from classifier.propositions.attempts import RedisAttemptStore
 from classifier.propositions.llm import PropositionExtractor
+from classifier.propositions.venue import READERS_VERSION
 from classifier.stages.propositions import (
+    READERS_VERSION_KEY,
+    PassResult,
     derive_due_subjects,
     read_backlog,
     read_propositions,
+    recheck_readers,
     rederive_on_new_version,
     run_drift_check,
 )
@@ -46,6 +50,9 @@ class RelationshipsWorker(BaseWorker):
         self._last_idle_derive = 0.0
         self._last_drift_check = 0.0
         self._backlog_after = 0
+        self._markers = None
+        # Where the walk re-checking the code readers' reads is, or None when this READERS_VERSION already walked.
+        self._recheck_after: int | None = None
 
     def _setup(self):
         self._registry = init_registry()
@@ -54,7 +61,10 @@ class RelationshipsWorker(BaseWorker):
         self._runtime_config = init_runtime_config()
         self._sns = boto3.client("sns")
         self._attempts = RedisAttemptStore(os.environ["REDIS_ENDPOINT"])
-        rederive_on_new_version(self._db, redis_lib.Redis.from_url(os.environ["REDIS_ENDPOINT"], decode_responses=True))
+        self._markers = redis_lib.Redis.from_url(os.environ["REDIS_ENDPOINT"], decode_responses=True)
+        rederive_on_new_version(self._db, self._markers)
+        if self._markers.get(READERS_VERSION_KEY) != READERS_VERSION:
+            self._recheck_after = 0
 
     def _embed(self, texts: list[str], kind: str) -> list[list[float]]:
         model = self._runtime_config.config.models.voyage_embedding_model or DEFAULT_VOYAGE_EMBEDDING_MODEL
@@ -65,7 +75,7 @@ class RelationshipsWorker(BaseWorker):
         cfg = self._runtime_config.config
         if not cfg.feature_flags.proposition_llm_enabled:
             return None
-        return PropositionExtractor(self._client_for, cfg.models.proposition_providers(), cfg.models.proposition_models)
+        return PropositionExtractor(self._client_for, cfg.models.providers(), cfg.models.proposition_models)
 
     def _read_backlog(self):
         result, self._backlog_after = read_backlog(
@@ -73,6 +83,21 @@ class RelationshipsWorker(BaseWorker):
             limit=self._runtime_config.config.processing.relationships_backlog_limit, after=self._backlog_after,
             attempts=self._attempts,
         )
+        return result
+
+    def _recheck_readers(self) -> PassResult:
+        """One page of the walk that applies a reader change to what is already stored. The marker is only set once
+        the walk ends, so a restart part way walks again from the start (free: no model calls)."""
+        if self._recheck_after is None:
+            return PassResult()
+        result, following = recheck_readers(db=self._db, registry=self._registry, embed=self._embed,
+                                            after=self._recheck_after)
+        if following:
+            self._recheck_after = following
+        else:
+            self._recheck_after = None
+            self._markers.set(READERS_VERSION_KEY, READERS_VERSION)
+            logger.info("Readers version %s: re-checked every open security", READERS_VERSION)
         return result
 
     def process_batch(self, messages: list[dict]) -> list[dict]:
@@ -91,6 +116,7 @@ class RelationshipsWorker(BaseWorker):
             result = read_propositions(security_ids, db=self._db, registry=self._registry,
                                        extractor=self._extractor(), embed=self._embed, attempts=self._attempts)
             result.add(self._read_backlog())
+            result.add(self._recheck_readers())
             derive_due_subjects(db=self._db, registry=self._registry,
                                 limit=cfg.processing.relationships_derive_limit, result=result)
             logger.info("Relationships pass: %s", result)
@@ -118,6 +144,7 @@ class RelationshipsWorker(BaseWorker):
             logger.info("Relationships pass: disabled")
             return
         result = self._read_backlog()
+        result.add(self._recheck_readers())
         derive_due_subjects(db=self._db, registry=self._registry,
                             limit=cfg.processing.relationships_derive_limit, result=result)
         logger.info("Relationships pass: %s", result)

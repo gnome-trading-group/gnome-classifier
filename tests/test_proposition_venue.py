@@ -270,3 +270,88 @@ class TestLongerSeriesNames:
         p = extract_venue(kalshi("KXINTLFRIENDLY1HSPREAD-26OCT10ARGBFA-ARG2", "If Argentina win by more than 1.5 goals in the 1st "
                                  "Half of the Argentina vs Burkina Faso professional Intl Friendlies soccer game"))
         assert (p.subject, p.measure, p.value, p.scope) == ("game:intlfriendly:2026-10-10:argbfa", "margin:arg", 1.5, "first_half")
+
+
+# Rules text and close times as Kalshi wrote them (prod registry, 2026-11-03). Its Fed rules drop the ">" of ">25bps".
+FED_RULES = "If the Federal Reserve does a {dir} of {bps}bps on January 27, 2027, then the market resolves to Yes."
+FED_CLOSE = "2027-01-27T18:59:00Z"
+BANK_RULES = "If the {bank} takes the action of {action} at {meeting}, then the market resolves to Yes."
+
+
+def fed(suffix: str, subtitle: str, dir: str, bps: str) -> dict:
+    return kalshi(f"KXFEDDECISION-27JAN-{suffix}", FED_RULES.format(dir=dir, bps=bps), yes_sub_title=subtitle,
+                  close_time=FED_CLOSE)
+
+
+def bank(series: str, action: str, close: str, name: str = "Bank of England",
+         meeting: str = "November Monetary Policy Committee meeting") -> dict:
+    return kalshi(f"{series}-26NOV05-X", BANK_RULES.format(bank=name, action=action, meeting=meeting), close_time=close)
+
+
+class TestKalshiRateDecisions:
+    def test_a_fed_cut_is_a_negative_change_at_the_end_of_the_meeting_day_in_new_york(self):
+        p = extract_venue(fed("C25", "Cut 25bps", "Cut", "25"))
+        assert p == Proposition(
+            subject="fomc:2027-01-meeting", kind=Kind.RANGE, measure="target_rate_change_bps", low=-25.0, high=-25.0,
+            unit="bps", observation=Observation.AT_TIME, window_end=datetime(2027, 1, 28, 4, 59, tzinfo=timezone.utc),
+            stability=Stability.SETTLED, resolution_source="federal-reserve",
+        )
+
+    def test_the_fed_more_than_markets_take_the_subtitle_where_the_rules_dropped_the_sign(self):
+        cut = extract_venue(fed("C26", "Cut >25bps", "Cut", "  25"))
+        hike = extract_venue(fed("H26", "Hike >25bps", "Hike", "  25"))
+        assert (cut.kind, cut.comparator, cut.value) == (Kind.THRESHOLD, Comparator.LT, -25.0)
+        assert (hike.comparator, hike.value) == (Comparator.GT, 25.0)
+
+    def test_fed_rules_that_keep_the_sign_read_the_same(self):
+        assert extract_venue(fed("H26", "Hike >25bps", "Hike", ">25")).comparator == Comparator.GT
+
+    def test_a_fed_hike_of_nothing_is_holding(self):
+        p = extract_venue(fed("H0", "Fed maintains rate", "Hike", "0"))
+        assert (p.kind, p.low, p.high) == (Kind.RANGE, 0.0, 0.0)
+
+    @pytest.mark.parametrize("subtitle, dir, bps", [
+        ("Cut >25bps", "Cut", "25"),  # one space: nothing was dropped, so the subtitle claims more than the rules
+        ("Hike 25bps", "Cut", "25"),
+        ("Cut 50bps", "Cut", "25"),
+        ("Cut 25bps", "Cut", ">25"),
+    ])
+    def test_a_fed_subtitle_that_disagrees_with_the_rules_goes_to_the_llm(self, subtitle, dir, bps):
+        source = fed("C25", subtitle, dir, bps)
+        assert extract_venue(source) is None and claims(source)
+
+    @pytest.mark.parametrize("action, fields", [
+        ("Cut 1-25bps", {"kind": Kind.RANGE, "low": -25.0, "high": 0.0, "high_inclusive": False}),
+        ("Hike 1-25bps", {"kind": Kind.RANGE, "low": 0.0, "high": 25.0, "low_inclusive": False}),
+        ("Cut more than 25bps", {"kind": Kind.THRESHOLD, "comparator": Comparator.LT, "value": -25.0}),
+        ("hike greater than 25bps", {"kind": Kind.THRESHOLD, "comparator": Comparator.GT, "value": 25.0}),
+        ("Cut 50bps", {"kind": Kind.RANGE, "low": -50.0, "high": -50.0}),
+        ("Maintain current rate", {"kind": Kind.RANGE, "low": 0.0, "high": 0.0}),
+        ("maintain the current rate", {"kind": Kind.RANGE, "low": 0.0, "high": 0.0}),
+    ])
+    def test_bank_actions(self, action, fields):
+        p = extract_venue(bank("KXCBDECISIONENGLAND", action, "2026-11-05T11:54:00Z"))
+        assert {k: getattr(p, k) for k in fields} == fields
+        assert (p.subject, p.measure, p.resolution_source) == ("boe-bank-rate:2026-11-05", "bank_rate_change_bps",
+                                                               "bank-of-england")
+
+    def test_the_meeting_is_dated_where_the_bank_sits(self):
+        # Kalshi calls these the Nov 2 and Dec 17 meetings: the decisions land on Nov 3 in Sydney and Dec 18 in Tokyo.
+        rba = extract_venue(bank("KXCBDECISIONAUSTRALIA", "cut 1-25bps", "2026-11-03T03:29:00Z",
+                                 "Reserve Bank of Australia", "its November Monetary Policy Board meeting"))
+        boj = extract_venue(bank("KXCBDECISIONJAPAN", "Cut 25bps", "2026-12-18T03:29:00Z", "Bank of Japan",
+                                 "December 2026 Monetary Policy Meeting"))
+        assert (rba.subject, boj.subject) == ("rba-cash-rate:2026-11-03", "boj-policy-rate:2026-12-18")
+
+    def test_the_kxcbd_series_without_decision_in_the_name(self):
+        p = extract_venue(bank("KXCBDCOLOMBIA", "cut 1-25bps", "2026-12-18T18:59:00Z", "Banco de la República",
+                               "its December Policy Rate Meeting"))
+        assert p.subject == "banrep-rate:2026-12-18"
+
+    def test_a_bank_without_a_subject_goes_to_the_llm(self):
+        source = bank("KXCBDECISIONKOREA", "Cut 1-25bps", "2026-11-26T01:00:00Z", "Bank of Korea", "its meeting")
+        assert extract_venue(source) is None and claims(source)
+
+    def test_the_no_side_is_the_negation(self):
+        p = extract_venue({**fed("C26", "Cut >25bps", "Cut", "  25"), "side": "no"})
+        assert p.negated and p.comparator == Comparator.LT

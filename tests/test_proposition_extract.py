@@ -195,9 +195,9 @@ class TestProviders:
 
     def test_config_defaults_to_the_anthropic_api_and_lists_a_fallback(self):
         models = Models()
-        assert models.proposition_providers() == ["anthropic"]
+        assert models.providers() == ["anthropic"]
         assert models.proposition_models["anthropic"] == "claude-haiku-5-5"
-        assert Models(proposition_fallback_provider="bedrock").proposition_providers() == ["anthropic", "bedrock"]
+        assert Models(fallback_provider="bedrock").providers() == ["anthropic", "bedrock"]
 
 
 def test_family_names_kalshi_series_and_hyperliquid_classes():

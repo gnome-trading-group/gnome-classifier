@@ -51,7 +51,7 @@ Each prediction market exchange has its own schema, naming conventions and contr
                                      │
                             ┌────────▼────────┐
                             │ NormalizeWorker │ ◄── Redis (canon cache, exchange event cache)
-                            │    (ECS/EC2)    │ ──► Bedrock Converse (category + tags)
+                            │    (ECS/EC2)    │ ──► Claude (category + tags)
                             │                 │ ──► Registry API / PostgreSQL (sm.*)
                             └────────┬────────┘
                                      │
@@ -365,10 +365,10 @@ Exchanges already label their events, and `classifier/taxonomy.py` maps those la
 
 Esports games come from slugs and tickers, not tag labels: Polymarket's `seriesSlug` or event slug prefix (`cs2-…`), and Kalshi's series ticker prefix (`KXCS2…`, `KXDOTA2…`) on series tagged Esports. Tags are lowercased, mapped through a synonym table (`counter strike 2` → `cs2`, `NFL (All)` → `nfl`) and stripped of exchange UI labels, filler words, category names, numbers and dates.
 
-An event whose labels give a category and at least two tags is done. Otherwise, if `canonicalization_enabled`, `canonicalize_events()` (`classifier/stages/canonicalize.py`) asks a Bedrock model (`canonicalize_model`, any Converse-capable model or inference profile id) for a `category` and 2–6 lowercase `tags`, with the exchange's label and tags as hints. The exchange's category wins when it has one, and its tags come first with the model's appended. Titles are not rewritten. Calls are billed to AWS, so the normalize task role needs `bedrock:InvokeModel` rather than the Anthropic key.
+An event whose labels give a category and at least two tags is done. Otherwise, if `canonicalization_enabled`, `canonicalize_events()` (`classifier/stages/canonicalize.py`) asks Claude (`canonicalize_models[provider]`, through the same `provider` / `fallback_provider` as proposition extraction) for a `category` and 2–6 lowercase `tags`, 15 events per request, constrained to a JSON schema, at effort low, with the exchange's label and tags as hints. The exchange's category wins when it has one, and its tags come first with the model's appended. Titles are not rewritten. Measured on 300 prod events (2026-11-03): about 150 input and 80 output tokens an event, about $0.00005 with Haiku 5.5.
 
 1. Checks the Redis canonicalization cache (keyed by model, so changing the model re-categorizes everything once).
-2. Sends uncached events in chunks of `canonicalize_batch_size` (default 15) as parallel Converse calls. Each event carries a 6-character key derived from its title, which the model must echo back; mismatches are treated as misses.
+2. Sends uncached events in chunks of `canonicalize_batch_size` (default 15) as parallel Claude requests. Each event carries a 6-character key derived from its title, which the model must echo back; mismatches are treated as misses.
 3. Logs the input/output token totals per run, for cost tracking.
 4. Retries missed events one at a time, and raises `RuntimeError` if any still fail (the SQS message redelivers).
 5. Caches results in Redis.
@@ -442,10 +442,10 @@ Bulk reads use `MGET` or pipelines. A Redis read failure in the FetchRunner star
 
 | Field | Default |
 |---|---|
-| `canonicalize_model` | `us.amazon.nova-lite-v1:0` |
-| `proposition_provider` | `anthropic` (or `bedrock`) |
-| `proposition_fallback_provider` | `null` |
+| `provider` | `anthropic` (or `bedrock`): every Claude call |
+| `fallback_provider` | `null` |
 | `proposition_models` | `{anthropic: claude-haiku-5-5, bedrock: anthropic.claude-haiku-5-5}` (Haiku passed the relationship precision gate at about an eighth of Sonnet's cost) |
+| `canonicalize_models` | `{anthropic: claude-haiku-5-5, bedrock: anthropic.claude-haiku-5-5}` |
 | `voyage_embedding_model` | `voyage-3` |
 
 **`Thresholds`**
@@ -571,7 +571,7 @@ Tests use in-memory stubs from `scripts/testing.py`; no AWS services, database o
 | `poetry run bootstrap [ADAPTER] [--batch-size N]` | One-time full load of the exchange universe into the real registry (`scripts/bootstrap.py`) |
 | `poetry run tunnel [--stage dev\|prod] [--pg] [--redis]` | SSM port-forwarding tunnels to RDS and Redis through the bastion (`scripts/tunnel.py`) |
 | `poetry run eval-relationships [--derive]` / `poetry run eval-propositions` | Score relationships and propositions against `tests/fixtures/relationships/` |
-| `poetry run backfill-taxonomy [--apply]` | Re-derive unresolved events' categories (and open events' tags) from the static exchange taxonomy; stops on unmapped labels (`scripts/backfill_taxonomy.py`) |
+| `poetry run backfill-taxonomy [--llm] [--apply]` | Re-derive unresolved events' categories (and open events' tags) from the static exchange taxonomy; stops on unmapped labels; `--llm` then has Claude fill missing categories and thin tags (`scripts/backfill_taxonomy.py`) |
 
 ### Running the Pipeline In-Process
 

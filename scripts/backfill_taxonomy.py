@@ -12,11 +12,16 @@ span several categories ("Mentions", AI + Politics), Polymarket International ta
 tags appear daily), and events with no label at all keep an already standardized category or become OTHER, for the LLM
 pass to settle.
 
+With --llm, Claude then fills what the labels leave open on every unresolved event, as canonicalization does for new
+events: a category where the labels give none (OTHER) and tags where there are fewer than two. Paid model calls
+(about $0.00005 an event with Haiku 5.5), through `DEFAULT_CANONICALIZE_MODELS` on the Anthropic API.
+
 Without --apply it only prints what would change.
 
   export REGISTRY_API_URL=...        # without the /api suffix
   export REGISTRY_API_KEY=...
-  poetry run backfill-taxonomy [--apply]
+  export ANTHROPIC_API_KEY_SECRET=anthropic-api-key   # with --llm; read from Secrets Manager (AWS_PROFILE)
+  poetry run backfill-taxonomy [--llm] [--apply]
 """
 import logging
 import os
@@ -34,9 +39,13 @@ from classifier.adapters.kalshi import KalshiAdapter
 from classifier.adapters.polymarket_intl import GAMMA_API_URL
 from classifier.adapters.settlement import chunked
 from classifier.adapters.types import AdapterContract
+from classifier.client.claude import ClaudeAsker
 from classifier.client.http import RateLimitedSession
-from classifier.constants import STANDARDIZED_CATEGORIES
+from classifier.constants import DEFAULT_CANONICALIZE_MODELS, STANDARDIZED_CATEGORIES
+from classifier.stages.canonicalize import canonicalize_events, needs_llm
 from classifier.stages.fetch import fetch_all, fetch_exchanges
+from classifier.types import CanonicalizeInput
+from classifier.workers.config import claude_client
 
 logger = logging.getLogger(__name__)
 
@@ -109,10 +118,48 @@ def _resolve(
     return Resolution(event.category if standardized else None, code == "HYPERLIQUID" and standardized, str(label))
 
 
-def plan_backfill(registry: RegistryClient) -> tuple[list[dict], Counter, Counter]:
+def _llm_patches(
+    events: list[Event], live: dict[tuple[int, str], AdapterContract], patches: list[dict], canonicalizer: ClaudeAsker,
+) -> list[dict]:
+    """Patches for what Claude fills on top of the static ones: the category of events left OTHER, and tags for events
+    left with fewer than two."""
+    static = {p["event_id"]: p for p in patches}
+    inputs: dict[tuple[int, str], tuple[Event, CanonicalizeInput]] = {}
+    for event in events:
+        patch = static.get(event.event_id, {})
+        category = patch.get("category", event.category)
+        contract = live.get((event.exchange_id, event.native_event_id))
+        item = CanonicalizeInput(
+            event.title, event.description, contract.event_category if contract else category,
+            event.exchange_id, event.native_event_id,
+            mapped_category=category if category in STANDARDIZED_CATEGORIES and category != "OTHER" else None,
+            exchange_tags=tuple(patch.get("tags", event.tags or ())),
+        )
+        if needs_llm(item):
+            inputs[(event.exchange_id, event.native_event_id)] = (event, item)
+    logger.info("%d events need Claude", len(inputs))
+    results = canonicalize_events(canonicalizer, [item for _, item in inputs.values()])
+
+    out = []
+    for key, (event, item) in inputs.items():
+        result = results[key]
+        patch = dict(static.get(event.event_id, {"event_id": event.event_id}))
+        if result["category"] != (item.mapped_category or patch.get("category", event.category)):
+            patch["category"] = result["category"]
+        if result["tags"] != list(item.exchange_tags):
+            patch["tags"] = result["tags"]
+        if len(patch) > 1:
+            out.append(patch)
+    return out
+
+
+def plan_backfill(
+    registry: RegistryClient, canonicalizer: ClaudeAsker | None = None,
+) -> tuple[list[dict], Counter, Counter]:
     exchange_by_code = fetch_exchanges(registry)
     code_by_id = {e.exchange_id: code for code, e in exchange_by_code.items()}
-    events = [e for e in registry.get_event(resolved=False) if not _is_current(e)]
+    unresolved = registry.get_event(resolved=False)
+    events = [e for e in unresolved if not _is_current(e)]
     logger.info("%d events need a backfill", len(events))
 
     contracts, failed = fetch_all(exchange_by_code)
@@ -149,12 +196,18 @@ def plan_backfill(registry: RegistryClient) -> tuple[list[dict], Counter, Counte
             patches.append({"event_id": event.event_id, **patch})
             state = "open" if contract is not None else "closed"
             changes[(code, state, event.category, category, "tags" in patch)] += 1
+    if canonicalizer is not None and not unknown:
+        llm = _llm_patches(unresolved, live, patches, canonicalizer)
+        by_id = {p["event_id"]: p for p in patches} | {p["event_id"]: p for p in llm}
+        patches = list(by_id.values())
+        changes[("claude", "open+closed", "-", "-", True)] += len(llm)
     return patches, changes, unknown
 
 
 @click.command()
+@click.option("--llm", is_flag=True, help="Then have Claude fill missing categories and thin tags (paid)")
 @click.option("--apply", "apply_changes", is_flag=True, help="Write the changes to the registry")
-def main(apply_changes: bool):
+def main(llm: bool, apply_changes: bool):
     """Backfill event categories and tags from the static exchange taxonomy."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     for var in ("REGISTRY_API_URL", "REGISTRY_API_KEY"):
@@ -162,7 +215,8 @@ def main(apply_changes: bool):
             raise click.ClickException(f"{var} is required")
     registry = RegistryClient(base_url=os.environ["REGISTRY_API_URL"], api_key=os.environ["REGISTRY_API_KEY"])
 
-    patches, changes, unknown = plan_backfill(registry)
+    canonicalizer = ClaudeAsker(claude_client, ["anthropic"], DEFAULT_CANONICALIZE_MODELS) if llm else None
+    patches, changes, unknown = plan_backfill(registry, canonicalizer)
 
     by_exchange: Counter = Counter()
     for (code, state, _, _, tagged), n in changes.items():
