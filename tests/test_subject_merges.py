@@ -65,6 +65,15 @@ class TestCandidates:
     def test_one_extra_word_narrows_the_subject(self):
         assert self.pairs(subject("us-senate-2026", ["KALSHI"]), subject("us-senate-2026-texas", ["POLYMARKET_US"])) == []
 
+    def test_games_at_different_start_times_are_never_candidates(self):
+        assert self.pairs(subject("game:cs2:2026-11-03:mayfal-0630", ["POLYMARKET_INTL"]),
+                          subject("game:cs2:2026-11-03:mayfal-1300", ["KALSHI"])) == []
+
+    def test_a_game_key_without_a_start_time_is_still_a_candidate(self):
+        assert self.pairs(subject("game:dota2:2026-11-03:angic-1100", ["KALSHI"]),
+                          subject("game:dota2:2026-11-03:angic", ["POLYMARKET_INTL"])) == [
+            ("game:dota2:2026-11-03:angic", "game:dota2:2026-11-03:angic-1100")]
+
     def test_order_matters_in_combination_keys(self):
         assert self.pairs(subject("combo:r-ak-ia-d-oh", ["KALSHI"]), subject("combo:r-ak-oh-d-ia", ["POLYMARKET_US"])) == []
 

@@ -56,6 +56,9 @@ _SEPARATORS = re.compile(r"[:._/-]+")
 # Words that say how a market is asked rather than what about.
 _FILLER = {"control", "winner", "winners", "win", "race", "election", "elections", "result", "results", "outcome", "the"}
 _GENERIC_ENTITIES = {"yes", "no", "tie", "draw", "over", "under", "other", "field", "none"}
+# A game key's date and, when it carries one, its start time (`game:cs2:2026-11-03:mayfal-1300`). The same teams can
+# meet twice in a day in different tournaments, and the judge, reading two near-identical match markets, calls them one.
+_GAME_START = re.compile(r"^game:[^:]+:(\d{4}-\d{2}-\d{2}):.*-([01]\d|2[0-3])([0-5]\d)$")
 
 
 class Verdict(StrEnum):
@@ -168,6 +171,12 @@ def key_tokens(key: str) -> tuple[str, ...]:
     return tuple(t for t in _SEPARATORS.split(text) if t and t not in _FILLER)
 
 
+def different_start_times(a: str, b: str) -> bool:
+    """Whether both keys are games on one date that name different start times."""
+    ma, mb = _GAME_START.match(a), _GAME_START.match(b)
+    return bool(ma and mb and ma.group(1) == mb.group(1) and ma.groups()[1:] != mb.groups()[1:])
+
+
 def _pair(a: str, b: str) -> tuple[str, str]:
     return (a, b) if a < b else (b, a)
 
@@ -218,7 +227,7 @@ def candidate_pairs(profiles: Iterable[SubjectProfile], neighbours: dict[str, li
     by_key = {p.key: p for p in profiles if p.key != UNKNOWN_SUBJECT}
     pairs = _token_pairs(list(by_key.values())) | _shared_pairs(list(by_key.values()), bucket_limit)
     pairs |= {_pair(k, n) for k, ns in neighbours.items() for n in ns if k != n}
-    return sorted((a, b) for a, b in pairs if a in by_key and b in by_key)
+    return sorted((a, b) for a, b in pairs if a in by_key and b in by_key and not different_start_times(a, b))
 
 
 @dataclasses.dataclass(frozen=True)
