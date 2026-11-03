@@ -7,10 +7,12 @@ import pytest
 from classifier.propositions.derive import (
     DERIVATION_VERSION,
     EQUIVALENT,
+    FLAG_DEADLINE_DIFFERS,
     FLAG_DEADLINE_ZONE,
     FLAG_SNAPSHOT_TIME,
     FLAG_SOURCE_DIFFERS,
     FLAG_SOURCE_UNKNOWN,
+    FLAG_VOID_RULES,
     IMPLIES,
     Contract,
     derivation_units,
@@ -202,6 +204,41 @@ class TestFlags:
 
     def test_same_venue_pairs_carry_none(self):
         assert relation(threshold(GT, 2), threshold(GT, 1), "K", "K") == ("1=>2", ())
+
+    def test_same_venue_pairs_with_two_named_sources_that_differ_carry_one(self):
+        mark = threshold(GT, 2, resolution_source="hyperliquid-xyz-cl-mark-twap-60s")
+        candle = threshold(GT, 1, resolution_source="hyperliquid-xyz-cl-1m-candle-twap-300s")
+        assert relation(mark, candle, "HL", "HL") == ("1=>2", (FLAG_SOURCE_DIFFERS,))
+        assert relation(mark, threshold(GT, 1), "HL", "HL") == ("1=>2", ())
+
+
+def prime_minister(end, **kw):
+    return Proposition(subject="israel-pm-after-2026-election", kind=Kind.WINNER, measure="holder:prime-minister",
+                       entity="gadi-eizenkot", window_end=end, **kw)
+
+
+class TestContingencyFlags:
+    KALSHI_DEADLINE = datetime(2027, 10, 27, 4, tzinfo=timezone.utc)
+    POLYMARKET_DEADLINE = datetime(2028, 1, 1, 5, tzinfo=timezone.utc)
+
+    def test_one_off_contests_whose_venues_give_up_at_different_deadlines(self):
+        flags = relation(prime_minister(self.KALSHI_DEADLINE), prime_minister(self.POLYMARKET_DEADLINE), "K", "PMI")
+        assert flags == (EQUIVALENT, (FLAG_DEADLINE_DIFFERS, FLAG_SOURCE_UNKNOWN))
+
+    def test_one_deadline_unknown_differs_too(self):
+        assert FLAG_DEADLINE_DIFFERS in relation(prime_minister(self.KALSHI_DEADLINE), prime_minister(None), "K", "PMU")[1]
+
+    def test_the_same_deadline_or_none_on_both_is_not_flagged(self):
+        assert FLAG_DEADLINE_DIFFERS not in relation(prime_minister(self.KALSHI_DEADLINE),
+                                                     prime_minister(self.KALSHI_DEADLINE + timedelta(hours=5)), "K", "PMI")[1]
+        assert FLAG_DEADLINE_DIFFERS not in relation(prime_minister(None), prime_minister(None), "K", "PMI")[1]
+
+    def test_games_on_different_venues_carry_void_rules_not_deadlines(self):
+        tie = lambda end: dataclasses.replace(winner("tie", scope="regulation"), subject="game:chi1:2026-11-05:uco-ohf",
+                                              window_end=end)
+        assert relation(tie(None), tie(datetime(2026, 11, 5, tzinfo=timezone.utc)), "K", "PMI")[1] == \
+            (FLAG_SOURCE_UNKNOWN, FLAG_VOID_RULES)
+        assert relation(tie(None), tie(None), "PMI", "PMI")[1] == ()
 
 
 def test_one_relationship_per_pair_with_evidence():

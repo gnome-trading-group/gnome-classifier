@@ -332,7 +332,7 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 
 **`sm.event_contract`** — links an event to its outcome securities: `event_contract_id`, `event_id`, `security_id`, `outcome_label`.
 
-**`sm.contract_relationship`** — `relationship_id`, `security_id_a`, `security_id_b`, `relationship_type` (`EQUIVALENT`, lower security first, or `IMPLIES`, antecedent first), `method` (`"derived"` or `"manual"`), `flags` (e.g. `RESOLUTION_SOURCE_DIFFERS`), `evidence` (the rule and the proposition fields it compared), `derivation_version`. Only the fewest rows that rebuild the relation are stored; consumers rebuild the rest with gnomepy's `RelationshipGraph`.
+**`sm.contract_relationship`** — `relationship_id`, `security_id_a`, `security_id_b`, `relationship_type` (`EQUIVALENT`, lower security first, or `IMPLIES`, antecedent first), `method` (`"derived"` or `"manual"`), `flags` (`RESOLUTION_SOURCE_DIFFERS`/`_UNKNOWN`, `DEADLINE_TIMEZONE_DIFFERS`, `OBSERVATION_TIME_DIFFERS`, and the contingencies where venues can settle apart: `DEADLINE_DIFFERS` for one-off contests whose venues give up at different deadlines, `VOID_RULES_DIFFER` for games on two venues), `evidence` (the rule and the proposition fields it compared), `derivation_version`. Only the fewest rows that rebuild the relation are stored; consumers rebuild the rest with gnomepy's `RelationshipGraph`.
 
 **`sm.contract_source`**, **`sm.contract_proposition`**, **`sm.proposition_subject`** (+ `_alias`, `_merge_log`) — each security's venue source, the proposition read from it, and the subjects propositions are about; see [Relationship Discovery](#relationship-discovery).
 

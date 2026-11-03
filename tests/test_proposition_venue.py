@@ -380,3 +380,35 @@ class TestKalshiRateDecisions:
     def test_the_no_side_is_the_negation(self):
         p = extract_venue({**fed("C26", "Cut >25bps", "Cut", "  25"), "side": "no"})
         assert p.negated and p.comparator == Comparator.LT
+
+
+class TestHyperliquidBinaryPrice:
+    def source(self, perp="xyz:SILVER", described="xyz:SILVER-USDC perp mark", seconds=60, threshold="50.511",
+               label="Yes", wording="is above"):
+        return {"venue": "HYPERLIQUID", "label": label, "title": f"{perp} above {threshold} at 2026-11-03 21:00?",
+                "description": f"The market resolves to Yes if the {perp} price {wording} {threshold} at 2026-11-03 21:00, "
+                               f"and otherwise resolves to No. Settlement is according to the {seconds}-second TWAP.",
+                "outcome": {"name": "template:binaryPrice", "description":
+                            f"perp:{perp}|priceDescription:{described}|seconds:{seconds}|threshold:{threshold}"
+                            f"|time:20261103-2100"}}
+
+    def test_a_price_above_a_threshold_at_a_time(self):
+        p = extract_venue(self.source())
+        assert (p.subject, p.kind, p.comparator, p.value, p.observation) == (
+            "xyz-silver-usd", Kind.THRESHOLD, Comparator.GT, 50.511, Observation.AT_TIME)
+        assert p.window_end == datetime(2026, 11, 3, 21, tzinfo=timezone.utc)
+        assert p.resolution_source == "hyperliquid-xyz-silver-mark-twap-60s"
+
+    def test_each_settlement_price_is_its_own_source(self):
+        candle = extract_venue(self.source(perp="xyz:CL", described="1-minute candle", seconds=300, threshold="102"))
+        index = extract_venue(self.source(perp="xyz:SP500", described="the Pyth US500 index price", seconds=90,
+                                          threshold="7520"))
+        assert (candle.subject, candle.resolution_source) == ("xyz-cl-usd", "hyperliquid-xyz-cl-1m-candle-twap-300s")
+        assert (index.subject, index.resolution_source) == ("xyz-sp500-usd", "pyth-us500-index-twap-90s")
+
+    def test_the_no_side_is_the_negation(self):
+        assert extract_venue(self.source(label="No")).negated
+
+    def test_reworded_rules_fall_back_to_the_llm(self):
+        reworded = self.source(wording="is below")
+        assert claims(reworded) and extract_venue(reworded) is None

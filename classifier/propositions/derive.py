@@ -26,7 +26,7 @@ from classifier.propositions.types import Comparator, Kind, Observation, Proposi
 
 logger = logging.getLogger(__name__)
 
-DERIVATION_VERSION = "d6"
+DERIVATION_VERSION = "d7"
 
 EQUIVALENT = "EQUIVALENT"
 IMPLIES = "IMPLIES"
@@ -60,6 +60,14 @@ FLAG_SOURCE_DIFFERS = "RESOLUTION_SOURCE_DIFFERS"
 FLAG_SOURCE_UNKNOWN = "RESOLUTION_SOURCE_UNKNOWN"
 FLAG_DEADLINE_ZONE = "DEADLINE_TIMEZONE_DIFFERS"
 FLAG_SNAPSHOT_TIME = "OBSERVATION_TIME_DIFFERS"
+# One-off contests (an election, an office, an award) whose markets give up at different deadlines, or where one
+# deadline is unknown: they agree when the contest is decided in time, and can differ when it isn't (a venue's
+# "No one" if no government forms by its deadline).
+FLAG_DEADLINE_DIFFERS = "DEADLINE_DIFFERS"
+# Games on different venues: each venue settles a postponed, cancelled or unfinished game its own way (a fair price,
+# the Draw, or waiting for the rescheduled game), so they can differ when the game isn't played as scheduled.
+FLAG_VOID_RULES = "VOID_RULES_DIFFER"
+GAME_SUBJECT_PREFIX = "game:"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -297,8 +305,9 @@ def _winner_timing(a: Proposition, b: Proposition) -> tuple[str, list[str]] | No
     """How two winner propositions' timings compare: "same", "a_at_end" (a holds it at the window's end, b at any time
     in the window, so a implies b), "b_at_end", or None when they are about different times."""
     if a.observation is None and b.observation is None:
-        # A contest decided once (a game, an election): its time is fixed by the subject.
-        return "same", []
+        # A contest decided once (a game, an election): its time is fixed by the subject. A deadline here is only when
+        # a venue gives up waiting for the result.
+        return "same", _contest_deadline_flags(a, b)
     if a.observation is None or b.observation is None or a.window_end is None or b.window_end is None:
         return None
     gap = abs(a.window_end - b.window_end)
@@ -312,6 +321,15 @@ def _winner_timing(a: Proposition, b: Proposition) -> tuple[str, list[str]] | No
     if a.observation == Observation.ANY_TIME and b.observation == Observation.AT_TIME:
         return "b_at_end", flags
     return None
+
+
+def _contest_deadline_flags(a: Proposition, b: Proposition) -> list[str]:
+    """Games are left to FLAG_VOID_RULES, which covers the same risk across venues."""
+    if a.subject.startswith(GAME_SUBJECT_PREFIX) or (a.window_end is None and b.window_end is None):
+        return []
+    if a.window_end is None or b.window_end is None or abs(a.window_end - b.window_end) > DEADLINE_TOLERANCE:
+        return [FLAG_DEADLINE_DIFFERS]
+    return []
 
 
 def _winners(a: Proposition, b: Proposition, rivals: frozenset[frozenset[str]]) -> tuple[str, str, list[str]] | None:
@@ -402,12 +420,18 @@ def _relate(a: Proposition, b: Proposition,
 
 
 def _source_flags(a: Contract, b: Contract) -> list[str]:
-    if a.venue == b.venue:
-        return []
+    """On one venue, an unnamed source is the venue's usual one; two named ones that differ (two TWAP windows) can
+    still settle apart."""
     sa, sb = a.proposition.resolution_source, b.proposition.resolution_source
+    if a.venue == b.venue:
+        return [FLAG_SOURCE_DIFFERS] if sa and sb and sa != sb else []
     if sa and sb:
         return [] if sa == sb else [FLAG_SOURCE_DIFFERS]
     return [FLAG_SOURCE_UNKNOWN]
+
+
+def _void_flags(a: Contract, b: Contract) -> list[str]:
+    return [FLAG_VOID_RULES] if a.venue != b.venue and a.proposition.subject.startswith(GAME_SUBJECT_PREFIX) else []
 
 
 def _evidence(rule: str, a: Proposition, b: Proposition) -> dict:
@@ -422,7 +446,7 @@ def _relate_pair(a: Contract, b: Contract, rivals: frozenset[frozenset[str]]) ->
     if found is None:
         return None
     forward, backward, flags, rule = found
-    all_flags = tuple(sorted(set(flags + _source_flags(a, b))))
+    all_flags = tuple(sorted(set(flags + _source_flags(a, b) + _void_flags(a, b))))
     if forward == backward == "y":
         return Derived(a.security_id, b.security_id, EQUIVALENT, all_flags, _evidence(rule, a.proposition, b.proposition))
     if forward == "y":
