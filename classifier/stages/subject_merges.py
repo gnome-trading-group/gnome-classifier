@@ -30,6 +30,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from enum import StrEnum
@@ -142,6 +143,7 @@ class RedisMergeMemory:
 class MergePassResult:
     subjects: int = 0
     neighbour_lookups: int = 0
+    neighbour_seconds: float = 0.0
     candidates: int = 0
     judged: int = 0
     left_to_judge: int = 0
@@ -350,9 +352,11 @@ def run_merge_pass(
              and (last_sweep is None or s.changed_at[k] >= last_sweep - SWEEP_OVERLAP)]
     result.neighbour_lookups = len(fresh)
     by_id = {v: k for k, v in s.ids.items()}
+    timer = time.monotonic()
     neighbours = {by_id[i]: [by_id[n] for n in ns if n in by_id]
                   for i, ns in db.subject_neighbours([s.ids[k] for k in fresh], NEIGHBOURS,
                                                      MIN_NEIGHBOUR_SIMILARITY).items()}
+    result.neighbour_seconds = round(time.monotonic() - timer, 1)
     pairs = [(a, b) for a, b in candidate_pairs(s.profiles.values(), neighbours)
              if max(s.volume[a], s.volume[b]) >= min_volume]
     decided = {frozenset((c.alias_subject_id, c.canonical_subject_id))

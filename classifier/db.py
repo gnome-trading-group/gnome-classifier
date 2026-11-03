@@ -17,6 +17,12 @@ from classifier.propositions.types import Proposition
 
 logger = logging.getLogger(__name__)
 
+# Subject embeddings are stored out of line, so the table itself is small and the planner (pgvector 0.8.1 in prod)
+# prices a full scan plus a sort below the HNSW index; every row's vector is then fetched and compared, about a second
+# per lookup, and a merge pass's thousands of lookups held a database core for 25 minutes. Ruling out sequential scans
+# leaves the index as the only ordered path. SET LOCAL lasts until the transaction ends, which the pool rolls back.
+_USE_VECTOR_INDEX = "SET LOCAL enable_seqscan = off"
+
 
 class EventLink(NamedTuple):
     event_id: int
@@ -645,6 +651,7 @@ class ClassifierDB:
         propositions use."""
         with self._conn() as conn:
             with conn.cursor() as cur:
+                cur.execute(_USE_VECTOR_INDEX)
                 cur.execute(
                     "SELECT s.key, s.description,"
                     " COALESCE(array_agg(DISTINCT p.fields->>'entity') FILTER (WHERE p.fields->>'entity' IS NOT NULL), '{}'),"
@@ -733,6 +740,7 @@ class ClassifierDB:
             return {}
         with self._conn() as conn:
             with conn.cursor() as cur:
+                cur.execute(_USE_VECTOR_INDEX)
                 cur.execute(
                     "SELECT t.subject_id, n.subject_id FROM sm.proposition_subject t"
                     " CROSS JOIN LATERAL ("
