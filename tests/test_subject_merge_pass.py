@@ -63,9 +63,13 @@ class FakeDB:
 
 
 class FakeRegistry:
-    def __init__(self, decided=()):
+    def __init__(self, decided=(), unmerged=()):
         self.merges, self.queued, self.upserted = [], [], []
         self.decided = decided
+        self.unmerged = unmerged
+
+    def get_subject_merge_log(self, action=None):
+        return [SimpleNamespace(alias_subject_id=a, canonical_subject_id=c, action="UNMERGE") for a, c in self.unmerged]
 
     def get_subject_merge_candidates(self, status=None):
         return [SimpleNamespace(alias_subject_id=a, canonical_subject_id=c, status="DISMISSED") for a, c in self.decided]
@@ -230,6 +234,11 @@ class TestMergePass:
         registry = FakeRegistry()
         result = run(db, registry, FakeJudge({("andrew-abbott:mlb-2026", "mlb:nl-cy-young-2026"): SAME}))
         assert registry.merges == [] and result.season_key == 1
+
+    def test_a_pair_a_person_unmerged_is_never_merged_again(self):
+        judge, registry = FakeJudge({(GA_SHORT, GA): SAME}), FakeRegistry(unmerged=[(2, 1)])
+        run(governor_db(), registry, judge)
+        assert judge.asked == [] and registry.merges == []
 
     def test_a_dismissed_pair_is_not_judged_again(self):
         judge = FakeJudge({})

@@ -21,7 +21,7 @@ Each pass:
 What each pair came to is remembered in Redis with what it rested on. A pair is judged again when either subject's
 venues, entities or measures change; a pair that gained nothing is checked again when either subject's contracts
 change; one only logged while auto-merge was off is handled again once it is on. A queued pair waits for a person, and
-one a person merged or dismissed is never queued again. RELATED and DIFFERENT pairs are never merged or queued: a
+one a person merged, dismissed or unmerged is never merged or queued again. RELATED and DIFFERENT pairs are never merged or queued: a
 RELATED pair that would gain relationships is a different contest on the same topic (an award and the MVP, a
 nomination and the election), exactly the merge that must not happen.
 """
@@ -359,8 +359,11 @@ def run_merge_pass(
     result.neighbour_seconds = round(time.monotonic() - timer, 1)
     pairs = [(a, b) for a, b in candidate_pairs(s.profiles.values(), neighbours)
              if max(s.volume[a], s.volume[b]) >= min_volume]
+    # A person's decision is final: a queued pair they merged or dismissed, or a merge they undid.
     decided = {frozenset((c.alias_subject_id, c.canonical_subject_id))
                for c in registry.get_subject_merge_candidates(status="ALL") if c.status != "PENDING"}
+    decided |= {frozenset((m.alias_subject_id, m.canonical_subject_id))
+                for m in registry.get_subject_merge_log(action="UNMERGE")}
     pairs = [p for p in pairs if frozenset((s.ids[p[0]], s.ids[p[1]])) not in decided]
     pairs.sort(key=lambda pair: -max(s.volume[pair[0]], s.volume[pair[1]]))
     result.candidates = len(pairs)
