@@ -120,8 +120,8 @@ def answer(*judgments):
                            content=[SimpleNamespace(type="text", text=json.dumps({"judgments": list(judgments)}))])
 
 
-def judgment(pair_id, verdict="SAME", entity_map=()):
-    return {"pair_id": str(pair_id), "verdict": verdict, "reason": "r",
+def judgment(pair_id, verdict="SAME", entity_map=(), keys=("ga-governor-2026", "georgia-governor-2026")):
+    return {"pair_id": str(pair_id), "a_key": keys[0], "b_key": keys[1], "verdict": verdict, "reason": "r",
             "entity_map": [{"a": a, "b": b} for a, b in entity_map], "measure_map": []}
 
 
@@ -133,6 +133,12 @@ class TestJudge:
         out = parse_answer(json.dumps({"judgments": [judgment(0, entity_map=[("ggo", "goias"), ("x", "x")])]}), [PAIR])
         assert out[("ga-governor-2026", "georgia-governor-2026")] == Judgment(Verdict.SAME, "r", (("ggo", "goias"),))
 
+    def test_an_answer_filed_under_another_pairs_id_is_dropped(self):
+        other = (subject("a", ["KALSHI"]), subject("b", ["HYPERLIQUID"]))
+        text = json.dumps({"judgments": [judgment(0, keys=("a", "b")), judgment(1, "RELATED", keys=("a", "b"))]})
+        assert parse_answer(text, [PAIR, other]) == {
+            ("ga-governor-2026", "georgia-governor-2026"): None, ("a", "b"): Judgment(Verdict.RELATED, "r")}
+
     def test_unparseable_answers_and_entries_are_none(self):
         assert parse_answer("not json", [PAIR]) == {("ga-governor-2026", "georgia-governor-2026"): None}
         assert parse_answer(json.dumps({"judgments": [judgment(0, verdict="MAYBE")]}), [PAIR]) == {
@@ -140,7 +146,8 @@ class TestJudge:
 
     def test_asks_in_chunks_with_the_schema(self):
         client = MagicMock()
-        client.messages.create.side_effect = [answer(judgment(0), judgment(1)), answer(judgment(0, "RELATED"))]
+        client.messages.create.side_effect = [answer(judgment(0), judgment(1, keys=("a", "b"))),
+                                              answer(judgment(0, "RELATED", keys=("c", "d")))]
         pairs = [PAIR, (subject("a", ["KALSHI"]), subject("b", ["HYPERLIQUID"])),
                  (subject("c", ["KALSHI"]), subject("d", ["HYPERLIQUID"]))]
         judge = SubjectMergeJudge(ClaudeAsker(lambda p: client, ["anthropic"], {"anthropic": "m"}), max_workers=1,

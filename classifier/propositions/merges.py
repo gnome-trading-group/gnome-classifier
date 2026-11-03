@@ -282,7 +282,8 @@ For SAME, also list entity_map: each entity key of subject a with the key subjec
 party or outcome where they differ (a "ggo", b "goias"), and measure_map likewise for measures that are the same \
 quantity under different names. Leave both empty otherwise.
 
-reason: one short sentence a reviewer can check. Return one entry per pair id given."""
+reason: one short sentence a reviewer can check. Return one entry per pair id given, echoing the pair's a_key and b_key
+exactly as given."""
 
 _MAP_SCHEMA = {
     "type": "array",
@@ -303,12 +304,14 @@ RESPONSE_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "pair_id": {"type": "string"},
+                    "a_key": {"type": "string"},
+                    "b_key": {"type": "string"},
                     "verdict": {"type": "string", "enum": [v.value for v in Verdict]},
                     "entity_map": _MAP_SCHEMA,
                     "measure_map": _MAP_SCHEMA,
                     "reason": {"type": "string"},
                 },
-                "required": ["pair_id", "verdict", "entity_map", "measure_map", "reason"],
+                "required": ["pair_id", "a_key", "b_key", "verdict", "entity_map", "measure_map", "reason"],
                 "additionalProperties": False,
             },
         },
@@ -325,7 +328,8 @@ def _shown(p: SubjectProfile) -> dict:
 
 
 def build_prompt(pairs: list[tuple[SubjectProfile, SubjectProfile]]) -> str:
-    return json.dumps({"pairs": [{"pair_id": str(i), "a": _shown(a), "b": _shown(b)} for i, (a, b) in enumerate(pairs)]},
+    return json.dumps({"pairs": [{"pair_id": str(i), "a_key": a.key, "b_key": b.key, "a": _shown(a), "b": _shown(b)}
+                                 for i, (a, b) in enumerate(pairs)]},
                       ensure_ascii=False, default=str)
 
 
@@ -343,6 +347,11 @@ def parse_answer(text: str, pairs: list[tuple[SubjectProfile, SubjectProfile]]) 
     for entry in entries:
         try:
             a, b = pairs[int(entry["pair_id"])]
+            # An answer filed under another pair's id would merge two subjects the judge never compared.
+            if (entry.get("a_key"), entry.get("b_key")) != (a.key, b.key):
+                logger.warning("Subject merge judgment for pair %s names %s/%s, not %s/%s; dropped",
+                               entry.get("pair_id"), entry.get("a_key"), entry.get("b_key"), a.key, b.key)
+                continue
             out[(a.key, b.key)] = Judgment(Verdict(entry["verdict"]), entry.get("reason") or "",
                                            _mapping(entry.get("entity_map") or []),
                                            _mapping(entry.get("measure_map") or []))
