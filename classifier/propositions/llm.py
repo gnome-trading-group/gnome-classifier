@@ -50,7 +50,8 @@ resolution_source.
 Billboard) is a different subject.
 - subject_description: one plain sentence saying what the subject is.
 - kind: THRESHOLD (a number compared with a value), RANGE (a number between two values), OCCURS_BY (something \
-happens by a deadline), WINNER (an entity wins a contest), OTHER. A market asking which of several candidates is \
+happens by a deadline), WINNER (an entity wins a contest), SCORE (the final score of a game or one part of it: \
+"Exact Score: AEK 0 - 1 Real Madrid", "final score 24-17"), OTHER. A market asking which of several candidates is \
 chosen, wins or comes first (the next UN Secretary-General, a nominee, a winner) is WINNER with that entity, even \
 when it names a deadline: OCCURS_BY is for whether one thing happens at all. A draw or tie in a match is WINNER with \
 entity tie.
@@ -84,12 +85,18 @@ is the decisive moment or deadline). Not when the market closes or the result is
 ends 2026-12-31 even if the data comes out in 2027. Convert local times; a date with no time in a Kalshi rule \
 is Eastern Time ("before Jan 1, 2027" is 2027-01-01T05:00:00Z).
 - entity: who must win (WINNER), as a short lowercase key: a candidate's entity key when it names the same team, \
-player or party; otherwise a short name (clemson, democratic, republican, zohran-mamdani). Two outcomes of one event \
+player or party; otherwise a short name (clemson, democratic, republican, zohran-mamdani). When the rules settle on a \
+party ("a representative of the Democratic party is sworn in", "according to the party of the candidate who wins"), \
+the entity is the party (democratic, republican), even when the outcome is labelled with a candidate. Two outcomes of one event \
 are always different entities, even when their names are alike or a candidate's entity key would fit both: key each \
 by its full listed name ("Dan Sullivan" dan-sullivan, "Daniel J. Sullivan Jr." daniel-j-sullivan-jr).
+- scores: SCORE only, otherwise null: both sides of the score as {entity, value}, keyed like the game's winner \
+markets (a candidate's entity keys for the same teams): "AEK 0 - 1 Real Madrid" is [{"entity": "aek", "value": 0}, \
+{"entity": "rma", "value": 1}]. unit is the scoring unit (goals, points, maps, sets, runs). "Any other score" is OTHER.
 - scope: the part of the contest when it matters: match (the whole fixture: one game, or a whole best-of series), \
 map:<n> (one game or map within a series, whatever the sport calls it: "Game 2 Winner" and "Map 2 Winner" are both \
-map:2), regulation, first_half, playoff_series (several fixtures, as an NBA playoff series), regular_season, season. Null when not a sports contest (elections, awards, charts have no scope). A soccer result with a draw outcome is decided after 90 minutes plus stoppage time: \
+map:2), regulation, first_half, playoff_series (several fixtures, as an NBA playoff series), regular_season, season. Null when not a sports contest (elections, awards, charts have no scope), except a market on a national popular vote (the \
+popular vote margin, who wins the popular vote): popular_vote, since the presidency is decided by the electoral college. A soccer result with a draw outcome is decided after 90 minutes plus stoppage time: \
 regulation.
 - stability: SETTLED if the measured value can no longer move around the observation time (a review score after \
 release, published official statistics), otherwise LIVE.
@@ -131,10 +138,13 @@ _ENTRY_SCHEMA = {
         "stability": {"type": "string", "enum": [s.value for s in Stability]},
         "resolution_source": _NULLABLE_STRING,
         "unknown": {"type": "array", "items": {"type": "string", "enum": list(FIELDS)}},
+        "scores": {"anyOf": [{"type": "null"}, {"type": "array", "items": {
+            "type": "object", "properties": {"entity": {"type": "string"}, "value": {"type": "number"}},
+            "required": ["entity", "value"], "additionalProperties": False}}]},
     },
     "required": ["contract_id", "subject", "subject_description", "kind", "measure", "comparator", "value", "unit",
                  "low", "high", "low_inclusive", "high_inclusive", "observation", "window_start", "window_end",
-                 "entity", "scope", "stability", "resolution_source", "unknown"],
+                 "entity", "scope", "stability", "resolution_source", "unknown", "scores"],
     "additionalProperties": False,
 }
 
@@ -190,6 +200,11 @@ def to_proposition(entry: dict) -> tuple[Proposition, str]:
             cleared.add("observation")
         entry = {**entry, **{f: None for f in cleared}}
         unknown = unknown - cleared
+    if entry["kind"] == Kind.SCORE.value:
+        # The scores say everything; a score has no comparator, bounds, single entity or observation.
+        cleared = {"comparator", "value", "low", "high", "entity", "observation"}
+        entry = {**entry, **{f: None for f in cleared}}
+        unknown = unknown - cleared
     subject = entry["subject"] if "subject" not in unknown else "unknown"
     proposition = Proposition(
         subject=subject,
@@ -210,6 +225,8 @@ def to_proposition(entry: dict) -> tuple[Proposition, str]:
         stability=Stability(entry["stability"]),
         resolution_source=entry.get("resolution_source"),
         unknown=unknown,
+        scores=tuple((s["entity"], s["value"]) for s in entry.get("scores") or ())
+        if entry["kind"] == Kind.SCORE.value else (),
     )
     return proposition, entry.get("subject_description") or ""
 

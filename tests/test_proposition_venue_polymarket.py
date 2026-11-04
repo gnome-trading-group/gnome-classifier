@@ -299,3 +299,26 @@ class TestLevelDirections:
         assert correct_venue(plain, valuation(Comparator.GTE, 700)).comparator == Comparator.GTE
         occurs = Proposition(subject="anthropic:ipo", kind=Kind.OCCURS_BY, window_end=utc(2027, 1, 1))
         assert correct_venue(self.LOW, occurs) == occurs
+
+
+BY_PARTY_RULES = ("This market will resolve according to the party of the candidate who wins the TX-17 congressional "
+                  "district seat in the U.S. House of Representatives in the 2026 midterm elections.")
+
+
+class TestElectionsSettleOnTheParty:
+    def source(self, title, outcome="Yes", rules=BY_PARTY_RULES):
+        return {"venue": "POLYMARKET_INTL", "outcome": outcome, "event": {"slug": "tx-17-house-election-winner"},
+                "market": {"question": f"TX-17 House Election Winner: {title}", "groupItemTitle": title,
+                           "outcomes": '["Yes", "No"]', "description": rules}}
+
+    def candidate(self, entity="pete-sessions", negated=False):
+        return Proposition(subject="tx-17-house-2026", kind=Kind.WINNER, measure="winner", entity=entity, negated=negated)
+
+    def test_the_letter_after_the_candidate_names_the_party(self):
+        assert correct_venue(self.source("Pete Sessions (R)"), self.candidate()).entity == "republican"
+        no_side = correct_venue(self.source("Pete Sessions (R)", outcome="No"), self.candidate(negated=True))
+        assert (no_side.entity, no_side.negated) == ("republican", True)
+
+    def test_a_market_that_settles_on_the_person_is_left_alone(self):
+        rules = "This market will resolve to Yes if Pete Sessions wins the TX-17 seat."
+        assert correct_venue(self.source("Pete Sessions (R)", rules=rules), self.candidate()).entity == "pete-sessions"

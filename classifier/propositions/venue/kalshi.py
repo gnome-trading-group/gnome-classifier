@@ -1,6 +1,8 @@
 """Kalshi markets read by code: crypto and S&P snapshots (CF Benchmarks indices, 15-minute windows), per-game
 markets keyed by the ticker's game segment (totals, first halves, team totals, spreads, winners, map winners, player
-props, tennis games), and central bank rate decisions (the Fed and the KXCBD* series). A game's markets share one
+props, tennis games), and central bank rate decisions (the Fed and the KXCBD* series). Election winner markets settle on
+the party ("a representative of the Democratic party is inaugurated"), whatever candidate the outcome is labelled
+with; `correct` keys the LLM's reading by that party. A game's markets share one
 subject, `game:<league>:<date>:<teams>[-<hhmm>]`, so its ladders compare with each other; a rate decision's subject,
 measure and time come from the bank table Polymarket's reader shares (`common.RATE_BANKS`), so the venues' meetings
 compare.
@@ -12,7 +14,9 @@ from datetime import datetime
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability, subject_key
 from classifier.propositions.venue.common import (
     CF_INDICES,
+    PARTIES,
     RATE_BANKS,
+    as_party_winner,
     comparison,
     eastern,
     number,
@@ -22,6 +26,7 @@ from classifier.propositions.venue.common import (
 
 _MONTHS = {m: i for i, m in enumerate(("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"), 1)}
 
+_PARTY_RULE = re.compile(r"\b(?:a representative|a member) of the (?P<party>[A-Za-z]+) [Pp]arty\b")
 _KALSHI_CRYPTO_SERIES = re.compile(r"^KX(?P<asset>[A-Z]+?)D?$")
 _KALSHI_CRYPTO_15M_SERIES = re.compile(r"^KX(?P<asset>[A-Z]+)15M$")
 _KALSHI_INDEX = {"KXINXU": ("spx", "sp-dow-jones-indices"), "KXINX": ("spx", "sp-dow-jones-indices")}
@@ -300,3 +305,8 @@ def claims(source: dict) -> bool:
     if _kalshi_crypto_claimed(series) or series in _KALSHI_INDEX or _rate_series(series):
         return True
     return _game_subject(series, rest.split("-")[0]) is not None if rest else False
+
+
+def correct(source: dict, proposition: Proposition) -> Proposition:
+    m = _PARTY_RULE.search((source.get("market") or {}).get("rules_primary") or "")
+    return as_party_winner(proposition, PARTIES.get(m.group("party").lower()) if m else None)

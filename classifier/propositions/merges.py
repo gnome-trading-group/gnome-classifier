@@ -412,12 +412,13 @@ def key_maps(judgment: Judgment | None) -> tuple[dict[str, str], dict[str, str]]
 
 def align(p: Proposition, entities: dict[str, str], measures: dict[str, str]) -> Proposition:
     """The proposition with its entity and measure keys renamed to the subject it joins, including the entity a
-    per-entity measure names (`margin:ggo` to `margin:goias`)."""
+    per-entity measure names (`margin:ggo` to `margin:goias`) and a score's sides."""
     measure = measures.get(p.measure, p.measure)
     if measure and ":" in measure:
         head, tail = measure.split(":", 1)
         measure = f"{head}:{entities.get(tail, tail)}"
-    return dataclasses.replace(p, entity=entities.get(p.entity, p.entity), measure=measure)
+    scores = tuple((entities.get(entity, entity), value) for entity, value in p.scores)
+    return dataclasses.replace(p, entity=entities.get(p.entity, p.entity), measure=measure, scores=scores)
 
 
 def with_samples(p: SubjectProfile, contracts: list[SubjectContract], samples: int = SAMPLES_PER_SUBJECT) -> SubjectProfile:

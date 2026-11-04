@@ -9,7 +9,7 @@ import re
 from datetime import datetime
 from enum import StrEnum
 
-EXTRACTOR_VERSION = "p6"
+EXTRACTOR_VERSION = "p7"
 
 SUBJECT_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9:._/-]{0,199}$")
 
@@ -19,6 +19,8 @@ class Kind(StrEnum):
     RANGE = "RANGE"
     OCCURS_BY = "OCCURS_BY"
     WINNER = "WINNER"
+    # The final score of a game or one scope of it: each side's entity and value (`scores`).
+    SCORE = "SCORE"
     OTHER = "OTHER"
 
 
@@ -53,7 +55,7 @@ class Method(StrEnum):
 # The fields `unknown` may name.
 FIELDS = (
     "subject", "measure", "kind", "comparator", "value", "low", "high", "unit", "observation", "window_start",
-    "window_end", "entity", "scope", "stability", "resolution_source",
+    "window_end", "entity", "scope", "stability", "resolution_source", "scores",
 )
 
 
@@ -78,6 +80,8 @@ class Proposition:
     resolution_source: str | None = None
     negated: bool = False
     unknown: frozenset[str] = frozenset()
+    # SCORE: ((entity, value), (entity, value)), keyed like the game's winner markets.
+    scores: tuple[tuple[str, float], ...] = ()
 
     def __post_init__(self):
         if not SUBJECT_KEY_PATTERN.match(self.subject):
@@ -90,6 +94,9 @@ class Proposition:
             raise ValueError("a range needs low and high")
         if self.kind == Kind.WINNER and "entity" not in self.unknown and not self.entity:
             raise ValueError("a winner proposition needs an entity")
+        if self.kind == Kind.SCORE and "scores" not in self.unknown and (
+                len(self.scores) != 2 or self.scores[0][0] == self.scores[1][0]):
+            raise ValueError("a score needs two sides with different entities")
         bad = set(self.unknown) - set(FIELDS)
         if bad:
             raise ValueError(f"unknown names fields that do not exist: {sorted(bad)}")
@@ -110,6 +117,8 @@ class Proposition:
                 v = sorted(v)
             elif isinstance(v, StrEnum):
                 v = v.value
+            elif f.name == "scores":
+                v = [[entity, value] for entity, value in v]
             out[f.name] = v
         return out
 
@@ -141,6 +150,7 @@ class Proposition:
             resolution_source=fields.get("resolution_source"),
             negated=fields.get("negated", False),
             unknown=frozenset(fields.get("unknown") or ()),
+            scores=tuple((entity, value) for entity, value in fields.get("scores") or ()),
         )
 
 

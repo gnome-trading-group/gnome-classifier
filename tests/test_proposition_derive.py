@@ -13,6 +13,7 @@ from classifier.propositions.derive import (
     FLAG_SOURCE_DIFFERS,
     FLAG_SOURCE_UNKNOWN,
     FLAG_VOID_RULES,
+    FLAG_VOTE_SCOPE,
     IMPLIES,
     Contract,
     derivation_units,
@@ -283,9 +284,14 @@ class TestReviewedMistakes:
         maps = threshold(GT, 1.5, measure="margin:navi", unit="maps", observation=Observation.CUMULATIVE, end=None)
         assert relation(maps, winner("navi"))[0] == "1=>2"
 
-    def test_a_vote_margin_needs_the_same_named_vote(self):
-        margin = threshold(GT, 0, measure="margin:dem", unit="percentage_points", observation=Observation.AT_TIME, end=None)
+    def test_a_popular_vote_margin_says_nothing_about_a_winner_that_names_no_vote(self):
+        margin = threshold(GT, 0, measure="margin:dem", unit="percentage_points", observation=Observation.AT_TIME,
+                           end=None, scope="popular_vote")
         assert relation(margin, winner("dem", scope=None)) is None
+
+    def test_a_vote_margin_with_no_vote_named_on_either_side_implies_the_winner_flagged(self):
+        margin = threshold(GT, 0, measure="margin:dem", unit="percentage_points", observation=Observation.AT_TIME, end=None)
+        assert relation(margin, winner("dem", scope=None)) == ("1=>2", (FLAG_VOTE_SCOPE,))
 
     def test_a_reading_whose_date_is_unknown_matches_nothing(self):
         # A fiscal year's customer count and one quarter's, both read without their dates.
@@ -484,3 +490,54 @@ class TestOneEventsOutcomes:
         found = self.pairs(derive([Contract(1, "PMI", winner("dan-sullivan"), event_id=10),
                                    Contract(4, "K", winner("dan-sullivan"), event_id=20)]))
         assert found == {(1, 4, EQUIVALENT)}
+
+
+def score(aek, rma, scope="regulation", unit="goals", **kw):
+    return Proposition(subject="s", kind=Kind.SCORE, scores=(("aek", aek), ("rma", rma)), unit=unit, scope=scope, **kw)
+
+
+def goals_market(comparator, value, measure="total_goals", **kw):
+    return threshold(comparator, value, measure=measure, unit="goals", observation=Observation.CUMULATIVE, end=None,
+                     scope="regulation", **kw)
+
+
+class TestScores:
+    def test_a_score_implies_its_winner_and_rules_out_the_others(self):
+        assert relation(score(0, 1), winner("rma", scope="regulation"))[0] == "1=>2"
+        assert relation(score(0, 1), winner("aek", scope="regulation", negated=True))[0] == "1=>2"
+        assert relation(score(0, 1), winner("tie", scope="regulation", negated=True))[0] == "1=>2"
+        assert relation(score(1, 1), winner("tie", scope="regulation"))[0] == "1=>2"
+        assert relation(score(0, 1), winner("aek", scope="regulation")) is None
+
+    def test_a_score_decides_totals_team_totals_and_margins(self):
+        assert relation(score(2, 1), goals_market(GT, 2.5))[0] == "1=>2"
+        assert relation(score(2, 1), goals_market(GT, 3.5, negated=True))[0] == "1=>2"
+        assert relation(score(2, 1), goals_market(GTE, 2, measure="team_goals:aek"))[0] == "1=>2"
+        assert relation(score(2, 1), goals_market(GT, 0.5, measure="margin:aek"))[0] == "1=>2"
+        assert relation(score(2, 1), goals_market(GT, 1.5, measure="margin:aek", negated=True))[0] == "1=>2"
+
+    def test_the_same_score_on_two_venues_is_equivalent(self):
+        assert relation(score(0, 1), score(0, 1), "K", "PMI")[0] == EQUIVALENT
+        assert relation(score(0, 1), score(1, 0), "K", "PMI") is None
+
+    def test_a_score_says_nothing_in_another_unit_scope_or_on_its_no_side(self):
+        assert relation(score(2, 1, scope="first_half"), goals_market(GT, 2.5)) is None
+        assert relation(score(2, 1, unit="points"), goals_market(GT, 2.5)) is None
+        assert relation(score(2, 1, negated=True), winner("aek", scope="regulation")) is None
+
+
+class TestMarginRanges:
+    def test_a_margin_range_above_zero_implies_its_side_wins(self):
+        margin = Proposition(subject="s", kind=Kind.RANGE, measure="margin:republican", low=9, high=12,
+                             unit="percent", observation=Observation.AT_TIME)
+        assert relation(margin, winner("republican", scope=None)) == ("1=>2", (FLAG_VOTE_SCOPE,))
+
+    def test_unit_spellings_are_the_same_unit(self):
+        margin = Proposition(subject="s", kind=Kind.RANGE, measure="margin:republican", low=9, high=12,
+                             unit="percentage points", observation=Observation.CUMULATIVE)
+        assert relation(margin, winner("republican", scope=None)) == ("1=>2", (FLAG_VOTE_SCOPE,))
+
+    def test_a_range_that_includes_zero_does_not(self):
+        margin = Proposition(subject="s", kind=Kind.RANGE, measure="margin:republican", low=0, high=3,
+                             unit="percent", observation=Observation.AT_TIME)
+        assert relation(margin, winner("republican", scope=None)) is None

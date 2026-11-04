@@ -8,7 +8,7 @@ import anthropic
 import httpx
 import pytest
 
-from classifier.propositions.extract import extract_propositions, family
+from classifier.propositions.extract import extract_propositions, family, request_group
 from classifier.propositions.inputs import ExtractionInput, is_primary_side
 from classifier.propositions.llm import RESPONSE_SCHEMA, PropositionExtractor, parse_answer, to_proposition
 from classifier.propositions.subjects import InMemorySubjectIndex, KnownSubject
@@ -224,6 +224,17 @@ def test_the_llm_reading_takes_the_direction_a_level_market_title_gives():
 def test_family_names_hyperliquid_templates():
     touch = {"venue": "HYPERLIQUID", "outcome": {"name": "template:priceTouch", "description": "perp:BTC|target:1"}}
     assert family(item(1, 1, touch)) == "HYPERLIQUID:template:priceTouch"
+
+
+def test_a_polymarket_games_events_are_read_in_one_request():
+    def game(slug, sports=True):
+        market = {"slug": f"{slug}-x", **({"sportsMarketType": "moneyline"} if sports else {})}
+        return item(1, 1, {"venue": "POLYMARKET_INTL", "event": {"slug": slug}, "market": market}, exchange="POLYMARKET_INTL")
+
+    winner = request_group(game("ucl-aek1-rma-2026-11-04"))
+    assert request_group(game("ucl-aek1-rma-2026-11-04-exact-score")) == winner == "POLYMARKET_INTL:ucl-aek1-rma-2026-11-04"
+    assert request_group(game("will-x-happen-by-2026-11-04-or-later", sports=False)) == \
+        "POLYMARKET_INTL:will-x-happen-by-2026-11-04-or-later"
 
 
 def test_a_venue_read_carries_the_observation():

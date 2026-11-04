@@ -4,6 +4,7 @@ structurally put right), and the second side of each binary pair as the negation
 """
 import dataclasses
 import logging
+import re
 from collections import Counter, defaultdict
 from collections.abc import Mapping
 
@@ -14,6 +15,8 @@ from classifier.propositions.types import Extraction, Method, Proposition
 from classifier.propositions.venue import claims, correct_venue, extract_venue
 
 logger = logging.getLogger(__name__)
+
+_GAME_SLUG = re.compile(r"^(?P<game>.+?-\d{4}-\d{2}-\d{2})(?:-|$)")
 
 
 @dataclasses.dataclass
@@ -83,13 +86,17 @@ def _record_answers(wave, answers, results: dict[int, Extraction], report: "Extr
 
 def request_group(item: ExtractionInput) -> str:
     """Contracts read in one request. A venue's own event groups markets that the registry splits into separate
-    events (each Kalshi strike of a ladder is its own event), so a ladder is read together and gets one subject."""
+    events (each Kalshi strike of a ladder is its own event), so a ladder is read together and gets one subject.
+    Polymarket lists one game as several events (`ucl-aek1-rma-2026-11-04`, `...-2026-11-04-exact-score`,
+    `...-more-markets`), read in parallel requests that can't see each other's subject: a sports market's game is its
+    event slug up to the date, so the game's events are read together."""
     source = item.source
     event = source.get("event") or {}
     if source.get("venue") == "KALSHI" and event.get("event_ticker"):
         return f"KALSHI:{event['event_ticker']}"
     if source.get("venue") in ("POLYMARKET_INTL", "POLYMARKET_US") and event.get("slug"):
-        return f"{source['venue']}:{event['slug']}"
+        game = _GAME_SLUG.match(event["slug"]) if (source.get("market") or {}).get("sportsMarketType") else None
+        return f"{source['venue']}:{game.group('game') if game else event['slug']}"
     return f"event:{item.event_id}"
 
 

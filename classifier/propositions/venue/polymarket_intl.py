@@ -14,6 +14,9 @@ rounding up to the next 25 ("25 bps decrease" is any cut up to 25).
 "Will X hit __" events list a market per level, titled `↑$1.5T` or `↓$700B` ("(HIGH)"/"(LOW)" in the question), under
 one rules text for the whole event that only says "reaches or exceeds": a `↓` market asks whether the value falls to
 the level. `correct` sets the direction the title gives on whatever the LLM read.
+
+House, Senate and governor winner markets "resolve according to the party of the candidate who wins", whatever
+candidate the outcome is labelled with ("Pete Sessions (R)"): `correct` keys the LLM's reading by that party.
 """
 import dataclasses
 import re
@@ -21,7 +24,15 @@ from collections.abc import Mapping
 from datetime import date, datetime, timedelta, timezone
 
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
-from classifier.propositions.venue.common import EASTERN, RATE_BANKS, number, price_rise, rate_decision
+from classifier.propositions.venue.common import (
+    EASTERN,
+    PARTY_LETTERS,
+    RATE_BANKS,
+    as_party_winner,
+    number,
+    price_rise,
+    rate_decision,
+)
 
 _ASSETS = {"bitcoin": "BTC", "btc": "BTC", "ethereum": "ETH", "eth": "ETH", "solana": "SOL", "sol": "SOL",
            "xrp": "XRP", "dogecoin": "DOGE", "doge": "DOGE", "hype": "HYPE", "bnb": "BNB"}
@@ -56,6 +67,8 @@ _RATE_SERIES = {
     "reserve-bank-of-india-decision": "rbi", "reserve-bank-of-new-zealand-decision": "rbnz",
     "swiss-national-bank-decision": "snb",
 }
+_BY_PARTY = "resolve according to the party of the candidate who wins"
+_PARTY_LABEL = re.compile(r"\((?P<letter>[A-Z])\)\s*$")
 _DIRECTION_TITLE = re.compile(r"^\s*(?P<arrow>[↑↓])\s*\$?\d")
 _DIRECTION_QUESTION = re.compile(r"\((?P<word>HIGH|LOW)\)")
 _DIRECTIONS = {"↑": Comparator.GTE, "HIGH": Comparator.GTE, "↓": Comparator.LTE, "LOW": Comparator.LTE}
@@ -230,7 +243,19 @@ def _direction(market: dict) -> Comparator | None:
     return found.pop() if len(found) == 1 else None
 
 
+def _party(source: dict) -> str | None:
+    """The party a by-party election market's outcome stands for, from the letter after the candidate."""
+    market = source.get("market") or {}
+    if _BY_PARTY not in re.sub(r"\s+", " ", market.get("description") or ""):
+        return None
+    for label in (market.get("groupItemTitle"), source.get("outcome")):
+        if label and (m := _PARTY_LABEL.search(label.strip())):
+            return PARTY_LETTERS.get(m.group("letter"))
+    return None
+
+
 def correct(source: dict, proposition: Proposition) -> Proposition:
+    proposition = as_party_winner(proposition, _party(source))
     direction = _direction(source.get("market") or {})
     if direction is None or proposition.kind != Kind.THRESHOLD or proposition.comparator == direction:
         return proposition

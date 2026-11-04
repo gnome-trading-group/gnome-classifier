@@ -110,3 +110,16 @@ def rate_decision(bank: RateBank, meeting: date, fields: dict) -> Proposition:
         unit="bps", observation=Observation.AT_TIME, window_end=at, stability=Stability.SETTLED,
         resolution_source=bank.resolution_source, **fields,
     )
+
+
+# Party names and the letters venues put after a candidate ("Pete Sessions (R)"), as the entity keys the extractor uses.
+PARTIES = {"democratic": "democratic", "democrat": "democratic", "republican": "republican",
+           "independent": "independent", "libertarian": "libertarian", "green": "green"}
+PARTY_LETTERS = {"D": "democratic", "R": "republican", "I": "independent", "L": "libertarian", "G": "green"}
+
+
+def as_party_winner(proposition: Proposition, party: str | None) -> Proposition:
+    """A winner proposition keyed by the party a market settles on, when it was keyed otherwise (by the candidate)."""
+    if party is None or proposition.kind != Kind.WINNER or proposition.measure != "winner" or proposition.entity == party:
+        return proposition
+    return dataclasses.replace(proposition, entity=party, unknown=proposition.unknown - {"entity"})

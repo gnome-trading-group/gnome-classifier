@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
-from classifier.propositions.venue import claims, extract_venue
+from classifier.propositions.venue import claims, correct_venue, extract_venue
 
 # Rules text as Kalshi and Hyperliquid wrote it (prod registry, 2026-10-29).
 BTC_RULES = ("If the simple average of the sixty seconds of CF Benchmarks' Bitcoin Real-Time Index (BRTI) before 3 PM EDT "
@@ -412,3 +412,24 @@ class TestHyperliquidBinaryPrice:
     def test_reworded_rules_fall_back_to_the_llm(self):
         reworded = self.source(wording="is below")
         assert claims(reworded) and extract_venue(reworded) is None
+
+
+class TestKalshiElectionsSettleOnTheParty:
+    def source(self, rules):
+        return {"venue": "KALSHI", "side": "yes", "event": {"event_ticker": "GOVPARTYNV-26"},
+                "market": {"ticker": "GOVPARTYNV-26-D", "yes_sub_title": "Aaron Ford", "rules_primary": rules}}
+
+    def candidate(self, entity="aaron-ford"):
+        return Proposition(subject="nevada-governor-2026", kind=Kind.WINNER, measure="winner", entity=entity)
+
+    def test_a_candidate_reading_is_keyed_by_the_party_the_rules_name(self):
+        governor = self.source("If a representative of the Democratic party is inaugurated as the governor of Nevada "
+                               "pursuant to the 2026 election, then the market resolves to Yes.")
+        assert correct_venue(governor, self.candidate()).entity == "democratic"
+        house = self.source("If the House member sworn in for TN-09 for the term beginning in 2027 is a member of the "
+                            "Democratic Party, then the market resolves to Yes.")
+        assert correct_venue(house, self.candidate("justin-j-pearson")).entity == "democratic"
+
+    def test_markets_that_name_no_party_are_left_alone(self):
+        person = self.source("If Aaron Ford is inaugurated as the governor of Nevada, then the market resolves to Yes.")
+        assert correct_venue(person, self.candidate()).entity == "aaron-ford"

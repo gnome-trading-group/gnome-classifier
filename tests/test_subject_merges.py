@@ -14,6 +14,7 @@ from classifier.propositions.merges import (
     SubjectMergeJudge,
     SubjectProfile,
     Verdict,
+    align,
     candidate_pairs,
     check_merge,
     key_tokens,
@@ -234,3 +235,9 @@ class TestCheckMerge:
              winner_contract(3, "us-house-2028", "dem", "POLYMARKET_INTL", 20)]
         check = check_merge(a, b, Judgment(Verdict.SAME, "", (("democratic", "dem"),)))
         assert check.new_collisions == {20: frozenset({2, 3})}
+
+
+def test_aligning_a_merged_score_renames_both_sides():
+    score = Proposition(subject="game:ucl:2026-11-04:aek1-rma", kind=Kind.SCORE, scores=(("aek1", 0), ("rma", 1)),
+                        unit="goals", scope="regulation")
+    assert align(score, {"aek1": "aek"}, {}).scores == (("aek", 0), ("rma", 1))

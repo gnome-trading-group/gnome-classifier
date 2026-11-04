@@ -26,7 +26,7 @@ from classifier.propositions.types import Comparator, Kind, Observation, Proposi
 
 logger = logging.getLogger(__name__)
 
-DERIVATION_VERSION = "d7"
+DERIVATION_VERSION = "d8"
 
 EQUIVALENT = "EQUIVALENT"
 IMPLIES = "IMPLIES"
@@ -52,8 +52,9 @@ _SCALES = {
 }
 # What a winner can win that only one entity can: the contest, one finishing place, a single office.
 _EXCLUSIVE_WINNER_MEASURE = re.compile(r"^(winner|place:\d+|holder:.+)$")
-# A vote-share margin decides the vote it is counted in, which must be named on both sides: winning the popular vote
-# is not winning the electoral college.
+# A vote-share margin decides the vote it is counted in. A named vote must match on both sides (winning the popular
+# vote is not winning the electoral college); with none named on either side the race is taken as decided by that
+# one vote, and flagged.
 _VOTE_MARGIN_UNITS = frozenset({"percentage_points", "percent", "votes"})
 
 FLAG_SOURCE_DIFFERS = "RESOLUTION_SOURCE_DIFFERS"
@@ -67,6 +68,11 @@ FLAG_DEADLINE_DIFFERS = "DEADLINE_DIFFERS"
 # Games on different venues: each venue settles a postponed, cancelled or unfinished game its own way (a fair price,
 # the Draw, or waiting for the rescheduled game), so they can differ when the game isn't played as scheduled.
 FLAG_VOID_RULES = "VOID_RULES_DIFFER"
+# A vote margin implying the winner where neither side names the vote it is counted in: right for a race decided by
+# one vote (a governor, a House seat), wrong where a first round can be won without winning (a runoff).
+FLAG_VOTE_SCOPE = "VOTE_SCOPE_ASSUMED"
+# Scopes a final score shares with markets that name no scope: the whole game.
+_FULL_GAME_SCOPES = frozenset({None, "regulation", "match"})
 GAME_SUBJECT_PREFIX = "game:"
 
 
@@ -170,6 +176,7 @@ _NEEDED = {
     Kind.RANGE: {"measure", "low", "high", "observation"},
     Kind.OCCURS_BY: {"window_end", "measure"},
     Kind.WINNER: {"entity", "measure"},
+    Kind.SCORE: {"scores"},
 }
 
 
@@ -182,7 +189,7 @@ def usable(p: Proposition) -> bool:
         # A reading at a moment the extractor couldn't place (a fiscal year's count, or one quarter's?) would match
         # every other undated reading of the measure.
         return False
-    return all(getattr(p, name) not in (None, "") for name in _NEEDED[p.kind])
+    return all(getattr(p, name) not in (None, "", ()) for name in _NEEDED[p.kind])
 
 
 def _same_entity(a: Proposition, b: Proposition) -> bool:
@@ -363,21 +370,33 @@ def _winners(a: Proposition, b: Proposition, rivals: frozenset[frozenset[str]]) 
     return None
 
 
-def _margin_implies_winner(margin: Proposition, winner: Proposition) -> bool:
+def _unit(p: Proposition) -> str:
+    """A unit as one spelling: "percentage points", "Percentage-Points" and "percentage_points" are the same."""
+    return re.sub(r"[\s-]+", "_", (p.unit or "").strip().lower())
+
+
+def _margin_implies_winner(margin: Proposition, winner: Proposition) -> list[str] | None:
+    """The flags when a margin all above zero implies its side wins, else None."""
     if winner.negated or margin.negated or winner.measure != "winner":
-        return False
+        return None
     if not (margin.measure or "").startswith("margin:"):
-        return False
-    unit = (margin.unit or "").lower()
+        return None
+    flags: list[str] = []
+    unit = _unit(margin)
     if unit in _VOTE_MARGIN_UNITS:
-        if margin.scope is None or margin.scope != winner.scope:
-            return False
+        if margin.scope is None and winner.scope is None:
+            flags.append(FLAG_VOTE_SCOPE)
+        elif margin.scope != winner.scope:
+            return None
     elif unit not in _DECIDING_MARGIN_UNITS:
-        return False
+        return None
     if margin.measure.split(":", 1)[1] != winner.entity or not _scope_matches(margin, winner):
-        return False
-    interval = value_set(margin)[0]
-    return interval.low > 0 or (interval.low == 0 and not interval.low_closed)
+        return None
+    parts = value_set(margin)
+    if not parts or len(parts) != 1:
+        return None
+    interval = parts[0]
+    return flags if interval.low > 0 or (interval.low == 0 and not interval.low_closed) else None
 
 
 def _team_total_implies_total(team: Proposition, total: Proposition) -> bool:
@@ -412,10 +431,72 @@ def _relate(a: Proposition, b: Proposition,
     if a.kind == b.kind == Kind.WINNER:
         found = _winners(a, b, rivals)
         return None if found is None else (*found, "winners")
-    if a.kind == Kind.THRESHOLD and b.kind == Kind.WINNER and _margin_implies_winner(a, b):
-        return "y", "n", [], "margin_implies_winner"
-    if b.kind == Kind.THRESHOLD and a.kind == Kind.WINNER and _margin_implies_winner(b, a):
-        return "n", "y", [], "margin_implies_winner"
+    if a.kind == Kind.SCORE or b.kind == Kind.SCORE:
+        found = _scores(a, b) if a.kind == Kind.SCORE else _flipped(_scores(b, a))
+        return None if found is None else (*found, "score")
+    if a.kind in (Kind.THRESHOLD, Kind.RANGE) and b.kind == Kind.WINNER:
+        flags = _margin_implies_winner(a, b)
+        if flags is not None:
+            return "y", "n", flags, "margin_implies_winner"
+    if b.kind in (Kind.THRESHOLD, Kind.RANGE) and a.kind == Kind.WINNER:
+        flags = _margin_implies_winner(b, a)
+        if flags is not None:
+            return "n", "y", flags, "margin_implies_winner"
+    return None
+
+
+def _flipped(found: tuple[str, str, list[str]] | None) -> tuple[str, str, list[str]] | None:
+    return None if found is None else (found[1], found[0], found[2])
+
+
+def _score_value(score: Proposition, other: Proposition) -> float | None:
+    """What a final score makes another market's number: a total, one side's total, or one side's margin. None when
+    the score doesn't decide it (another unit, another quantity, a side it doesn't name)."""
+    unit = _unit(score)
+    if other.unit and _unit(other) != unit:
+        return None
+    values = dict(score.scores)
+    head, _, side = (other.measure or "").partition(":")
+    if head == f"total_{unit}" and not side:
+        return sum(values.values())
+    if head == f"team_{unit}" and side in values:
+        return values[side]
+    if head == "margin" and side in values and other.unit:
+        return 2 * values[side] - sum(values.values())
+    return None
+
+
+def _scores(score: Proposition, other: Proposition) -> tuple[str, str, list[str]] | None:
+    """(score ⇒ other, other ⇒ score, flags) for a final score and a market it decides. Only the score's Yes side
+    decides anything: that a game didn't end 2-1 says nothing about who won."""
+    if score.negated:
+        return None
+    if score.scope not in _FULL_GAME_SCOPES or other.scope not in _FULL_GAME_SCOPES:
+        if score.scope != other.scope:
+            return None
+    elif not _scope_matches(score, other):
+        return None
+    if other.kind == Kind.SCORE:
+        if other.negated or _unit(score) != _unit(other):
+            return None
+        same = dict(score.scores) == dict(other.scores)
+        return ("y", "y", []) if same else None
+    if other.kind == Kind.WINNER:
+        if other.measure != "winner":
+            return None
+        (first, x), (second, y) = score.scores
+        leader = first if x > y else second if y > x else "tie"
+        if other.entity not in (first, second, "tie"):
+            return None
+        holds = (other.entity == leader) != other.negated
+        return ("y" if holds else "n"), "n", []
+    if other.kind in (Kind.THRESHOLD, Kind.RANGE):
+        value = _score_value(score, other)
+        parts = value_set(other)
+        if value is None or parts is None:
+            return None
+        holds = _subset([_Interval(value, True, value, True)], parts)
+        return ("y" if holds else "n"), "n", []
     return None
 
 
@@ -436,7 +517,7 @@ def _void_flags(a: Contract, b: Contract) -> list[str]:
 
 def _evidence(rule: str, a: Proposition, b: Proposition) -> dict:
     keep = ("kind", "measure", "comparator", "value", "low", "high", "observation", "window_end", "entity", "scope",
-            "negated", "resolution_source")
+            "negated", "resolution_source", "scores")
     pick = lambda p: {k: v for k, v in p.to_fields().items() if k in keep and v not in (None, False)}
     return {"rule": rule, "version": DERIVATION_VERSION, "a": pick(a), "b": pick(b)}
 
@@ -482,7 +563,12 @@ def _candidate_groups(contracts: list[Contract]) -> list[list[Contract]]:
         if p.kind == Kind.OCCURS_BY:
             keyed.setdefault(("deadline", p.measure), []).append(c)
             continue
-        if p.kind == Kind.THRESHOLD and p.measure.startswith("margin:"):
+        if p.kind == Kind.SCORE:
+            # A final score decides the winner and every total and margin of the game.
+            keyed.setdefault(("winner",), []).append(c)
+            keyed.setdefault(("value", Observation.CUMULATIVE), []).append(c)
+            continue
+        if p.kind in (Kind.THRESHOLD, Kind.RANGE) and p.measure.startswith("margin:"):
             keyed.setdefault(("winner",), []).append(c)
         if p.observation == Observation.CUMULATIVE:
             # A game's or season's total compares across window ends, missing ones included (`_same_reading`): the

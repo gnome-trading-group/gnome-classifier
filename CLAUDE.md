@@ -76,7 +76,9 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   hash of `propositions/venue/`, marked in Redis `readers:version`) the Relationships worker walks the open
   securities and re-reads, by code alone, those the readers now read differently, and stores corrected any LLM reading
   a venue module's `correct` now changes (Polymarket Intl `↑`/`↓` level markets, whose shared rules text only says
-  "reaches or exceeds"). Hyperliquid price touches are read from the perp's current mid (`quotes.hyperliquid_mids`,
+  "reaches or exceeds"; Kalshi and Polymarket Intl election winners, which settle on the party whatever candidate the
+  outcome names). Exact scores are kind `SCORE` (`scores`: each side's entity and value), which decide the game's
+  winner, totals and margins. Hyperliquid price touches are read from the perp's current mid (`quotes.hyperliquid_mids`,
   builder exchanges included): an open touch is still on the side it started from. Only `EQUIVALENT` and `IMPLIES`
   exist; exclusion and complements come from `contract_type` and event membership. A field the extractor couldn't
   determine is in `unknown` and blocks every rule that needs it.
