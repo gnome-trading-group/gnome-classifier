@@ -95,7 +95,13 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   excluded from stale miss-counting. Don't swallow errors inside an adapter.
 - A fetch message carries an event's full contract set, because Normalize deactivates listings missing from it.
 - Volume gate: `min_event_volume` (default 1000, overridable per tag/category) only gates events never sent before;
-  already-sent events keep flowing. Polymarket US volume is approximated from share buckets.
+  already-sent events keep flowing. Polymarket US volume is approximated from share buckets. Every venue lists a game
+  as several events gated alone (Kalshi each spread and total line, Polymarket the moneyline's outcomes and the exact
+  scores separately), so a game's exact scores or moneyline can be in while the markets they relate to aren't. With
+  `game_core_markets_enabled`, once any event of a game (`AdapterContract.game_id`) is in, its core markets
+  (`game_core`: who wins the game or a map, spreads, totals, exact score; each adapter decides) follow whatever their
+  volume, held to the end of the venue's pages since a game's events can arrive on different pages
+  (`stages.fetch.GameCore`); props stay gated.
 - Event volume: after a fetch, at most every `worker_params.volume_interval_seconds` (900), `VolumeWriter` patches
   `sm.event.volume_24h` (market-data collection rules select events by it) for events whose reading moved at least
   `volume_min_change` (0.10) or was last written `volume_max_age_seconds` (3600) ago. Only venues whose fetch
@@ -107,7 +113,7 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   or after a day missing from its feed (stale). Polymarket US once listed every open market as closed (2026-10-22).
 - Feature flags (`feature_flags.*` in the controller service config `classifier`, all default false): `fetch_enabled`,
   `resolve_enabled`, `settlement_enabled`, `reactivation_enabled`, `stale_cleanup_enabled`, `fee_sync_enabled`,
-  `canonicalization_enabled`, `relationships_enabled`, `proposition_llm_enabled` (Claude for what the code readers
+  `canonicalization_enabled`, `game_core_markets_enabled` (see Volume gate), `relationships_enabled`, `proposition_llm_enabled` (Claude for what the code readers
   can't read, plus the drift check; paid per contract, keep off in dev), `subject_merge_enabled` (the subject merge
   pass in Relationships, every 15 minutes while idle: Claude judges duplicate subjects, held-back merges go to the
   registry's `proposition-subjects/merge-candidates` queue; paid, about $0.0005 a pair), `subject_auto_merge_enabled`

@@ -537,3 +537,16 @@ def test_a_sports_markets_game_start_is_its_events_start_and_other_markets_have_
                                                                             "polymarket-game-start") for c in contracts)
     futures = _with_sources(EVENTS_BY_SLUG["kraken-ipo-by"], _map("kraken-ipo-by"))
     assert futures and all(c.event_start_time is None for c in futures)
+
+
+def test_a_sports_market_names_its_game_and_whether_it_is_core_for_the_volume_gate():
+    event = json.loads(json.dumps(EVENTS_BY_SLUG["wnba-sea-nyl-2026-08-05"]))
+    for market in event["markets"]:
+        market["sportsMarketType"] = "moneyline"
+    contracts = _with_sources(event, adapter._map_event(EXCHANGE_ID, event))
+    assert contracts and all((c.game_id, c.game_core) == ("wnba-sea-nyl-2026-08-05", True) for c in contracts)
+    for market in event["markets"]:
+        market["sportsMarketType"] = "soccer_team_total_corners"
+    assert not any(c.game_core for c in _with_sources(event, adapter._map_event(EXCHANGE_ID, event)))
+    futures = _with_sources(EVENTS_BY_SLUG["kraken-ipo-by"], _map("kraken-ipo-by"))
+    assert futures and all(c.game_id is None and not c.game_core for c in futures)

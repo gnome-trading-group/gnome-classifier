@@ -13,7 +13,7 @@ from gnomepy.registry.types import Exchange
 
 from classifier.adapters import ADAPTERS
 from classifier.stages.fees import sync_venue_fee_schedules
-from classifier.stages.fetch import diff_contracts, fetch_exchanges, fetch_resolved_outcomes
+from classifier.stages.fetch import GameCore, diff_contracts, fetch_exchanges, fetch_resolved_outcomes
 from classifier.stages.reactivate import reactivate_listings
 from classifier.stages.settle import check_closures, empty_counts, merge_counts, record_settlements
 from classifier.stages.stale import update_stale_tracker
@@ -247,6 +247,7 @@ class FetchRunner:
             exchange_active: set[str] = set()
             exchange_volumes: dict[tuple[int, str], float] = {}
             exchange_starts: dict[tuple[int, str], tuple[str, str]] = {}
+            game_core = GameCore() if rc.config.feature_flags.game_core_markets_enabled else None
             try:
                 adapter_contracts_count = 0
                 for page in adapter.fetch(exchange.exchange_id):
@@ -261,12 +262,25 @@ class FetchRunner:
                         debug=debug,
                         min_volume_by_tag=thresholds.min_event_volume_by_tag,
                         min_volume_by_category=thresholds.min_event_volume_by_category,
+                        game_core=game_core,
                     )
                     if new_msgs:
                         sqs_send_batch(sqs, queue_url, new_msgs)
                         total_sent += len(new_msgs)
                     exchange_hashes.update(updated)
                     exchange_active.update(page_active.get(exchange.exchange_id, set()))
+                released = game_core.release() if game_core is not None else []
+                if released:
+                    new_msgs, updated, _, _ = diff_contracts(
+                        released, known_contracts, [], exchange_by_code, min_event_volume=None,
+                        max_messages=max(0, max_messages - total_sent), debug=debug,
+                    )
+                    if new_msgs:
+                        sqs_send_batch(sqs, queue_url, new_msgs)
+                        total_sent += len(new_msgs)
+                    exchange_hashes.update(updated)
+                    logger.info("Game core markets from %s: %d contracts let in with their game", adapter.exchange_code,
+                                len(released))
                 logger.info("Fetched %d contracts from %s, sent %d groups", adapter_contracts_count, adapter.exchange_code, total_sent)
                 prefix = f"{exchange.exchange_id}:"
                 left_feed_by_exchange[exchange.exchange_id] = {

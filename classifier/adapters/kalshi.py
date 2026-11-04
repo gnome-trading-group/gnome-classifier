@@ -64,6 +64,31 @@ def _dollar_volume_24h(market: dict) -> float:
         return 0.0
 
 
+# A game's events: KX<league><family>-<date[time]><teams>, e.g. KXNFLSPREAD-26NOV05JACBAL. Longer families first
+# (TOTALMAPS before MAP, TEAMTOTAL before TOTAL).
+_GAME_FAMILIES = ("TOTALMAPS", "TEAMTOTAL", "SPREAD", "TOTAL", "MATCH", "GAME", "MAP")
+# How a game ends: who wins the match or a map, by how much, how many in total. Team totals are props.
+_GAME_CORE_FAMILIES = frozenset({"TOTALMAPS", "SPREAD", "TOTAL", "MATCH", "GAME", "MAP"})
+_GAME_SEGMENT = re.compile(r"^\d{2}[A-Z]{3}\d{2}(?:\d{4})?[A-Z][A-Z0-9]+$")
+# A part of the game (KXNBA1HSPREAD, KXNHL1PTOTAL): the same game, not one of its core markets.
+_GAME_PART = re.compile(r"(?:[12]H|[1-4]Q|[1-3]P)$")
+
+
+def _game(series_ticker: str, event_ticker: str) -> tuple[str | None, bool]:
+    """(the game an event belongs to, whether it is one of the game's core markets), or (None, False) for anything
+    that isn't a game's market."""
+    family = next((f for f in _GAME_FAMILIES if series_ticker.endswith(f)), None)
+    segments = event_ticker.split("-")
+    if family is None or len(segments) < 2 or not _GAME_SEGMENT.match(segments[1]):
+        return None, False
+    league = series_ticker.removeprefix("KX").removesuffix(family)
+    part = _GAME_PART.search(league)
+    league = _GAME_PART.sub("", league)
+    if not league:
+        return None, False
+    return f"{league}:{segments[1]}", family in _GAME_CORE_FAMILIES and part is None
+
+
 _SOURCE_EVENT_FIELDS = (
     "event_ticker", "series_ticker", "title", "sub_title", "category", "mutually_exclusive", "settlement_sources",
     "strike_date", "strike_period",
@@ -497,4 +522,7 @@ class KalshiAdapter:
                         fee_event=fee_event,
                     ))
 
+        game_id, game_core = _game(series_ticker or "", event_ticker)
+        for c in contracts:
+            c.game_id, c.game_core = game_id, game_core
         return contracts

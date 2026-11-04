@@ -9,7 +9,7 @@ from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier import taxonomy
 from classifier.adapters.settlement import CLOSED, OPEN, MarketState, chunked, settled, to_price
-from classifier.adapters.types import AdapterContract, pick_source_fields, utc_iso
+from classifier.adapters.types import AdapterContract, pick_source_fields, polymarket_game, utc_iso
 from classifier.client.http import RateLimitedSession
 from classifier.stages.fees import polymarket_intl_definition, polymarket_intl_schedules
 from classifier.types import ExchangeId
@@ -102,6 +102,11 @@ _SOURCE_MARKET_FIELDS = (
 )
 
 
+# A game's markets that say how it ends (who wins the match or a map, by how much, how many in total, the final
+# score); the rest (corners, cards, team totals, halves, players) are props.
+GAME_CORE_MARKETS = frozenset({"moneyline", "child_moneyline", "spreads", "totals", "soccer_exact_score"})
+
+
 def _with_sources(event: dict, contracts: list[AdapterContract]) -> list[AdapterContract]:
     event_source = pick_source_fields(event, _SOURCE_EVENT_FIELDS)
     market_by_condition = {m.get("conditionId"): m for m in event.get("markets", [])}
@@ -111,6 +116,9 @@ def _with_sources(event: dict, contracts: list[AdapterContract]) -> list[Adapter
         # Sports markets only: a non-sports market's start dates are when it was listed.
         c.event_start_time = utc_iso(market.get("gameStartTime") or market.get("eventStartTime"))
         c.event_start_source = "polymarket-game-start" if c.event_start_time else None
+        market_type = market.get("sportsMarketType")
+        c.game_id = polymarket_game(event.get("slug") or "") if market_type else None
+        c.game_core = market_type in GAME_CORE_MARKETS
         c.proposition_source = {
             "venue": "POLYMARKET_INTL",
             "event": event_source,

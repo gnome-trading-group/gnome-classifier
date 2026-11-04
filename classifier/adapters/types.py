@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -42,6 +43,11 @@ class AdapterContract:
     # volume, a reading the registry is kept up to date with, not part of the contract (a reschedule resends nothing).
     event_start_time: str | None = None
     event_start_source: str | None = None
+    # The game a sports market belongs to when the venue lists one game as several events, and whether it is one of
+    # the game's core markets (who wins, by how much, how many in total, the final score): the volume gate lets a
+    # game's core markets in together (`stages.fetch.GameCore`). Gate inputs only, not part of the contract.
+    game_id: str | None = None
+    game_core: bool = False
     min_size: float = 0.0
     # The venue's keys that fee schedules target (sm.listing.fee_group / fee_event), e.g. a Kalshi series and event.
     # Set only where a schedule other than the exchange's default can apply.
@@ -64,6 +70,17 @@ def proposition_source_hash(source: dict | None) -> str:
     if not source:
         return ""
     return hashlib.sha256(json.dumps(source, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+# A Polymarket game's events share the event slug up to the date (`ucl-aek1-rma-2026-11-04`,
+# `...-2026-11-04-exact-score`, `...-more-markets`).
+_POLYMARKET_GAME_SLUG = re.compile(r"^(?P<game>.+?-\d{4}-\d{2}-\d{2})(?:-|$)")
+
+
+def polymarket_game(event_slug: str) -> str | None:
+    """The game a Polymarket sports event slug belongs to, or None when it names no date."""
+    m = _POLYMARKET_GAME_SLUG.match(event_slug or "")
+    return m.group("game") if m else None
 
 
 def utc_iso(text: str | None) -> str | None:

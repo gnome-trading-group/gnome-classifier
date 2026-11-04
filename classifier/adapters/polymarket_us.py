@@ -107,6 +107,12 @@ _SOURCE_MARKET_FIELDS = (
 )
 
 _SOURCE_SIDE_FIELDS = ("description", "long", "identifier", "marketSideType")
+# How a game ends: who wins the game, match or a map, by how much, how many in total (`football_team_full_game_spread`,
+# `esports_map_winner_2`). Halves, sets, team totals and players are props.
+_GAME_CORE_MARKET = re.compile(
+    r"^(?:[a-z_]+_team_full_(?:game|time)_(?:winner|spread|total)|[a-z_]+_match_winner|esports_map_winner_\d+"
+    r"|esports_series_(?:map_handicap|total_maps))$"
+)
 
 
 def _with_sources(event: dict, contracts: list[AdapterContract]) -> list[AdapterContract]:
@@ -117,6 +123,9 @@ def _with_sources(event: dict, contracts: list[AdapterContract]) -> list[Adapter
         # Sports markets only: the event's own startDate is when a non-sports market was listed.
         c.event_start_time = utc_iso((market_by_slug.get(slug) or {}).get("gameStartTime"))
         c.event_start_source = "polymarket-game-start" if c.event_start_time else None
+        market_type = (market_by_slug.get(slug) or {}).get("sportsMarketType")
+        c.game_id = event.get("slug") if market_type and market_type != "futures" else None
+        c.game_core = bool(market_type and _GAME_CORE_MARKET.match(market_type))
         c.proposition_source = {
             "venue": "POLYMARKET_US",
             "event": event_source,

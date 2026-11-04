@@ -314,3 +314,13 @@ def test_a_games_start_comes_from_its_markets_and_a_futures_event_has_none():
     assert contracts and all(c.event_start_time == "2026-10-02T23:00:00+00:00" for c in contracts)
     futures = _with_sources(EVENTS_BY_SLUG[FUTURES], _map(FUTURES))
     assert futures and all(c.event_start_time is None for c in futures)
+
+
+def test_a_games_markets_name_the_game_and_which_say_how_it_ends():
+    contracts = _with_sources(EVENTS_BY_SLUG[GAME], _map(GAME))
+    core = {c.proposition_source["market"]["sportsMarketType"]: c.game_core for c in contracts}
+    assert core == {"football_team_full_game_winner": True, "football_team_full_game_spread": True,
+                    "football_game_second_quarter_total": False, "football_game_first_score": False}
+    assert {c.game_id for c in contracts} == {GAME}
+    futures = _with_sources(EVENTS_BY_SLUG[FUTURES], _map(FUTURES))
+    assert futures and all(c.game_id is None and not c.game_core for c in futures)

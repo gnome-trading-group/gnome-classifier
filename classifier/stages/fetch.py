@@ -10,6 +10,24 @@ from gnomepy.registry.types import Exchange
 logger = logging.getLogger(__name__)
 
 
+@dataclasses.dataclass
+class GameCore:
+    """One venue's games over a fetch cycle, for letting a game's core markets past the volume gate together. Venues
+    list one game as several events (a moneyline, each spread and total line, the exact scores) and the gate weighs
+    each alone, so the exact scores can pass while the moneyline doesn't, or the moneyline while every spread line
+    doesn't, leaving markets that relate to nothing. A game is in once any of its events is; its core markets
+    (`AdapterContract.game_core`) then follow whatever their volume. A game's events can arrive on different pages, so
+    quiet core markets are held until the venue's last page (`release`)."""
+    admitted: set[str] = dataclasses.field(default_factory=set)
+    held: list[list[AdapterContract]] = dataclasses.field(default_factory=list)
+
+    def release(self) -> list[AdapterContract]:
+        """The held core markets whose game was let in by the end of the cycle."""
+        released = [c for group in self.held if group[0].game_id in self.admitted for c in group]
+        self.held = []
+        return released
+
+
 def contract_hash(contract: AdapterContract) -> str:
     content = "\x00".join([
         str(contract.exchange_id),
@@ -56,8 +74,10 @@ def diff_contracts(
     debug: bool = False,
     min_volume_by_tag: dict[str, float | None] | None = None,
     min_volume_by_category: dict[str, float | None] | None = None,
+    game_core: GameCore | None = None,
 ) -> tuple[list[dict], dict[str, str], dict[int, set[str]], set[int]]:
-    """Returns (new_messages, updated_hashes, active_by_exchange, successful_exchange_ids)."""
+    """Returns (new_messages, updated_hashes, active_by_exchange, successful_exchange_ids). With `game_core`, quiet core
+    markets of a game already let in pass, and those of a game not (yet) in are held there."""
     contracts_by_native: dict[tuple[int, str], list[AdapterContract]] = {}
     current_hashes: dict[str, str] = {}
     active_by_exchange: dict[int, set[str]] = {}
@@ -76,18 +96,28 @@ def diff_contracts(
     by_tag = min_volume_by_tag or {}
     by_category = min_volume_by_category or {}
     if min_event_volume is not None or by_tag or by_category:
-        filtered_count = 0
-        for nk, group in list(contracts_by_native.items()):
+        quiet: list[tuple[int, str]] = []
+        for nk, group in contracts_by_native.items():
             # Volume only gates ingesting new events; an event fetch has already sent keeps
             # flowing so quiet markets still pick up added and removed contracts.
             already_sent = any(f"{c.exchange_id}:{c.exchange_security_id}" in known_hashes for c in group)
             vol = group[0].event_volume
             threshold = event_min_volume(group[0], min_event_volume, by_tag, by_category)
             if not already_sent and vol is not None and threshold is not None and vol < threshold:
-                filtered_count += 1
-                del contracts_by_native[nk]
-                for c in group:
-                    current_hashes.pop(f"{c.exchange_id}:{c.exchange_security_id}", None)
+                quiet.append(nk)
+            elif game_core is not None and group[0].game_id:
+                game_core.admitted.add(group[0].game_id)
+        filtered_count = 0
+        for nk in quiet:
+            group = contracts_by_native[nk]
+            if game_core is not None and group[0].game_id and group[0].game_core:
+                if group[0].game_id in game_core.admitted:
+                    continue
+                game_core.held.append(group)
+            filtered_count += 1
+            del contracts_by_native[nk]
+            for c in group:
+                current_hashes.pop(f"{c.exchange_id}:{c.exchange_security_id}", None)
         if filtered_count and debug:
             logger.info(
                 "Filtered %d low-volume event groups (min_event_volume=%s, by_tag=%s, by_category=%s)",

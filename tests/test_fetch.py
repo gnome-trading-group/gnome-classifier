@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
@@ -256,6 +257,75 @@ class TestVolumeGateOnlyForNewEvents:
         msgs, saved = _run_fetch_with_known(moto_env, [_make_contract("evt-2", "sec-9", event_volume=10.0)], {}, min_event_volume=1000.0)
         assert msgs == []
         assert "1:sec-9" not in saved
+
+
+def _game_contract(native_id, security_id, core, event_volume, game_id="bun-hof-s04-2026-11-08"):
+    return dataclasses.replace(_make_contract(native_id, security_id, event_volume=event_volume),
+                               game_id=game_id, game_core=core)
+
+
+def _sent(msgs):
+    bodies = [json.loads(m["Body"]) if "Body" in m else m for m in msgs]
+    return {c["exchange_event_native_id"] for b in bodies for c in b["contracts"]}
+
+
+def _run_game_fetch(moto_env, pages, known=None, enabled=True):
+    rc = _make_fetch_rc(1000.0)
+    rc.config.feature_flags.game_core_markets_enabled = enabled
+    r = MagicMock()
+    r.get.return_value = json.dumps(known or {}).encode()
+    mock_adapter = MagicMock()
+    mock_adapter.exchange_code = "POLYMARKET_INTL"
+    mock_adapter.fetch.return_value = iter(pages)
+    with (
+        patch("classifier.workers.fetch.fetch_exchanges", return_value={"POLYMARKET_INTL": MagicMock(exchange_id=1)}),
+        patch("classifier.workers.fetch.ADAPTERS", [mock_adapter]),
+    ):
+        FetchRunner()._run_fetch(rc, r, moto_env["sqs"], MagicMock())
+    messages = []
+    while batch := moto_env["sqs"].receive_message(QueueUrl=moto_env["contracts_queue"], MaxNumberOfMessages=10,
+                                                   WaitTimeSeconds=0).get("Messages", []):
+        messages.extend(batch)
+    return _sent(messages), json.loads(r.set.call_args[0][1])
+
+
+SCORES = "bun-hof-s04-2026-11-08-exact-score"
+
+
+class TestGameCoreMarkets:
+    def test_a_games_core_markets_follow_an_event_already_in(self, moto_env):
+        scores = _game_contract(SCORES, "score-1", True, 544.0)
+        moneyline = _game_contract("cond-hof", "ml-1", True, 95.0)
+        corners = _game_contract("cond-corners", "corners-1", False, 3.0)
+        sent, saved = _run_game_fetch(moto_env, [[scores, moneyline, corners]], known={"1:score-1": "old-hash"})
+        assert sent == {SCORES, "cond-hof"}
+        assert "1:ml-1" in saved and "1:corners-1" not in saved
+
+    def test_an_event_passing_this_cycle_brings_them_too(self, moto_env):
+        sent, _ = _run_game_fetch(moto_env, [[_game_contract(SCORES, "score-1", True, 1500.0),
+                                              _game_contract("cond-spread", "spread-1", True, 10.0)]])
+        assert sent == {SCORES, "cond-spread"}
+
+    def test_a_game_on_a_later_page_lets_in_markets_held_from_an_earlier_one(self, moto_env):
+        sent, saved = _run_game_fetch(moto_env, [[_game_contract("cond-hof", "ml-1", True, 95.0)],
+                                                 [_game_contract(SCORES, "score-1", True, 1500.0)]])
+        assert sent == {SCORES, "cond-hof"}
+        assert {"1:ml-1", "1:score-1"} <= set(saved)
+
+    def test_a_game_with_nothing_in_stays_out(self, moto_env):
+        sent, saved = _run_game_fetch(moto_env, [[_game_contract("cond-hof", "ml-1", True, 95.0),
+                                                  _game_contract("cond-total", "total-1", True, 40.0)]])
+        assert sent == set() and "1:ml-1" not in saved
+
+    def test_another_games_events_do_not_count(self, moto_env):
+        other = _game_contract("ucl-aek1-rma-2026-11-04", "ml-aek", True, 5000.0, game_id="ucl-aek1-rma-2026-11-04")
+        sent, _ = _run_game_fetch(moto_env, [[other, _game_contract("cond-hof", "ml-1", True, 95.0)]])
+        assert sent == {"ucl-aek1-rma-2026-11-04"}
+
+    def test_off_the_gate_weighs_each_event_alone(self, moto_env):
+        sent, _ = _run_game_fetch(moto_env, [[_game_contract(SCORES, "score-1", True, 1500.0),
+                                              _game_contract("cond-hof", "ml-1", True, 95.0)]], enabled=False)
+        assert sent == {SCORES}
 
 
 def _tagged(native_id, volume, tags=(), category=None):

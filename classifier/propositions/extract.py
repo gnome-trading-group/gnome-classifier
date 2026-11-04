@@ -4,10 +4,10 @@ structurally put right), and the second side of each binary pair as the negation
 """
 import dataclasses
 import logging
-import re
 from collections import Counter, defaultdict
 from collections.abc import Mapping
 
+from classifier.adapters.types import polymarket_game
 from classifier.propositions.inputs import ExtractionInput, is_primary_side
 from classifier.propositions.llm import PropositionExtractor
 from classifier.propositions.subjects import DEFAULT_CANDIDATES, KnownSubject, SubjectIndex, add_known, candidates_for, merge_candidates
@@ -15,9 +15,6 @@ from classifier.propositions.types import Extraction, Method, Proposition
 from classifier.propositions.venue import claims, correct_venue, extract_venue
 
 logger = logging.getLogger(__name__)
-
-_GAME_SLUG = re.compile(r"^(?P<game>.+?-\d{4}-\d{2}-\d{2})(?:-|$)")
-
 
 @dataclasses.dataclass
 class ExtractionReport:
@@ -95,8 +92,8 @@ def request_group(item: ExtractionInput) -> str:
     if source.get("venue") == "KALSHI" and event.get("event_ticker"):
         return f"KALSHI:{event['event_ticker']}"
     if source.get("venue") in ("POLYMARKET_INTL", "POLYMARKET_US") and event.get("slug"):
-        game = _GAME_SLUG.match(event["slug"]) if (source.get("market") or {}).get("sportsMarketType") else None
-        return f"{source['venue']}:{game.group('game') if game else event['slug']}"
+        game = polymarket_game(event["slug"]) if (source.get("market") or {}).get("sportsMarketType") else None
+        return f"{source['venue']}:{game or event['slug']}"
     return f"event:{item.event_id}"
 
 

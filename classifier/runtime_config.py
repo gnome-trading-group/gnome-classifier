@@ -73,6 +73,9 @@ class FeatureFlags:
     settlement_enabled: bool = False
     reactivation_enabled: bool = False
     fee_sync_enabled: bool = False
+    # Lets a game's core markets (moneyline, spreads, totals, map winners, exact score) past the volume gate once any
+    # of the game's events is in (`stages.fetch.GameCore`).
+    game_core_markets_enabled: bool = False
     debug: bool = False
 
 

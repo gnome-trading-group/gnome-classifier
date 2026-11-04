@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
-from classifier.adapters.kalshi import KalshiAdapter
+from classifier.adapters.kalshi import KalshiAdapter, _game
 from classifier.stages.entities import create_entities
 from gnomepy.registry.types import ContractType
 
@@ -540,3 +540,23 @@ def test_series_outage_before_any_fee_scopes_fails_the_cycle():
     session.get.side_effect = [requests.exceptions.ConnectionError("down")]
     with pytest.raises(requests.exceptions.ConnectionError):
         list(KalshiAdapter(session=session).fetch(EXCHANGE_ID))
+
+
+@pytest.mark.parametrize("series, event, expected", [
+    ("KXNFLGAME", "KXNFLGAME-26NOV05JACBAL", ("NFL:26NOV05JACBAL", True)),
+    ("KXNFLSPREAD", "KXNFLSPREAD-26NOV05JACBAL", ("NFL:26NOV05JACBAL", True)),
+    ("KXNFLTEAMTOTAL", "KXNFLTEAMTOTAL-26NOV05JACBAL", ("NFL:26NOV05JACBAL", False)),
+    ("KXNBA1HSPREAD", "KXNBA1HSPREAD-26NOV01BOSORL", ("NBA:26NOV01BOSORL", False)),
+    ("KXCS2MAP", "KXCS2MAP-26NOV032330TYLOOTL-1", ("CS2:26NOV032330TYLOOTL", True)),
+    ("KXCS2TOTALMAPS", "KXCS2TOTALMAPS-26NOV032330TYLOOTL-3", ("CS2:26NOV032330TYLOOTL", True)),
+    ("KXATPMATCH", "KXATPMATCH-26NOV04TIRSTR", ("ATP:26NOV04TIRSTR", True)),
+    ("KXELONMARS", "KXELONMARS-99", (None, False)),
+    ("KXNFLRECYDS", "KXNFLRECYDS-26NOV05JACBAL", (None, False)),
+])
+def test_a_games_events_share_the_game_and_its_core_families(series, event, expected):
+    assert _game(series, event) == expected
+
+
+def test_every_contract_of_a_game_event_carries_its_game():
+    contracts = _map("KXNFLGAME-26AUG06CARARI")
+    assert contracts and all((c.game_id, c.game_core) == ("NFL:26AUG06CARARI", True) for c in contracts)
