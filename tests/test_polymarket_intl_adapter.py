@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from classifier.adapters.polymarket_intl import PolymarketIntlAdapter
+from classifier.adapters.polymarket_intl import PolymarketIntlAdapter, _with_sources
 from classifier.stages.entities import create_entities
 from classifier.stages.fetch import contract_hash
 from gnomepy.registry.types import ContractType
@@ -526,3 +526,14 @@ def test_malformed_tags_and_series_do_not_raise(tags, series_slug):
     contracts = adapter._map_event(EXCHANGE_ID, event)
     assert contracts
     assert all(isinstance(c.event_tags, list) and all(isinstance(t, str) for t in c.event_tags) for c in contracts)
+
+
+def test_a_sports_markets_game_start_is_its_events_start_and_other_markets_have_none():
+    event = json.loads(json.dumps(EVENTS_BY_SLUG["wnba-sea-nyl-2026-08-05"]))
+    for market in event["markets"]:
+        market["gameStartTime"] = "2026-08-05 23:00:00+00"
+    contracts = _with_sources(event, adapter._map_event(EXCHANGE_ID, event))
+    assert contracts and all((c.event_start_time, c.event_start_source) == ("2026-08-05T23:00:00+00:00",
+                                                                            "polymarket-game-start") for c in contracts)
+    futures = _with_sources(EVENTS_BY_SLUG["kraken-ipo-by"], _map("kraken-ipo-by"))
+    assert futures and all(c.event_start_time is None for c in futures)

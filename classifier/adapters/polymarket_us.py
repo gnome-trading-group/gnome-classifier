@@ -9,7 +9,7 @@ from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier import taxonomy
 from classifier.adapters.settlement import CLOSED, OPEN, MarketState, chunked, settled, to_price
-from classifier.adapters.types import AdapterContract, pick_source_fields
+from classifier.adapters.types import AdapterContract, pick_source_fields, utc_iso
 from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
 from classifier.utils import format_security_symbol
@@ -114,6 +114,9 @@ def _with_sources(event: dict, contracts: list[AdapterContract]) -> list[Adapter
     market_by_slug = {m.get("slug"): m for m in event.get("markets") or []}
     for c in contracts:
         slug, _, leg = c.exchange_security_id.partition(":")
+        # Sports markets only: the event's own startDate is when a non-sports market was listed.
+        c.event_start_time = utc_iso((market_by_slug.get(slug) or {}).get("gameStartTime"))
+        c.event_start_source = "polymarket-game-start" if c.event_start_time else None
         c.proposition_source = {
             "venue": "POLYMARKET_US",
             "event": event_source,

@@ -1,6 +1,7 @@
 import itertools
 import logging
 import re
+import time
 from datetime import datetime, timedelta, timezone
 
 import requests.exceptions
@@ -9,7 +10,7 @@ from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier import taxonomy
 from classifier.adapters.settlement import CLOSED, OPEN, PRICE_SCALE, MarketState, chunked, settled, to_price
-from classifier.adapters.types import AdapterContract, pick_source_fields
+from classifier.adapters.types import AdapterContract, pick_source_fields, utc_iso
 from classifier.client.http import RateLimitedSession
 from classifier.stages.fees import kalshi_fee_scopes, kalshi_schedules
 from classifier.types import ExchangeId
@@ -24,6 +25,14 @@ SERIES_PAGE_SIZE = 1000
 LOOKUP_BATCH_SIZE = 100
 # Kalshi marks a market determined, then may amend or dispute it; only finalized values are paid out.
 FINAL_STATUS = "finalized"
+# A game's start as Kalshi schedules it now is on its milestone, not its event: tickers and rules keep the time it was
+# first scheduled ("originally scheduled for ..."). Milestones are read for these categories, from this far back, at
+# most this often; `limit` is required.
+MILESTONE_CATEGORIES = ("Sports", "Esports")
+MILESTONE_LOOKBACK = timedelta(days=2)
+MILESTONE_REFRESH_SECONDS = 300
+MILESTONE_PAGE_SIZE = 500
+MILESTONE_SOURCE = "kalshi-milestone"
 
 CONTRACT_MULTIPLIER = 1_000_000_000
 SIZE_SCALE = 1_000_000
@@ -81,6 +90,13 @@ def _with_sources(event: dict, contracts: list[AdapterContract]) -> list[Adapter
     return contracts
 
 
+def _with_start(start: str | None, contracts: list[AdapterContract]) -> list[AdapterContract]:
+    for c in contracts:
+        c.event_start_time = start
+        c.event_start_source = MILESTONE_SOURCE if start else None
+    return contracts
+
+
 def _is_multi_outcome(event: dict) -> bool:
     # Only the flag decides: deciding on the market count too made a market change type and identity whenever
     # Kalshi added or removed a sibling. A mutually exclusive event with one market is a multi-outcome event with a
@@ -112,6 +128,9 @@ class KalshiAdapter:
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.15)
         self._fee_scopes: tuple[set[str], set[str]] | None = None
+        # {event ticker: start}, from the last milestone read, and when it was read.
+        self._starts: dict[str, str] = {}
+        self._starts_read_at = -float("inf")
 
     def fetch(self, exchange_id: ExchangeId):
         # Events carry only a category; the tags live on their series. Losing them costs tags (the LLM tops those up),
@@ -129,6 +148,7 @@ class KalshiAdapter:
             fee_scopes = self._fee_scopes
         self._fee_scopes = fee_scopes
         series_tags = _series_tags(series)
+        starts = self._start_times()
         cursor = ""
         while True:
             params: dict = {"with_nested_markets": "true", "status": "open", "limit": PAGE_SIZE}
@@ -145,12 +165,46 @@ class KalshiAdapter:
                 logger.error("Kalshi API error: %s", e)
                 raise
             page = [c for event in data.get("events", [])
-                    for c in _with_sources(event, self._map_event(exchange_id, event, series_tags, fee_scopes))]
+                    for c in _with_start(starts.get(event.get("event_ticker", "")),
+                                         _with_sources(event, self._map_event(exchange_id, event, series_tags, fee_scopes)))]
             if page:
                 yield page
             cursor = data.get("cursor", "")
             if not cursor:
                 return
+
+    def _start_times(self) -> dict[str, str]:
+        """{event ticker: scheduled start} from the sports and esports milestones, each mapped to every event it
+        relates (the game, its maps, spread and totals). Read at most every MILESTONE_REFRESH_SECONDS; a failed read
+        keeps the last one, so start times go stale for a cycle rather than the fetch failing."""
+        now = time.monotonic()
+        if now - self._starts_read_at < MILESTONE_REFRESH_SECONDS:
+            return self._starts
+        since = (datetime.now(timezone.utc) - MILESTONE_LOOKBACK).strftime("%Y-%m-%dT%H:%M:%SZ")
+        starts: dict[str, str] = {}
+        try:
+            for category in MILESTONE_CATEGORIES:
+                cursor = ""
+                while True:
+                    params = {"limit": MILESTONE_PAGE_SIZE, "category": category, "minimum_start_date": since}
+                    if cursor:
+                        params["cursor"] = cursor
+                    data = self._get_json("/milestones", params)
+                    for milestone in data.get("milestones") or []:
+                        start = utc_iso(milestone.get("start_date"))
+                        if start is None:
+                            continue
+                        for ticker in milestone.get("related_event_tickers") or []:
+                            starts[ticker] = start
+                    cursor = data.get("cursor") or ""
+                    if not cursor:
+                        break
+        except requests.exceptions.RequestException:
+            logger.warning("Kalshi milestones unavailable; keeping the last start times", exc_info=True)
+            return self._starts
+        self._starts, self._starts_read_at = starts, now
+        logger.info("Read Kalshi start times for %d events", len(starts))
+        return starts
 
     def _fetch_series(self) -> list[dict]:
         series: list[dict] = []

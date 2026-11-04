@@ -431,13 +431,48 @@ def _page(body: dict) -> MagicMock:
     return page
 
 
-def _fetch_pages(series: list[dict], event_overrides: list[dict]) -> list[MagicMock]:
+def _fetch_pages(series: list[dict], event_overrides: list[dict], milestones: list[dict] | None = None) -> list[MagicMock]:
     return [
         _page({"series": series, "cursor": ""}),
         _page({"series_fee_change_arr": []}),
         _page({"event_fee_changes": event_overrides, "cursor": ""}),
+        _page({"milestones": milestones or [], "cursor": ""}),
+        _page({"milestones": [], "cursor": ""}),
         _page({"events": [EVENTS_BY_TICKER["KXRAMPBREX-40"]], "cursor": ""}),
     ]
+
+
+MILESTONE = {"start_date": "2026-11-04T02:00:00Z", "title": "TYLOO vs Liquid",
+             "related_event_tickers": ["KXRAMPBREX-40", "KXCS2MAP-26NOV032330TYLOOTL-1"]}
+
+
+def test_fetch_takes_each_events_start_from_its_milestone():
+    session = MagicMock()
+    session.get.side_effect = _fetch_pages([], [], [MILESTONE])
+    contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
+    assert contracts and all((c.event_start_time, c.event_start_source) == ("2026-11-04T02:00:00+00:00", "kalshi-milestone")
+                             for c in contracts)
+    params = [call.kwargs["params"] for call in session.get.call_args_list if call.args[0].endswith("/milestones")]
+    assert [p["category"] for p in params] == ["Sports", "Esports"] and all(p["limit"] == 500 for p in params)
+
+
+def test_an_event_without_a_milestone_gets_no_start():
+    session = MagicMock()
+    session.get.side_effect = _fetch_pages([], [], [{**MILESTONE, "related_event_tickers": ["OTHER-1"]}])
+    contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
+    assert contracts and all(c.event_start_time is None and c.event_start_source is None for c in contracts)
+
+
+def test_a_milestone_outage_keeps_the_last_starts_and_the_cycle():
+    session = MagicMock()
+    adapter = KalshiAdapter(session=session)
+    session.get.side_effect = _fetch_pages([], [], [MILESTONE])
+    list(adapter.fetch(EXCHANGE_ID))
+    adapter._starts_read_at = -float("inf")
+    pages = _fetch_pages([], [])
+    session.get.side_effect = pages[:3] + [requests.exceptions.ConnectionError("down")] + pages[-1:]
+    contracts = [c for page in adapter.fetch(EXCHANGE_ID) for c in page]
+    assert contracts and all(c.event_start_time == "2026-11-04T02:00:00+00:00" for c in contracts)
 
 
 def test_fetch_joins_series_tags():

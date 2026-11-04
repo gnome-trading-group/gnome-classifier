@@ -7,7 +7,7 @@ from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
 from classifier import taxonomy
 from classifier.adapters.settlement import PRICE_SCALE, MarketState, settled, to_price
-from classifier.adapters.types import AdapterContract, pick_source_fields
+from classifier.adapters.types import AdapterContract, pick_source_fields, utc_iso
 from classifier.client.http import RateLimitedSession
 from classifier.types import ExchangeId
 from classifier.utils import format_security_symbol
@@ -356,6 +356,7 @@ class HyperliquidAdapter:
         }
         if question_values:
             source["question_values"] = question_values
+        start = utc_iso((question_values or {}).get("scheduledStart"))
         return AdapterContract(
             exchange_id=exchange_id,
             exchange_security_id=exchange_security_id,
@@ -382,6 +383,8 @@ class HyperliquidAdapter:
             exchange_event_native_id=native_id,
             security_symbol=security_symbol,
             event_volume=volume,
+            event_start_time=start,
+            event_start_source="hyperliquid-scheduled-start" if start else None,
             fee_group=OUTCOME_FEE_GROUP,
             proposition_source=source,
         )

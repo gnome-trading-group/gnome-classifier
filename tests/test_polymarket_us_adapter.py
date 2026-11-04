@@ -5,7 +5,7 @@ import pytest
 import requests.exceptions
 
 from classifier.adapters import polymarket_us
-from classifier.adapters.polymarket_us import PolymarketUsAdapter
+from classifier.adapters.polymarket_us import PolymarketUsAdapter, _with_sources
 from classifier.stages.entities import create_entities
 from gnomepy.registry.types import ContractType
 
@@ -304,3 +304,13 @@ def test_an_event_that_cant_be_fetched_fails_the_cycle(monkeypatch):
 
     with pytest.raises(requests.exceptions.HTTPError):
         list(trimmed.fetch(EXCHANGE_ID))
+
+
+def test_a_games_start_comes_from_its_markets_and_a_futures_event_has_none():
+    event = json.loads(json.dumps(EVENTS_BY_SLUG[GAME]))
+    for market in event["markets"]:
+        market["gameStartTime"] = "2026-10-02T23:00:00Z"
+    contracts = _with_sources(event, adapter._map_event(EXCHANGE_ID, event, {}))
+    assert contracts and all(c.event_start_time == "2026-10-02T23:00:00+00:00" for c in contracts)
+    futures = _with_sources(EVENTS_BY_SLUG[FUTURES], _map(FUTURES))
+    assert futures and all(c.event_start_time is None for c in futures)

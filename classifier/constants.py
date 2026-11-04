@@ -75,6 +75,8 @@ DEFAULT_SETTLE_SWEEP_INTERVAL_SECONDS = 3600
 DEFAULT_FEE_SYNC_INTERVAL_SECONDS = 3600
 # Events' 24h volume goes to the registry at most this often, after a fetch (classifier.stages.volume).
 DEFAULT_VOLUME_INTERVAL_SECONDS = 900
+# Start times are checked against the registry this often (Kalshi re-reads its milestones every 300 s).
+DEFAULT_SCHEDULE_INTERVAL_SECONDS = 300
 # A reading is written when it moved at least this share from the last one written, or that one is this old.
 DEFAULT_VOLUME_MIN_CHANGE = 0.10
 DEFAULT_VOLUME_MAX_AGE_SECONDS = 3600

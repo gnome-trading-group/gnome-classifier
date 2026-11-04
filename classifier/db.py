@@ -69,6 +69,22 @@ class ClassifierDB:
                 )
                 return {(row[0], row[1]): row[2] for row in cur.fetchall()}
 
+    def get_event_start_times(self, keys: list[tuple[int, str]]) -> dict[tuple[int, str], tuple[int, datetime | None]]:
+        """{(exchange_id, native_event_id): (event_id, start_time)} for the events the registry has."""
+        if not keys:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                exchange_ids, native_ids = zip(*keys)
+                cur.execute(
+                    "SELECT exchange_id, native_event_id, event_id, start_time"
+                    " FROM sm.event"
+                    " WHERE (exchange_id, native_event_id) IN"
+                    " (SELECT unnest(%s::int[]), unnest(%s::text[]))",
+                    (list(exchange_ids), list(native_ids)),
+                )
+                return {(row[0], row[1]): (row[2], row[3]) for row in cur.fetchall()}
+
     def get_events(self, event_ids: list[int]) -> dict[int, dict]:
         """Returns {event_id: {"title", "category", "tags"}} for the given ids."""
         if not event_ids:

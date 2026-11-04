@@ -91,6 +91,8 @@ class StubRegistry(RegistryClient):
         self._relationships: dict[tuple[int, int], dict] = {}
         self._currencies: list[Currency] = []
         self._settlement_by_event_contract: dict[int, int] = {}
+        # Start times beside the events, as the registry keeps them: (start_time, source) by event id.
+        self._start_by_event: dict[int, tuple[str, str | None]] = {}
         # When each listing was last written, standing in for sm.listing.date_modified; unset reads as just now.
         self._listing_modified_at: dict[int, datetime] = {}
 
@@ -151,6 +153,8 @@ class StubRegistry(RegistryClient):
             ):
                 raise ValueError(f"duplicate native event {d['exchange_id']}:{d['native_event_id']}")
             self._events.append(Event(**d))
+            if item.get("start_time"):
+                self._start_by_event[event_id] = (item["start_time"], item.get("start_time_source"))
             results.append(d)
         return results
 
@@ -283,8 +287,10 @@ class StubRegistry(RegistryClient):
         results = []
         for item in items:
             event_id = item["event_id"]
-            kwargs = {k: v for k, v in item.items() if k != "event_id"}
-            results.append(self.patch_event(event_id, **kwargs))
+            if "start_time" in item:
+                self._start_by_event[event_id] = (item["start_time"], item.get("start_time_source"))
+            kwargs = {k: v for k, v in item.items() if k not in ("event_id", "start_time", "start_time_source")}
+            results.append(self.patch_event(event_id, **kwargs) if kwargs else {"event_id": event_id})
         return results
 
     def bulk_patch_securities(self, items: list[dict]) -> list[dict]:
@@ -468,6 +474,15 @@ class StubDB:
             for ev in self._r._events
             if (ev.exchange_id, ev.native_event_id) in key_set
         }
+
+    def get_event_start_times(self, keys: list[tuple[int, str]]) -> dict[tuple[int, str], tuple[int, datetime | None]]:
+        key_set = set(keys)
+        out = {}
+        for ev in self._r._events:
+            if (ev.exchange_id, ev.native_event_id) in key_set:
+                start = self._r._start_by_event.get(ev.event_id)
+                out[(ev.exchange_id, ev.native_event_id)] = (ev.event_id, datetime.fromisoformat(start[0]) if start else None)
+        return out
 
     def get_events(self, event_ids: list[int]) -> dict[int, dict]:
         return {

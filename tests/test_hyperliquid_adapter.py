@@ -222,3 +222,12 @@ def test_unknown_template_falls_back_and_warns(caplog):
     assert group[0].event_title == "somethingNew"
     assert [c.outcome_label for c in group] == ["Yes", "No"]
     assert "Unknown Hyperliquid template" in caplog.text
+
+
+def test_a_contests_scheduled_start_is_its_events_start_and_a_futures_question_has_none(contracts):
+    contests = [c for c in contracts if (c.proposition_source.get("question_values") or {}).get("scheduledStart")]
+    assert contests and all(c.event_start_source == "hyperliquid-scheduled-start" and c.event_start_time.endswith("+00:00")
+                            for c in contests)
+    futures = [c for c in contracts if (c.proposition_source.get("question_values") or {}).get("resolutionDeadline")
+               and not (c.proposition_source.get("question_values") or {}).get("scheduledStart")]
+    assert futures and all(c.event_start_time is None for c in futures)

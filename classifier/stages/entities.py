@@ -205,6 +205,9 @@ def _create_events(
             native_url=c.exchange_event_native_url,
             # Read in the same fetch, so a new event has its volume from the start (VolumeWriter keeps it current).
             volume_24h=c.event_volume,
+            # Likewise its start time (the fetch worker's schedule pass keeps it current).
+            start_time=c.event_start_time,
+            start_time_source=c.event_start_source,
         ))
 
     created_ids: list[EventId] = []

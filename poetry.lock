@@ -802,14 +802,14 @@ files = [
 
 [[package]]
 name = "gnomepy"
-version = "3.9.0"
+version = "3.11.1"
 description = ""
 optional = false
 python-versions = "<3.14,>=3.13"
 groups = ["main"]
 files = [
-    {file = "gnomepy-3.9.0-py3-none-any.whl", hash = "sha256:e80c91081f43916fa2fd00e242c441ade1389817640dc603cbdf833d9c527f38"},
-    {file = "gnomepy-3.9.0.tar.gz", hash = "sha256:c147378a78e6840c1beca7118fb3712a1a5ee96796377c8d31494c940bc47462"},
+    {file = "gnomepy-3.11.1-py3-none-any.whl", hash = "sha256:b01a2b44f514d1547496968bc44ca594fa01ee669609cab9f3b0c81e2806724d"},
+    {file = "gnomepy-3.11.1.tar.gz", hash = "sha256:7cfc01dd1a599942bf7ed5a11a33d6990f51bdc801e1e5565751a4c53cf612c8"},
 ]
 
 [package.dependencies]

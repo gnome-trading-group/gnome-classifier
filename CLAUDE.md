@@ -149,7 +149,10 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   Docker image. There are no Lambdas besides CDK's ASG drain hook; resolve, stale and settle are Fetch cycles.
   - Fetch (`fetch`, 3072 MiB): loop; fetch every `fetch_interval_seconds` (60) followed by closure check, recent
     settlements, reactivation; resolve every 1800s; stale every 3600s; settle sweep every 3600s; fee sync every 3600s.
-    Volume write every 900s after a fetch. Intervals are `worker_params.*` in the service config; each cycle is
+    Volume write every 900s after a fetch; start times every 300s (`schedule_interval_seconds`): each event's scheduled
+    start from Kalshi's milestones (read at most every 300s; tickers and rules keep the original time), Polymarket's
+    `gameStartTime` or Hyperliquid's `scheduledStart`, written only when it moved and never cleared by a missing
+    reading; the registry logs every change (`sm.event_schedule_change`) and the fetch log says `event rescheduled`. Intervals are `worker_params.*` in the service config; each cycle is
     skipped while its flag is off (volume follows `fetch_enabled`).
   - Normalize (512 MiB, ContractsQueue), Relationships (512, EntitiesQueue),
     Notify (128, SlackQueue, batches up to 300s): continuous SQS long polling.
@@ -165,7 +168,7 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   - `Classifier--WorkerHealth-<Worker>WorkerRestarts-Error`: 3+ starts in an hour. Look for OOM kills (ECS stopped
     reason) or a startup exception (missing secret, registry/controller unreachable).
   - `Classifier--WorkerHealth-FetchCycleFailures-Error`: 3+ in an hour of `... cycle failed` (fetch, closure check,
-    recent settle, reactivation, resolve, stale cleanup, settle, fee sync, volume) or `Failed to fetch settlements from <venue>`.
+    recent settle, reactivation, resolve, stale cleanup, settle, fee sync, volume, schedule) or `Failed to fetch settlements from <venue>`.
     Read the traceback in the Fetch log group: a gnomepy/registry API mismatch (TypeError on a gnomepy model) needs a
     gnomepy bump; a venue HTTP error is usually that venue being down.
   - `Classifier--WorkerHealth-IdentityRegressions-Error`: an adapter tried to link a security to a second event. Code

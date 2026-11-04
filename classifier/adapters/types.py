@@ -1,6 +1,7 @@
 import hashlib
 import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from gnomepy.registry.types import AssetClass, ContractType, SecurityType
 
@@ -37,6 +38,10 @@ class AdapterContract:
     event_expiry: str | None = None
     exchange_event_native_url: str | None = None
     event_volume: float | None = None
+    # The event's scheduled start as the venue lists it now (ISO-8601 UTC), and where the venue gives it. Like the
+    # volume, a reading the registry is kept up to date with, not part of the contract (a reschedule resends nothing).
+    event_start_time: str | None = None
+    event_start_source: str | None = None
     min_size: float = 0.0
     # The venue's keys that fee schedules target (sm.listing.fee_group / fee_event), e.g. a Kalshi series and event.
     # Set only where a schedule other than the exchange's default can apply.
@@ -59,3 +64,20 @@ def proposition_source_hash(source: dict | None) -> str:
     if not source:
         return ""
     return hashlib.sha256(json.dumps(source, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+def utc_iso(text: str | None) -> str | None:
+    """A venue's time as ISO-8601 UTC: "2026-11-04 17:45:00+00", "2026-11-07T17:00:00Z", or Hyperliquid's
+    "20261104-2000" (UTC). None for anything else."""
+    if not text:
+        return None
+    try:
+        if len(text) == 13 and text[8] == "-":
+            parsed = datetime.strptime(text, "%Y%m%d-%H%M").replace(tzinfo=timezone.utc)
+        else:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc).isoformat()

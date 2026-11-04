@@ -15,6 +15,7 @@ from classifier.constants import (
     DEFAULT_BULK_CREATE_BATCH_SIZE,
     DEFAULT_CLAUDE_PROVIDER,
     DEFAULT_FEE_SYNC_INTERVAL_SECONDS,
+    DEFAULT_SCHEDULE_INTERVAL_SECONDS,
     DEFAULT_VOLUME_INTERVAL_SECONDS,
     DEFAULT_VOLUME_MAX_AGE_SECONDS,
     DEFAULT_VOLUME_MIN_CHANGE,
@@ -141,6 +142,7 @@ class WorkerParams:
     settle_sweep_interval_seconds: int = DEFAULT_SETTLE_SWEEP_INTERVAL_SECONDS
     fee_sync_interval_seconds: int = DEFAULT_FEE_SYNC_INTERVAL_SECONDS
     volume_interval_seconds: int = DEFAULT_VOLUME_INTERVAL_SECONDS
+    schedule_interval_seconds: int = DEFAULT_SCHEDULE_INTERVAL_SECONDS
     volume_min_change: float = DEFAULT_VOLUME_MIN_CHANGE
     volume_max_age_seconds: int = DEFAULT_VOLUME_MAX_AGE_SECONDS
 
