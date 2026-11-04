@@ -215,7 +215,21 @@ class TestMergePass:
         quotes = lambda refs: {11: Quote(0.70, 0.72), 21: Quote(0.30, 0.32)}
         result = run(governor_db(), registry, FakeJudge({(GA_SHORT, GA): SAME}), quotes=quotes)
         assert registry.merges == [] and result.queued_price == 1
-        assert registry.queued[0]["hold"] == "PRICE" and registry.queued[0]["details"]["prices"][0]["mid_a"] == 0.71
+        price = registry.queued[0]["details"]["prices"][0]
+        assert registry.queued[0]["hold"] == "PRICE" and (price["bid"], price["ask"]) == (0.70, 0.32)
+
+    def test_lets_an_empty_book_through(self):
+        # A line no one quotes has a mid near 0.50 whatever it's worth; only a bid above the other's ask contradicts.
+        registry = FakeRegistry()
+        quotes = lambda refs: {11: Quote(0.01, 0.98), 21: Quote(0.30, 0.32)}
+        result = run(governor_db(), registry, FakeJudge({(GA_SHORT, GA): SAME}), quotes=quotes)
+        assert registry.queued == [] and result.queued_price == 0
+
+    def test_leaves_unchecked_a_relationship_missing_the_side_it_needs(self):
+        registry = FakeRegistry()
+        quotes = lambda refs: {11: Quote(None, 0.72), 21: Quote(0.30, None)}
+        result = run(governor_db(), registry, FakeJudge({(GA_SHORT, GA): SAME}), quotes=quotes)
+        assert registry.queued == [] and result.queued_price == 0
 
     def test_holds_a_merge_that_makes_two_outcomes_alike(self):
         db = governor_db()

@@ -13,7 +13,15 @@ import re
 from collections.abc import Mapping
 
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
-from classifier.propositions.venue.common import CF_INDICES, CMP_WORDS, cf_index_asset, eastern, number, price_rise
+from classifier.propositions.venue.common import (
+    CF_INDICES,
+    CMP_WORDS,
+    cf_index_asset,
+    eastern,
+    names_team,
+    number,
+    price_rise,
+)
 
 _FAMILY_SLUG = re.compile(
     r"^cpc[a-z]*-(?P<asset>[a-z]+)-(?:updown-\d+[mhd]|above-(?:hr|wk|yr)|range-(?:hr|wk)|pricerange-yr|"
@@ -110,34 +118,6 @@ def read(source: dict, prices: Mapping[str, float]) -> Proposition | None:
     return None
 
 
-def _flat(text: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", text.lower())
-
-
-def _abbreviates(key: str, name: str) -> bool:
-    """Whether a key is an abbreviation of a name: its letters in order, starting with the name's first (`orst`, Oregon
-    State), a trailing u for University dropped (`bsu`, Boise State)."""
-    for short in {key, key.removesuffix("u") if len(key) > 2 else key}:
-        rest = iter(name)
-        if short[0] == name[0] and all(ch in rest for ch in short):
-            return True
-    return False
-
-
-def _names(team: str, code: str | None, key: str) -> int:
-    """How surely an entity key the model chose stands for a team: 2 for the start of its venue code (`gt`, `gtech`)
-    or of its name, its initials (`gt`, Georgia Tech) or one of its words (`lakers`, LA Lakers); 1 for an
-    abbreviation of it; 0 for neither."""
-    flat, name = _flat(key), _flat(team)
-    words = re.findall(r"[a-z0-9]+", team.lower())
-    if len(flat) < 2 or not name:
-        return 0
-    if (code and (code.startswith(flat) or flat.startswith(code)) or name.startswith(flat) or flat.startswith(name)
-            or flat == "".join(w[0] for w in words) or flat in words):
-        return 2
-    return 1 if _abbreviates(flat, name) else 0
-
-
 def _spread_side(market: dict, key: str) -> tuple[str, float] | None:
     """("first" or "second", the line) for the team a spread's margin key names, or None when it names neither, or
     both equally surely."""
@@ -145,8 +125,8 @@ def _spread_side(market: dict, key: str) -> tuple[str, float] | None:
     if question is None or not (market.get("sportsMarketType") or "").endswith("_spread"):
         return None
     slug = _SPREAD_SLUG.match(market.get("slug") or "")
-    first = _names(question.group("first"), slug and slug.group("first"), key)
-    second = _names(question.group("second"), slug and slug.group("second"), key)
+    first = names_team(question.group("first"), slug and slug.group("first"), key)
+    second = names_team(question.group("second"), slug and slug.group("second"), key)
     if first == second:
         return None
     return ("first" if first > second else "second"), float(question.group("line"))

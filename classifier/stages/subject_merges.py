@@ -12,9 +12,12 @@ Each pass:
      subject only because that's all it holds yet, so merging would put the whole key on the other subject;
    - merging would make two outcomes of one event read alike (queued, COLLISION);
    - it adds no relationship between the two subjects' contracts (skipped: nothing to gain);
-   - two venues' prices for a relationship it adds disagree by more than `subject_merge_max_price_gap` (queued, PRICE).
-     The price check is a second opinion, not a gate: a relationship with no price on either side (a venue that
-     couldn't be read, an empty or closed book, Hyperliquid) isn't checked, and a merge with none priced goes ahead.
+   - two venues' books contradict a relationship it adds by more than `subject_merge_max_price_gap` (queued, PRICE):
+     A => B is contradicted only when A's bid is above B's ask, the trade the relationship says locks in a profit.
+     Mids would hold every thin market against its neighbours: a line no one quotes (0.01 bid, 0.98 ask) has a mid
+     near 0.50 whatever it is worth. The price check is a second opinion, not a gate: a relationship missing the bid
+     or ask it needs (a venue that couldn't be read, an empty side, Hyperliquid) isn't checked, and a merge with none
+     priced goes ahead.
 4. After a merge, renames the merged subject's entity and measure keys to the ones the kept subject uses, as the judge
    mapped them, so its propositions compare with the kept subject's (`ggo` and `goias`).
 
@@ -234,18 +237,37 @@ def _sampled(db: ClassifierDB, s: _Subjects, keys: set[str]) -> dict[str, Subjec
     return out
 
 
-def _price_flags(check: MergeCheck, quotes: dict[int, Quote], max_gap: float) -> list[tuple[Derived, float, float]]:
-    """New relationships two venues' mid prices contradict: equivalents more than `max_gap` apart, or an implication
-    whose antecedent is priced more than `max_gap` above its consequent."""
+@dataclasses.dataclass(frozen=True)
+class PriceFlag:
+    """A new relationship the books contradict: buying `ask_id` at `ask` and selling `bid_id` at `bid` would lock in
+    more than the allowed gap if the relationship held."""
+    relationship: Derived
+    bid_id: int
+    bid: float
+    ask_id: int
+    ask: float
+
+
+def _contradiction(quotes: dict[int, Quote], antecedent: int, consequent: int) -> tuple[float, float] | None:
+    qa, qb = quotes.get(antecedent), quotes.get(consequent)
+    if qa is None or qb is None or qa.bid is None or qb.ask is None:
+        return None
+    return qa.bid, qb.ask
+
+
+def _price_flags(check: MergeCheck, quotes: dict[int, Quote], max_gap: float) -> list[PriceFlag]:
+    """New relationships the books contradict by more than `max_gap`: an implication whose antecedent bids above its
+    consequent's ask (an equivalence is two implications)."""
     flags = []
     for d in check.new_relationships:
-        qa, qb = quotes.get(d.security_id_a), quotes.get(d.security_id_b)
-        ma, mb = (qa.mid if qa else None), (qb.mid if qb else None)
-        if ma is None or mb is None:
-            continue
-        gap = abs(ma - mb) if d.relationship_type == EQUIVALENT else ma - mb
-        if gap > max_gap:
-            flags.append((d, ma, mb))
+        directions = [(d.security_id_a, d.security_id_b)]
+        if d.relationship_type == EQUIVALENT:
+            directions.append((d.security_id_b, d.security_id_a))
+        for antecedent, consequent in directions:
+            prices = _contradiction(quotes, antecedent, consequent)
+            if prices is not None and prices[0] - prices[1] > max_gap:
+                flags.append(PriceFlag(d, antecedent, prices[0], consequent, prices[1]))
+                break
     return flags
 
 
@@ -317,9 +339,10 @@ def _handle(ctx: _Context, s: _Subjects, a: str, b: str, judgment: Judgment) -> 
     if flags:
         r.queued_price += 1
         ctx.queue.append(dict(base, hold="PRICE", details={
-            "prices": [{"security_id_a": d.security_id_a, "security_id_b": d.security_id_b,
-                        "relationship_type": d.relationship_type, "mid_a": round(ma, 4), "mid_b": round(mb, 4)}
-                       for d, ma, mb in flags[:20]],
+            "prices": [{"security_id_a": f.relationship.security_id_a, "security_id_b": f.relationship.security_id_b,
+                        "relationship_type": f.relationship.relationship_type, "bid_security_id": f.bid_id,
+                        "bid": round(f.bid, 4), "ask_security_id": f.ask_id, "ask": round(f.ask, 4)}
+                       for f in flags[:20]],
             "entity_map": entity_map}))
         return Outcome.QUEUED_PRICE
     if not ctx.auto_merge:

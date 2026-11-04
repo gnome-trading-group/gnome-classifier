@@ -78,7 +78,9 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   a venue module's `correct` now changes (Polymarket Intl `↑`/`↓` level markets, whose shared rules text only says
   "reaches or exceeds"; Kalshi and Polymarket Intl election winners, which settle on the party whatever candidate the
   outcome names; Polymarket US game spreads, whose title names the team the line favours while the market asks whether
-  the event's first team covers it, so a margin keyed to neither team is left unknown). Exact scores are kind `SCORE`
+  the event's first team covers it, so a margin keyed to neither team is left unknown; Polymarket Intl game spreads,
+  set from the rules' "win the game by N or more" on the team the model keyed, which the model sometimes reads as the
+  moneyline). Exact scores are kind `SCORE`
   (`scores`: each side's entity and value), which decide the game's winner, totals and margins. Before deriving, a
   subject's readings get one spelling per measure and entity (`propositions/canonical.py`: a measure alias table,
   truncated last words, team codes in games; never a key extended by a word). A contest result (`margin`, `seats`,

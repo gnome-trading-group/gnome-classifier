@@ -123,3 +123,31 @@ def as_party_winner(proposition: Proposition, party: str | None) -> Proposition:
     if party is None or proposition.kind != Kind.WINNER or proposition.measure != "winner" or proposition.entity == party:
         return proposition
     return dataclasses.replace(proposition, entity=party, unknown=proposition.unknown - {"entity"})
+
+
+def _flat(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def _abbreviates(key: str, name: str) -> bool:
+    """Whether a key is an abbreviation of a name: its letters in order, starting with the name's first (`orst`, Oregon
+    State), a trailing u for University dropped (`bsu`, Boise State)."""
+    for short in {key, key.removesuffix("u") if len(key) > 2 else key}:
+        rest = iter(name)
+        if short[0] == name[0] and all(ch in rest for ch in short):
+            return True
+    return False
+
+
+def names_team(team: str, code: str | None, key: str) -> int:
+    """How surely an entity key the model chose stands for a team: 2 for the start of its venue code (`gt`, `gtech`)
+    or of its name, its initials (`gt`, Georgia Tech) or one of its words (`lakers`, LA Lakers); 1 for an
+    abbreviation of it; 0 for neither."""
+    flat, name = _flat(key), _flat(team)
+    words = re.findall(r"[a-z0-9]+", team.lower())
+    if len(flat) < 2 or not name:
+        return 0
+    if (code and (code.startswith(flat) or flat.startswith(code)) or name.startswith(flat) or flat.startswith(name)
+            or flat == "".join(w[0] for w in words) or flat in words):
+        return 2
+    return 1 if _abbreviates(flat, name) else 0

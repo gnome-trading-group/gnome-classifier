@@ -44,7 +44,7 @@ DEFAULT_SUBJECT_MERGE_MODELS = {"anthropic": "claude-haiku-5-5", "bedrock": "ant
 # The subject merge pass (stages/subject_merges.py): how often it runs, the pairs it may judge each time (about $0.0005
 # a pair with Haiku; busiest pairs first, so a first sweep of every subject spreads over a few passes), the 24h volume a
 # candidate pair must touch (none: a quiet subject's merge still relates its contracts), and how far apart two venues'
-# prices for a new equivalence may be before a person reviews the merge.
+# books may cross on a new relationship (one side's bid above the other's ask) before a person reviews the merge.
 DEFAULT_SUBJECT_MERGE_INTERVAL_SECONDS = 900
 DEFAULT_SUBJECT_MERGE_JUDGE_LIMIT = 1000
 DEFAULT_SUBJECT_MERGE_MIN_VOLUME = 0.0

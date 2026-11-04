@@ -372,3 +372,73 @@ class TestPolymarketUsSpreads:
     def test_other_markets_are_left_alone(self):
         total = dataclasses.replace(self.margin("ncst"), measure="total_points")
         assert correct_venue(self.source(*self.PLUS), total) == total
+
+
+class TestPolymarketIntlSpreads:
+    """`Spread: Rams (-16.5)` resolves to the Rams if they win by 17 or more, otherwise to the Commanders."""
+
+    RULES = 'This market will resolve to "Rams" if the Rams win the game by 17 or more points.\n\nOtherwise, this ' \
+            'market will resolve to "Commanders".'
+
+    def source(self, outcome, description=RULES):
+        return {"venue": "POLYMARKET_INTL", "outcome": outcome,
+                "event": {"slug": "nfl-la-was-2026-11-08", "title": "Rams vs. Commanders"},
+                "market": {"question": "Spread: Rams (-16.5)", "sportsMarketType": "spreads",
+                           "outcomes": '["Rams", "Commanders"]', "description": description}}
+
+    def reading(self, **fields):
+        base = dict(subject="game:nfl:2026-11-08:lar-was", kind=Kind.THRESHOLD, unit="points",
+                    observation=Observation.CUMULATIVE, scope="match")
+        return Proposition(**{**base, **fields})
+
+    def winner(self, entity):
+        return self.reading(kind=Kind.WINNER, measure="winner", entity=entity, unit=None, observation=None)
+
+    def test_a_spread_read_as_the_moneyline_becomes_the_margin(self):
+        fixed = correct_venue(self.source("Rams"), self.winner("rams"))
+        assert (fixed.kind, fixed.measure, fixed.comparator, fixed.value, fixed.unit) == (
+            Kind.THRESHOLD, "margin:rams", Comparator.GTE, 17, "points")
+
+    def test_the_other_outcome_keyed_by_its_own_team(self):
+        fixed = correct_venue(self.source("Commanders"), self.winner("commanders"))
+        assert (fixed.measure, fixed.comparator, fixed.value) == ("margin:commanders", Comparator.GT, -17)
+
+    def test_a_wrong_line_is_set_from_the_rules(self):
+        wrong = self.reading(measure="margin:rams", comparator=Comparator.GTE, value=4)
+        assert correct_venue(self.source("Rams"), wrong).value == 17
+
+    def test_a_wrong_side_is_put_right(self):
+        # Commanders cover when the Rams win by less than 17: the Commanders' margin is over -17, not under 17.
+        wrong = self.reading(measure="margin:commanders", comparator=Comparator.LT, value=17)
+        fixed = correct_venue(self.source("Commanders"), wrong)
+        assert (fixed.comparator, fixed.value) == (Comparator.GT, -17)
+
+    def test_a_right_reading_is_left_alone(self):
+        right = self.reading(measure="margin:rams", comparator=Comparator.LT, value=17)
+        assert correct_venue(self.source("Commanders"), right) == right
+
+    def test_a_key_the_name_does_not_place_keeps_a_reading_in_the_rules_form(self):
+        # `la` names neither team by name; the reading itself says it's keyed to the favourite.
+        right = self.reading(measure="margin:la", comparator=Comparator.GTE, value=17)
+        assert correct_venue(self.source("Rams"), right) == right
+
+    def test_whole_number_forms_count_as_the_rules_form(self):
+        right = self.reading(measure="margin:la", comparator=Comparator.LTE, value=16)
+        fixed = correct_venue(self.source("Commanders"), right)
+        assert (fixed.measure, fixed.comparator, fixed.value) == ("margin:la", Comparator.LT, 17)
+
+    def test_a_moneyline_misread_the_name_does_not_place_is_left_unknown(self):
+        fixed = correct_venue(self.source("Rams"), self.winner("la"))
+        assert "measure" in fixed.unknown
+
+    def test_goals_in_soccer(self):
+        rules = 'This market will resolve to "AD Ceuta FC" if AD Ceuta FC win the game by 3 or more goals.'
+        source = {"venue": "POLYMARKET_INTL", "outcome": "AD Ceuta FC", "event": {},
+                  "market": {"question": "Spread: AD Ceuta FC (-2.5)", "sportsMarketType": "spreads",
+                             "outcomes": '["AD Ceuta FC", "CD Tenerife"]', "description": rules}}
+        fixed = correct_venue(source, self.reading(kind=Kind.WINNER, measure="winner", entity="ceuta"))
+        assert (fixed.measure, fixed.comparator, fixed.value, fixed.unit) == ("margin:ceuta", Comparator.GTE, 3, "goals")
+
+    def test_other_markets_are_left_alone(self):
+        source = {**self.source("Rams"), "market": {**self.source("Rams")["market"], "sportsMarketType": "moneyline"}}
+        assert correct_venue(source, self.winner("rams")) == self.winner("rams")

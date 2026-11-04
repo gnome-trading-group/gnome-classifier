@@ -17,8 +17,13 @@ the level. `correct` sets the direction the title gives on whatever the LLM read
 
 House, Senate and governor winner markets "resolve according to the party of the candidate who wins", whatever
 candidate the outcome is labelled with ("Pete Sessions (R)"): `correct` keys the LLM's reading by that party.
+
+Game spreads ("Spread: Rams (-16.5)") resolve to the favoured team "if the Rams win the game by 17 or more points",
+otherwise to the other. The model now and then reads one as the moneyline, which makes it equivalent to every spread on
+the game; `correct` puts the rules' margin on whichever team the model keyed, the way it reads the rest.
 """
 import dataclasses
+import json
 import re
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta, timezone
@@ -29,6 +34,7 @@ from classifier.propositions.venue.common import (
     PARTY_LETTERS,
     RATE_BANKS,
     as_party_winner,
+    names_team,
     number,
     price_rise,
     rate_decision,
@@ -86,6 +92,9 @@ _MEETING = re.compile(
 _BELOW = re.compile(r"^<\s?(?P<v>[\d,.]+)$")
 _ABOVE = re.compile(r"^>\s?(?P<v>[\d,.]+)$")
 _BETWEEN = re.compile(r"^(?P<low>[\d,.]+)\s?-\s?(?P<high>[\d,.]+)$")
+_SPREAD_RULE = re.compile(
+    r'resolve to "(?P<team>[^"]+)" if (?:the )?.+? wins? the game by (?P<n>\d+) or more (?P<unit>[a-z]+)\.'
+)
 
 
 def _slug(source: dict) -> str:
@@ -254,8 +263,73 @@ def _party(source: dict) -> str | None:
     return None
 
 
+def _spread_key(proposition: Proposition) -> str | None:
+    """The team key the model put a spread on: a margin's, or the winner it misread the spread as."""
+    if proposition.kind == Kind.THRESHOLD and (proposition.measure or "").startswith("margin:"):
+        return proposition.measure.partition(":")[2]
+    if proposition.kind == Kind.WINNER and proposition.measure == "winner" and proposition.entity:
+        return proposition.entity
+    return None
+
+
+def _spread_sides(proposition: Proposition, points: int, covers: bool) -> tuple[bool, ...]:
+    """Which teams (True for the favoured) a margin reading could be keyed to and still say what the rules say."""
+    def whole(comparator, value):
+        # Margins are whole numbers: at most 7 is under 8, over 7 is at least 8.
+        if value is None:
+            return comparator, value
+        return {Comparator.LTE: (Comparator.LT, value + 1), Comparator.GT: (Comparator.GTE, value + 1)}.get(
+            comparator, (comparator, value))
+
+    forms = {True: (Comparator.GTE, points) if covers else (Comparator.LT, points),
+             False: (Comparator.LTE, -points) if covers else (Comparator.GT, -points)}
+    reading = whole(proposition.comparator, proposition.value)
+    return tuple(side for side, form in forms.items() if reading == whole(*form) and not proposition.negated)
+
+
+def _spread(source: dict, proposition: Proposition) -> Proposition:
+    """A game spread as its rules ask it, keyed by the team the model chose: the favoured team's margin at least the
+    rules' points when the outcome is the favoured team, under them when it's the other. Which team a key stands for
+    is matched by name; the slug's team codes aren't used, since a slug can list the teams in the other order from the
+    title. Unless the name settles it surely, a margin already read in one of the rules' forms is taken as keyed the
+    way it reads: an abbreviation alone can point at the wrong team (`ceu` reads as CD Tenerife)."""
+    market = source.get("market") or {}
+    rule = _SPREAD_RULE.search(market.get("description") or "")
+    key = _spread_key(proposition)
+    if market.get("sportsMarketType") != "spreads" or rule is None or key is None:
+        return proposition
+    try:
+        outcomes = json.loads(market.get("outcomes") or "[]")
+    except ValueError:
+        return proposition
+    favoured = rule.group("team")
+    other = next((o for o in outcomes if o != favoured), None)
+    if favoured not in outcomes or other is None or source.get("outcome") not in outcomes:
+        return proposition
+    points, covers = int(rule.group("n")), source.get("outcome") == favoured
+    on_favoured, on_other = names_team(favoured, None, key), names_team(other, None, key)
+    sides = _spread_sides(proposition, points, covers) if proposition.kind == Kind.THRESHOLD else ()
+    if on_favoured != on_other and max(on_favoured, on_other) == 2:
+        keyed_favoured = on_favoured > on_other
+    elif len(sides) == 1:
+        keyed_favoured = sides[0]
+    elif on_favoured != on_other:
+        keyed_favoured = on_favoured > on_other
+    else:
+        # A key the name doesn't place, on a reading that doesn't say either: no relationship rather than a wrong one.
+        return dataclasses.replace(proposition, unknown=proposition.unknown | {"measure"})
+    if keyed_favoured:
+        comparator, value = (Comparator.GTE, points) if covers else (Comparator.LT, points)
+    else:
+        comparator, value = (Comparator.LTE, -points) if covers else (Comparator.GT, -points)
+    return dataclasses.replace(
+        proposition, kind=Kind.THRESHOLD, measure=f"margin:{key}", comparator=comparator, value=value,
+        low=None, high=None, negated=False, unit=rule.group("unit"), observation=Observation.CUMULATIVE,
+        unknown=proposition.unknown - {"measure", "comparator", "value", "unit", "observation"})
+
+
 def correct(source: dict, proposition: Proposition) -> Proposition:
-    proposition = as_party_winner(proposition, _party(source))
+    proposition = _spread(source, as_party_winner(proposition, _party(source)))
     direction = _direction(source.get("market") or {})
     if direction is None or proposition.kind != Kind.THRESHOLD or proposition.comparator == direction:
         return proposition
