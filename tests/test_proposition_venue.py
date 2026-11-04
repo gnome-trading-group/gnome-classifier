@@ -82,6 +82,24 @@ class TestKalshiGames:
         p = extract_venue(kalshi("KXEFLCUP1HTOTAL-26OCT29EVENEW-2", FIRST_HALF_RULES))
         assert (p.subject, p.measure, p.value, p.scope) == ("game:eflcup:2026-10-29:evenew", "total_goals", 1.5, "first_half")
 
+    def test_a_quarter_is_the_same_game_scoped_to_the_quarter(self):
+        rules = ("If Boston wins by more than 1.5 points in the 1st Quarter of the Boston vs Orlando professional "
+                 "basketball game originally scheduled for Nov 1, 2026, then the market resolves to Yes.")
+        p = extract_venue(kalshi("KXNBA1QSPREAD-26NOV01BOSORL-BOS2", rules))
+        assert (p.subject, p.measure, p.value, p.scope) == ("game:nba:2026-11-01:bosorl", "margin:bos", 1.5,
+                                                            "first_quarter")
+
+    def test_a_second_half_and_a_period_are_scoped_too(self):
+        second_half = ("If the total goals scored by Elversberg and Mainz  is more than 1.5 goals in the 2nd Half of the "
+                       "Elversberg vs Mainz professional Bundesliga soccer game originally scheduled for Oct 30, 2026, "
+                       "then the market resolves to Yes.")
+        assert extract_venue(kalshi("KXBUNDESLIGA2HTOTAL-26OCT30SVEM05-2", second_half)).scope == "second_half"
+        period = ("If the total goals scored by Calgary and Colorado is more than 0.5 goals in the 1st Period of the "
+                  "Calgary vs Colorado professional hockey game originally scheduled for Oct 31, 2026, then the market "
+                  "resolves to Yes.")
+        p = extract_venue(kalshi("KXNHL1PTOTAL-26OCT31CGYCOL-1", period))
+        assert (p.subject, p.scope) == ("game:nhl:2026-10-31:cgycol", "first_period")
+
     def test_regulation_time_total(self):
         p = extract_venue(kalshi("KXEFLTOTAL-26AUG09WOLPV-3", MLB_TOTAL_RULES.replace("runs", "goals"),
                                  title="Wolverhampton vs Port Vale: Regulation Time Total Goals: Reg Time: Over 2.5"))

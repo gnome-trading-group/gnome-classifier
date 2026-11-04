@@ -75,6 +75,15 @@ class TestCandidates:
                           subject("game:dota2:2026-11-03:angic", ["POLYMARKET_INTL"])) == [
             ("game:dota2:2026-11-03:angic", "game:dota2:2026-11-03:angic-1100")]
 
+    def test_games_alike_without_hyphens_or_league_spelling(self):
+        assert self.pairs(subject("game:bun:2026-11-08:hof-s04", ["POLYMARKET_INTL"]),
+                          subject("game:bundesliga:2026-11-08:hofs04", ["KALSHI"])) == [
+            ("game:bun:2026-11-08:hof-s04", "game:bundesliga:2026-11-08:hofs04")]
+
+    def test_games_on_different_dates_are_not(self):
+        assert self.pairs(subject("game:nfl:2026-11-08:lar-was", ["POLYMARKET_INTL"]),
+                          subject("game:nfl:2026-11-09:larwas", ["KALSHI"])) == []
+
     def test_order_matters_in_combination_keys(self):
         assert self.pairs(subject("combo:r-ak-ia-d-oh", ["KALSHI"]), subject("combo:r-ak-oh-d-ia", ["POLYMARKET_US"])) == []
 

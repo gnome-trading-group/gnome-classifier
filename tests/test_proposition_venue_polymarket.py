@@ -322,3 +322,53 @@ class TestElectionsSettleOnTheParty:
     def test_a_market_that_settles_on_the_person_is_left_alone(self):
         rules = "This market will resolve to Yes if Pete Sessions wins the TX-17 seat."
         assert correct_venue(self.source("Pete Sessions (R)", rules=rules), self.candidate()).entity == "pete-sessions"
+
+
+class TestPolymarketUsSpreads:
+    """The title names the team the line favours; the market asks whether the event's first team covers it."""
+
+    def source(self, question, slug, leg="long"):
+        return {"venue": "POLYMARKET_US", "leg": leg,
+                "market": {"question": question, "slug": slug, "sportsMarketType": "football_team_full_game_spread"}}
+
+    def margin(self, key, comparator=Comparator.GT, value=10.5):
+        return Proposition(subject="game:ncaaf:2026-10-31:calncst", kind=Kind.THRESHOLD, measure=f"margin:{key}",
+                           comparator=comparator, value=value, unit="points", observation=Observation.CUMULATIVE)
+
+    PLUS = ("Will the California cover 10.5 vs the NC State in California vs. NC State?",
+            "asc-cfb-cah-ncst-2026-10-31-pos-10pt5")
+
+    def test_the_long_side_is_the_first_team_covering(self):
+        # "NC State wins by over 10.5 points": California +10.5 covers when NC State wins by less.
+        fixed = correct_venue(self.source(*self.PLUS), self.margin("ncst"))
+        assert (fixed.measure, fixed.comparator, fixed.value, fixed.negated) == ("margin:ncst", Comparator.LT, 10.5, False)
+
+    def test_the_short_side_is_its_no(self):
+        fixed = correct_venue(self.source(*self.PLUS, leg="short"), self.margin("ncst"))
+        assert (fixed.comparator, fixed.value, fixed.negated) == (Comparator.LT, 10.5, True)
+
+    def test_a_margin_keyed_to_the_first_team(self):
+        minus = ("Will the California cover -3.5 vs the NC State in California vs. NC State?",
+                 "asc-cfb-cah-ncst-2026-10-31-neg-3pt5")
+        fixed = correct_venue(self.source(*minus), self.margin("cal", Comparator.LT, -3.5))
+        assert (fixed.measure, fixed.comparator, fixed.value) == ("margin:cal", Comparator.GT, 3.5)
+
+    def test_questions_without_the_article_and_keys_by_initials(self):
+        source = self.source("Will Hampton cover +14.5 vs Georgia Tech in Hampton vs. Georgia Tech?",
+                             "asc-cbb-hamp-gtech-2026-11-03-pos-14pt5")
+        fixed = correct_venue(source, self.margin("gt", value=14.5))
+        assert (fixed.comparator, fixed.value) == (Comparator.LT, 14.5)
+
+    def test_a_name_beats_an_abbreviation(self):
+        source = self.source("Will the Baltimore Ravens cover -2.5 vs the Buffalo Bills in Ravens vs. Bills?",
+                             "aec-nfl-bal-buf-2026-11-02-neg-2pt5")
+        assert correct_venue(source, self.margin("bal")).comparator == Comparator.GT
+
+    def test_a_key_for_neither_team_is_left_unknown(self):
+        source = self.source("Will the Florida cover 7.5 vs the Georgia in Florida vs. Georgia?",
+                             "asc-cfb-fl-ga-2026-10-31-pos-7pt5")
+        assert "measure" in correct_venue(source, self.margin("uga")).unknown
+
+    def test_other_markets_are_left_alone(self):
+        total = dataclasses.replace(self.margin("ncst"), measure="total_points")
+        assert correct_venue(self.source(*self.PLUS), total) == total

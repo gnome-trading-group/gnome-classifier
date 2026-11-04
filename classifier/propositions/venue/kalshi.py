@@ -72,6 +72,10 @@ _TENNIS_GAMES = re.compile(r"^(?P<tour>ATP|WTA|ATPCHALLENGER|WTACHALLENGER)G$")
 _SPREAD_RULE = re.compile(r"wins? by (?:more than|over) (?P<v>[\d.]+) (?P<unit>runs|points|goals|maps|games)")
 _GAME_SEGMENT = re.compile(r"^(?P<yy>\d{2})(?P<mon>[A-Z]{3})(?P<dd>\d{2})(?P<hhmm>\d{4})?(?P<teams>[A-Z][A-Z0-9]+)$")
 _FAMILY_SUFFIXES = ("TEAMTOTAL", "1HTOTAL", "TOTAL", "SPREAD", "GAME", "MAP") + _PROP_SUFFIXES
+# A part of the game in a series name (KXNBA1QSPREAD, KXNHL1PTOTAL): the same game, scoped by its rules.
+_GAME_PART_SERIES = re.compile(r"(?:[12]H|[1-4]Q|[1-3]P)$")
+_GAME_PART_RULE = re.compile(r"\b(?:in|of) the (1st|2nd|3rd|4th|first|second|third|fourth) (half|quarter|period)\b", re.I)
+_ORDINALS = {"1st": "first", "2nd": "second", "3rd": "third", "4th": "fourth"}
 
 _RATE_SERIES_PREFIX = "KXCBD"
 _FED_SERIES = "KXFEDDECISION"
@@ -237,8 +241,8 @@ def _game_subject(series: str, event_segment: str) -> tuple[str, str] | None:
     sport = series.removeprefix("KX").removesuffix(family)
     if family in _PROP_SUFFIXES and sport not in _PROP_LEAGUES:
         return None
-    # A first-half market (KX<league>1HSPREAD) is the same game; its scope comes from the rules.
-    sport = sport.removesuffix("1H")
+    # A part of the game (KX<league>1HSPREAD, KX<league>2QSPREAD) is the same game; its scope comes from the rules.
+    sport = _GAME_PART_SERIES.sub("", sport)
     if tennis := _TENNIS_GAMES.match(sport):
         sport = tennis.group("tour")
     date = f"20{m.group('yy')}-{_MONTHS[m.group('mon')]:02d}-{m.group('dd')}"
@@ -256,7 +260,10 @@ def _kalshi_game(series: str, rest: str, market: dict, rules: str) -> Propositio
     if found is None:
         return None
     subject, family = found
-    if family == "1HTOTAL" or "1st half" in rules.lower():
+    if part := _GAME_PART_RULE.search(rules):
+        ordinal = part.group(1).lower()
+        scope = f"{_ORDINALS.get(ordinal, ordinal)}_{part.group(2).lower()}"
+    elif family == "1HTOTAL":
         scope = "first_half"
     elif "regulation" in (rules + " " + (market.get("title") or "")).lower() or "after 90 minutes" in rules:
         scope = "regulation"

@@ -59,6 +59,7 @@ _GENERIC_ENTITIES = {"yes", "no", "tie", "draw", "over", "under", "other", "fiel
 # A game key's date and, when it carries one, its start time (`game:cs2:2026-11-03:mayfal-1300`). The same teams can
 # meet twice in a day in different tournaments, and the judge, reading two near-identical match markets, calls them one.
 _GAME_START = re.compile(r"^game:[^:]+:(\d{4}-\d{2}-\d{2}):.*-([01]\d|2[0-3])([0-5]\d)$")
+_GAME_KEY = re.compile(r"^game:[^:]+:(\d{4}-\d{2}-\d{2}):(.+)$")
 
 
 class Verdict(StrEnum):
@@ -201,6 +202,17 @@ def _token_pairs(profiles: list[SubjectProfile]) -> set[tuple[str, str]]:
     return out
 
 
+def _game_pairs(profiles: list[SubjectProfile]) -> set[tuple[str, str]]:
+    """Games on one date whose teams read the same without hyphens, whatever the league is called: venues spell the
+    league several ways (`bun`, `bundesliga`) and the teams with or without a hyphen (`nap-laz`, `naplaz`), and the
+    token pairs never meet them."""
+    by_game: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for p in profiles:
+        if m := _GAME_KEY.match(p.key):
+            by_game[(m.group(1), m.group(2).replace("-", ""))].append(p.key)
+    return {_pair(a, b) for keys in by_game.values() for i, a in enumerate(keys) for b in keys[i + 1:]}
+
+
 def _shared_pairs(profiles: list[SubjectProfile], limit: int) -> set[tuple[str, str]]:
     """Subjects with a deadline date in common (a day apart counts: venues disagree about a date's time zone) and an
     entity in common, when few enough subjects share both for it to mean something. Measures are too generic for
@@ -225,7 +237,8 @@ def candidate_pairs(profiles: Iterable[SubjectProfile], neighbours: dict[str, li
     """Pairs of subject keys worth judging, (smaller key, larger key), sorted. `neighbours` are each subject's nearest
     subjects by embedding."""
     by_key = {p.key: p for p in profiles if p.key != UNKNOWN_SUBJECT}
-    pairs = _token_pairs(list(by_key.values())) | _shared_pairs(list(by_key.values()), bucket_limit)
+    subjects = list(by_key.values())
+    pairs = _token_pairs(subjects) | _game_pairs(subjects) | _shared_pairs(subjects, bucket_limit)
     pairs |= {_pair(k, n) for k, ns in neighbours.items() for n in ns if k != n}
     return sorted((a, b) for a, b in pairs if a in by_key and b in by_key and not different_start_times(a, b))
 

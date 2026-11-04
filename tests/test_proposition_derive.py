@@ -541,3 +541,78 @@ class TestMarginRanges:
         margin = Proposition(subject="s", kind=Kind.RANGE, measure="margin:republican", low=0, high=3,
                              unit="percent", observation=Observation.AT_TIME)
         assert relation(margin, winner("republican", scope=None)) is None
+
+
+def margin(entity, comparator, value, observation=Observation.AT_TIME, end=T, unit="percentage points", **kw):
+    return Proposition(subject="nevada-governor-2026", kind=Kind.THRESHOLD, measure=f"margin:{entity}",
+                       comparator=comparator, value=value, observation=observation, window_end=end, unit=unit, **kw)
+
+
+class TestContestResults:
+    def test_at_the_time_and_cumulative_are_one_reading(self):
+        found = relation(margin("democratic", GTE, 3), margin("democratic", GTE, 1, observation=Observation.CUMULATIVE))
+        assert found == ("1=>2", ())
+
+    def test_a_later_deadline_compares_flagged(self):
+        five = Proposition(subject="michigan-us-house-2026", kind=Kind.RANGE, measure="seats:democratic", low=5, high=5,
+                           unit="seats", observation=Observation.AT_TIME, window_end=T)
+        below = Proposition(subject="michigan-us-house-2026", kind=Kind.THRESHOLD, measure="seats:democratic",
+                            comparator=LT, value=5, unit="seats", observation=Observation.AT_TIME,
+                            window_end=T + timedelta(days=60), negated=True)
+        assert relation(five, below) == ("1=>2", (FLAG_DEADLINE_DIFFERS,))
+
+    def test_senate_seats_held_and_won_are_not_taken_as_one(self):
+        def seats(value, end):
+            return Proposition(subject="us-senate-2026-seats", kind=Kind.THRESHOLD, measure="seats:republican",
+                               comparator=GTE, value=value, unit="seats", observation=Observation.AT_TIME, window_end=end)
+        assert relation(seats(53, T), seats(50, T + timedelta(days=60))) is None
+
+    def test_a_named_round_does_not_meet_a_margin_with_none(self):
+        final_round = Proposition(subject="maine-senate-2026", kind=Kind.RANGE, measure="margin:democratic", low=3,
+                                  high=6, unit="percent", observation=Observation.CUMULATIVE, scope="final_round")
+        assert relation(final_round, margin("democratic", GTE, 1, unit="percent")) is None
+
+    def test_a_price_is_still_read_at_its_own_time(self):
+        assert relation(threshold(GT, 100), threshold(GT, 90, end=T + timedelta(days=2))) is None
+
+
+class TestCanonicalKeys:
+    def test_measure_spellings_compare(self):
+        a = threshold(GT, 8.5, measure="rushing_tds:christian-mccaffrey", observation=Observation.CUMULATIVE, end=None)
+        b = threshold(GT, 9.5, measure="rushing_touchdowns:christian-mccaffrey", observation=Observation.CUMULATIVE,
+                      end=None)
+        assert relation(b, a)[0] == "1=>2"
+
+    def test_a_truncated_last_word_is_the_same_entity(self):
+        a = threshold(GT, 5.5, measure="wins:new-york-jets", observation=Observation.CUMULATIVE, end=None)
+        b = threshold(GT, 6.5, measure="wins:new-york-j", observation=Observation.CUMULATIVE, end=None)
+        assert relation(b, a)[0] == "1=>2"
+
+    def test_a_key_is_never_extended_by_a_word(self):
+        a = threshold(GT, 8.5, measure="wins:iowa-state", observation=Observation.CUMULATIVE, end=None)
+        b = threshold(GT, 9.5, measure="wins:iowa", observation=Observation.CUMULATIVE, end=None)
+        assert relation(b, a) is None
+
+    def test_a_team_code_in_a_game(self):
+        hull = Proposition(subject="game:epl:2026-11-07:arshul", kind=Kind.THRESHOLD, measure="margin:hul",
+                           comparator=GTE, value=4, unit="goals", observation=Observation.CUMULATIVE, scope="regulation")
+        arsenal = Proposition(subject="game:epl:2026-11-07:arshul", kind=Kind.WINNER, measure="winner",
+                              entity="hull-city", scope="regulation")
+        assert relation(hull, arsenal)[0] == "1=>2"
+
+    def test_keys_an_event_lists_apart_stay_apart(self):
+        found = derive([Contract(1, "K", game_winner("man"), event_id=10),
+                        Contract(2, "K", game_winner("manchester-united"), event_id=10),
+                        Contract(3, "P", game_winner("manchester-united"), event_id=20)])
+        assert not [d for d in found if {d.security_id_a, d.security_id_b} == {1, 3}]
+
+    def test_an_ambiguous_code_is_left_alone(self):
+        found = derive([Contract(1, "K", game_winner("man"), event_id=1),
+                        Contract(2, "P", game_winner("manchester-city"), event_id=2),
+                        Contract(3, "P", game_winner("manchester-united"), event_id=3)])
+        assert not [d for d in found if 1 in (d.security_id_a, d.security_id_b)]
+
+
+def game_winner(entity):
+    return Proposition(subject="game:epl:2026-11-07:x", kind=Kind.WINNER, measure="winner", entity=entity,
+                       scope="regulation")

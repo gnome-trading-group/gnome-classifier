@@ -1,0 +1,105 @@
+"""One spelling per measure and per entity within a subject, so readings that name the same thing differently compare.
+
+The extractor reads each contract on its own, so one subject collects spellings of one thing: `rushing_tds` and
+`rushing_touchdowns`, `wins:new-york-j` and `wins:new-york-jets`, Hull as `hul` in one game market and `hull-city` in
+another. Derivation sees them as different measures and entities and relates nothing.
+
+Only two kinds of entity key are taken as one:
+- the same two or more words with the last one cut short (`new-york-j`, `new-york-jets`): a venue's truncated label;
+- in a game, a short code that begins the hyphenless key (`hul`, `hull-city`): a venue's team code.
+A key is never extended by a word (`iowa` is not `iowa-state`, `miami` is not `miami-oh`), two keys an event lists as
+different outcomes are never joined, and a key that could be either of two others is left alone.
+"""
+import dataclasses
+from collections.abc import Iterable
+
+from classifier.propositions.types import Proposition
+
+GAME_SUBJECT_PREFIX = "game:"
+# Measure names the extractor spells two ways for one quantity.
+MEASURE_ALIASES = {
+    "regular_season_wins": "wins",
+    "passing_tds": "passing_touchdowns",
+    "rushing_tds": "rushing_touchdowns",
+    "receiving_tds": "receiving_touchdowns",
+    "fantasy_points_per_game": "fantasy_ppg",
+    "vote_percent": "vote_share",
+}
+_MAX_CODE_LENGTH = 4
+
+
+def _measure(measure: str | None) -> str | None:
+    if not measure:
+        return measure
+    head, sep, tail = measure.partition(":")
+    return MEASURE_ALIASES.get(head, head) + sep + tail
+
+
+def _keys(p: Proposition) -> list[str]:
+    keys = [p.entity] if p.entity else []
+    if p.measure and ":" in p.measure:
+        keys.append(p.measure.partition(":")[2])
+    keys.extend(entity for entity, _ in p.scores)
+    return keys
+
+
+def _same_entity(short: str, long: str, game: bool) -> bool:
+    if short == long:
+        return False
+    a, b = short.split("-"), long.split("-")
+    if len(a) == len(b) > 1 and a[:-1] == b[:-1] and len(a[-1]) < len(b[-1]) and b[-1].startswith(a[-1]):
+        return True
+    flat = long.replace("-", "")
+    return game and len(short) <= _MAX_CODE_LENGTH and "-" not in short and len(flat) > len(short) \
+        and flat.startswith(short)
+
+
+def entity_aliases(propositions: Iterable[tuple[int | None, Proposition]]) -> dict[str, str]:
+    """{key: the longer key it is short for} among one subject's (event_id, proposition) readings."""
+    readings = list(propositions)
+    keys: set[str] = set()
+    listed: dict[int, set[str]] = {}
+    game = False
+    for event_id, p in readings:
+        found = _keys(p)
+        keys.update(found)
+        game = game or p.subject.startswith(GAME_SUBJECT_PREFIX)
+        if event_id is not None:
+            listed.setdefault(event_id, set()).update(found)
+    rivals = {frozenset((a, b)) for found in listed.values() for a in found for b in found if a != b}
+    aliases = {}
+    for short in keys:
+        longer = [k for k in keys if frozenset((short, k)) not in rivals and _same_entity(short, k, game)]
+        if len(longer) == 1:
+            aliases[short] = longer[0]
+    # A chain (`a` -> `ab` -> `abc`) resolves to its end.
+    return {k: _resolve(k, aliases) for k in aliases}
+
+
+def _resolve(key: str, aliases: dict[str, str]) -> str:
+    seen = {key}
+    while key in aliases and aliases[key] not in seen:
+        key = aliases[key]
+        seen.add(key)
+    return key
+
+
+def canonical(p: Proposition, aliases: dict[str, str]) -> Proposition:
+    """The proposition with its measure's one spelling and every entity key replaced by the one it is short for."""
+    def key(k: str | None) -> str | None:
+        return aliases.get(k, k) if k else k
+
+    measure = _measure(p.measure)
+    if measure and ":" in measure:
+        head, _, tail = measure.partition(":")
+        measure = f"{head}:{key(tail)}"
+    scores = tuple((key(entity), value) for entity, value in p.scores)
+    if measure == p.measure and key(p.entity) == p.entity and scores == p.scores:
+        return p
+    return dataclasses.replace(p, measure=measure, entity=key(p.entity), scores=scores)
+
+
+def canonical_readings(readings: list[tuple[int | None, Proposition]]) -> list[Proposition]:
+    aliases = entity_aliases(readings)
+    return [canonical(p, aliases) for _, p in readings]
+

@@ -22,11 +22,12 @@ from itertools import combinations
 
 from gnomepy.registry.relations import Edge, close, reduce
 
+from classifier.propositions.canonical import GAME_SUBJECT_PREFIX, canonical_readings
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
 
 logger = logging.getLogger(__name__)
 
-DERIVATION_VERSION = "d8"
+DERIVATION_VERSION = "d9"
 
 EQUIVALENT = "EQUIVALENT"
 IMPLIES = "IMPLIES"
@@ -56,6 +57,12 @@ _EXCLUSIVE_WINNER_MEASURE = re.compile(r"^(winner|place:\d+|holder:.+)$")
 # vote is not winning the electoral college); with none named on either side the race is taken as decided by that
 # one vote, and flagged.
 _VOTE_MARGIN_UNITS = frozenset({"percentage_points", "percent", "votes"})
+# Measures that are one contest's result (an election's margin, a party's seats): a single number once the contest is
+# decided, so a reading "at" a deadline and a "cumulative" one are the same reading, and a deadline only says when a
+# venue stops waiting for it (flagged, as for winners). Senate seats are left out: "seats held after the election"
+# counts the seats not up for election and "seats won" doesn't, and both are read as `seats`.
+_CONTEST_RESULT_MEASURES = frozenset({"margin", "margin_of_victory", "seats", "vote_share", "governors",
+                                      "electoral_votes"})
 
 FLAG_SOURCE_DIFFERS = "RESOLUTION_SOURCE_DIFFERS"
 FLAG_SOURCE_UNKNOWN = "RESOLUTION_SOURCE_UNKNOWN"
@@ -73,7 +80,6 @@ FLAG_VOID_RULES = "VOID_RULES_DIFFER"
 FLAG_VOTE_SCOPE = "VOTE_SCOPE_ASSUMED"
 # Scopes a final score shares with markets that name no scope: the whole game.
 _FULL_GAME_SCOPES = frozenset({None, "regulation", "match"})
-GAME_SUBJECT_PREFIX = "game:"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -208,8 +214,17 @@ def _scope_matches(a: Proposition, b: Proposition) -> bool:
     return a.scope is None or b.scope is None or a.scope == b.scope
 
 
+def _contest_result(p: Proposition) -> bool:
+    head = (p.measure or "").partition(":")[0]
+    if head not in _CONTEST_RESULT_MEASURES or p.observation not in (Observation.AT_TIME, Observation.CUMULATIVE):
+        return False
+    return not (head == "seats" and "senate" in p.subject)
+
+
 def _same_reading(a: Proposition, b: Proposition) -> tuple[bool, list[str]]:
     """Whether two measurements of the same measure are taken at the same time, and any caveat."""
+    if _contest_result(a) and _contest_result(b):
+        return True, _contest_deadline_flags(a, b)
     if a.observation != b.observation:
         return False, []
     live_snapshots = a.observation == Observation.AT_TIME and not (a.stability == b.stability == Stability.SETTLED)
@@ -267,6 +282,9 @@ def _same_units(a: Proposition, b: Proposition) -> tuple[Proposition, Propositio
 def _values(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | None:
     """(forward, backward) truth of a ⇒ b and b ⇒ a for two thresholds/ranges on the same measure."""
     if a.measure != b.measure or not _same_entity(a, b) or not _scope_matches(a, b):
+        return None
+    if _contest_result(a) and a.scope != b.scope and _VOTE_MARGIN_UNITS & {_unit(a), _unit(b)}:
+        # A margin in one named round (a final instant-runoff round) is not one counted with no round named.
         return None
     scaled = _same_units(a, b)
     if scaled is None:
@@ -570,10 +588,11 @@ def _candidate_groups(contracts: list[Contract]) -> list[list[Contract]]:
             continue
         if p.kind in (Kind.THRESHOLD, Kind.RANGE) and p.measure.startswith("margin:"):
             keyed.setdefault(("winner",), []).append(c)
-        if p.observation == Observation.CUMULATIVE:
+        if p.observation == Observation.CUMULATIVE or _contest_result(p):
             # A game's or season's total compares across window ends, missing ones included (`_same_reading`): the
-            # subject and scope fix the window, so all of a subject's totals share one group.
-            keyed.setdefault(("value", p.observation), []).append(c)
+            # subject and scope fix the window, so all of a subject's totals share one group, as do a contest's
+            # results.
+            keyed.setdefault(("value", Observation.CUMULATIVE), []).append(c)
         elif p.window_end is None:
             keyed.setdefault(("value", p.observation, None), []).append(c)
         elif p.observation == Observation.AT_TIME and p.stability != Stability.SETTLED:
@@ -596,6 +615,8 @@ class Unit:
 
 
 def derivation_units(contracts: list[Contract]) -> list[Unit]:
+    readings = canonical_readings([(c.event_id, c.proposition) for c in contracts])
+    contracts = [c if p is c.proposition else dataclasses.replace(c, proposition=p) for c, p in zip(contracts, readings)]
     usable_contracts = [c for c in contracts if usable(c.proposition)]
     groups = _candidate_groups(usable_contracts)
     parent = list(range(len(groups)))
