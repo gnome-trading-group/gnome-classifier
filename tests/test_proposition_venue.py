@@ -529,3 +529,25 @@ class TestKalshiHeadToHead:
     def test_winner_and_opponent_swapped_are_put_back(self):
         fixed = self.correct(self.VANCE_HARRIS, "kamala-harris", "jd-vance")
         assert (fixed.entity, fixed.measure) == ("jd-vance", "matchup_winner:kamala-harris")
+
+
+class TestKalshiRoundOfFinish:
+    """"Fight ends before round 4?" is the round the fight ended in, under 4."""
+
+    def correct(self, title, measure, negated=False):
+        source = {"venue": "KALSHI", "market": {"title": title, "rules_primary": ""}, "event": {}}
+        reading = Proposition(subject="ufc:moicano-nolan:2026-10-31", kind=Kind.OCCURS_BY, measure=measure,
+                              negated=negated, window_end=datetime(2026, 11, 1, 4, 20, tzinfo=timezone.utc))
+        return correct_venue(source, reading)
+
+    def test_a_rung_read_with_the_number_below_gets_its_own(self):
+        fixed = self.correct("Fight ends before round 4?", "finish_before_round_3")
+        assert (fixed.kind, fixed.measure, fixed.comparator, fixed.value, fixed.window_end) == (
+            Kind.THRESHOLD, "end_round", Comparator.LT, 4, None)
+
+    def test_the_no_side_stays_negated(self):
+        assert self.correct("Fight ends before round 2?", "end_before_round_2", negated=True).negated
+
+    def test_every_spelling_reads_as_one_measure(self):
+        assert {self.correct("Fight ends before round 3?", m).measure
+                for m in ("fight_ends_before_round_3", "end_before_round_3", "round_of_finish")} == {"end_round"}

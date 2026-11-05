@@ -137,6 +137,12 @@ class TestDeadlines:
         b = by(datetime(2027, 1, 1, tzinfo=timezone.utc), resolution_source="x")
         assert relation(a, b, "K", "PMI") == (EQUIVALENT, (FLAG_DEADLINE_ZONE,))
 
+    def test_one_venues_deadlines_hours_apart_are_a_ladder(self):
+        # Kalshi "before Nov 4" (05:00Z) and "before 4AM Nov 4" (09:00Z): the AP called it in between.
+        before_midnight = by(datetime(2026, 11, 4, 5, tzinfo=timezone.utc))
+        before_4am = by(datetime(2026, 11, 4, 9, tzinfo=timezone.utc))
+        assert relation(before_4am, before_midnight, "K", "K")[0] == "2=>1"
+
 
     def test_different_events_on_one_subject_are_unrelated(self):
         assert relation(by(T, measure="make_playoffs"), by(T + timedelta(days=30), measure="reach_nfc_championship")) is None
@@ -314,6 +320,22 @@ class TestReviewedMistakes:
 
 
 class TestUnits:
+    def tennis(self, unit, value):
+        return threshold(GTE, value, measure="margin:djokovic", unit=unit, observation=Observation.CUMULATIVE, end=None,
+                         scope="match")
+
+    def test_a_margin_in_games_and_one_in_sets_are_unrelated(self):
+        # Djokovic won 3 more games than Vacherot and lost a set: 2.5+ games, under 2 sets.
+        assert relation(self.tennis("games", 3), self.tennis("sets", 2)) is None
+
+    def test_an_esports_series_in_games_is_one_in_maps(self):
+        assert relation(self.tennis("games", 2), self.tennis("maps", 2))[0] == EQUIVALENT
+
+    def test_other_units_spelled_differently_still_compare(self):
+        a = threshold(GT, 3, measure="cpi", unit="percent")
+        b = threshold(GT, 2, measure="cpi", unit="percentage points")
+        assert relation(a, b)[0] == "1=>2"
+
     def ladder(self, start, hours, strikes):
         out = []
         sid = start
@@ -634,6 +656,14 @@ class TestCanonicalKeys:
                         Contract(2, "K", game_winner("manchester-united"), event_id=10),
                         Contract(3, "P", game_winner("manchester-united"), event_id=20)])
         assert not [d for d in found if {d.security_id_a, d.security_id_b} == {1, 3}]
+
+    def test_a_maps_winner_spelled_per_map_is_its_winner(self):
+        kalshi = winner("saw-youngsters", scope="map:2", measure="map_2_winner")
+        polymarket = winner("saw-youngsters", scope="map:2", measure="winner")
+        assert relation(kalshi, polymarket)[0] == EQUIVALENT
+
+    def test_a_map_winner_spelling_naming_another_map_is_left_alone(self):
+        assert relation(winner("x", scope="map:1", measure="map_2_winner"), winner("x", scope="map:1")) is None
 
     def test_an_ambiguous_code_is_left_alone(self):
         found = derive([Contract(1, "K", game_winner("man"), event_id=1),

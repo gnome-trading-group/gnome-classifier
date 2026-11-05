@@ -27,7 +27,7 @@ from classifier.propositions.types import Comparator, Kind, Observation, Proposi
 
 logger = logging.getLogger(__name__)
 
-DERIVATION_VERSION = "d10"
+DERIVATION_VERSION = "d11"
 
 EQUIVALENT = "EQUIVALENT"
 IMPLIES = "IMPLIES"
@@ -46,6 +46,11 @@ _INTEGER_WORDS = frozenset({
 # Sports units: a margin in them is whole, and the side with more of them wins. Not games: a tennis player can win
 # more games and lose the match (6-0 4-6 4-6).
 _DECIDING_MARGIN_UNITS = frozenset({"points", "goals", "runs", "maps", "sets", "rounds"})
+# Units a game is counted in. Two that differ count different things (a tennis player's games and sets, a map's
+# rounds and a series' maps), unlike other units, whose spellings vary for one thing ("percent", "percentage points").
+# Esports venues call a series' maps its games.
+_GAME_COUNT_UNITS = {"points": "points", "goals": "goals", "runs": "runs", "sets": "sets", "rounds": "rounds",
+                     "maps": "maps", "games": "maps"}
 # Scale words in a unit: "usd-billions" and "T" quote the same valuation in different sizes.
 _SCALES = {
     "k": 1e3, "thousand": 1e3, "thousands": 1e3, "m": 1e6, "mm": 1e6, "mn": 1e6, "million": 1e6, "millions": 1e6,
@@ -277,7 +282,11 @@ def _rescaled(p: Proposition, scale: float) -> Proposition:
 
 
 def _same_units(a: Proposition, b: Proposition) -> tuple[Proposition, Proposition] | None:
-    """The two in the same unit size, or None when one names a size and the other has no unit to compare it with."""
+    """The two in the same unit size, or None when one names a size and the other has no unit to compare it with, or
+    they count a game in different units."""
+    counted = _GAME_COUNT_UNITS.get(_unit(a)), _GAME_COUNT_UNITS.get(_unit(b))
+    if all(counted) and counted[0] != counted[1]:
+        return None
     sa, sb = _scale(a), _scale(b)
     if sa == sb:
         return a, b
@@ -309,7 +318,7 @@ def _values(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | None
     return ("y" if _subset(sa, sb) else "n", "y" if _subset(sb, sa) else "n", flags)
 
 
-def _deadlines(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | None:
+def _deadlines(a: Proposition, b: Proposition, same_venue: bool = False) -> tuple[str, str, list[str]] | None:
     if a.measure != b.measure or not _same_entity(a, b) or not _scope_matches(a, b):
         return None
     # The earlier deadline's window must sit inside the later one's, so both have to start together: "by June, from
@@ -319,7 +328,10 @@ def _deadlines(a: Proposition, b: Proposition) -> tuple[str, str, list[str]] | N
     if a.window_start is not None and abs(a.window_start - b.window_start) > DEADLINE_TOLERANCE:
         return None
     gap = b.window_end - a.window_end
-    if abs(gap) <= DEADLINE_TOLERANCE:
+    # Two venues' deadlines close together may be one deadline read in different time zones; one venue's are in one
+    # zone, so its ladder ("before 1AM", "before 4AM") is a ladder.
+    tolerance = timedelta(0) if same_venue else DEADLINE_TOLERANCE
+    if abs(gap) <= tolerance:
         if a.negated != b.negated:
             return None
         return "y", "y", ([FLAG_DEADLINE_ZONE] if gap else [])
@@ -439,8 +451,8 @@ def _team_total_implies_total(team: Proposition, total: Proposition) -> bool:
     return _inside(team_set[0], total_set[0])
 
 
-def _relate(a: Proposition, b: Proposition,
-            rivals: frozenset[frozenset[str]] = frozenset()) -> tuple[str, str, list[str], str] | None:
+def _relate(a: Proposition, b: Proposition, rivals: frozenset[frozenset[str]] = frozenset(),
+            same_venue: bool = False) -> tuple[str, str, list[str], str] | None:
     """(a ⇒ b, b ⇒ a, flags, rule) or None when the rules say nothing."""
     if a.kind in (Kind.THRESHOLD, Kind.RANGE) and b.kind in (Kind.THRESHOLD, Kind.RANGE):
         found = _values(a, b)
@@ -451,7 +463,7 @@ def _relate(a: Proposition, b: Proposition,
                 return "n", "y", [], "team_total_within_total"
         return None if found is None else (*found, "value_sets")
     if a.kind == b.kind == Kind.OCCURS_BY:
-        found = _deadlines(a, b)
+        found = _deadlines(a, b, same_venue)
         return None if found is None else (*found, "deadlines")
     if a.kind == b.kind == Kind.WINNER:
         found = _winners(a, b, rivals)
@@ -559,7 +571,7 @@ def _evidence(rule: str, a: Proposition, b: Proposition) -> dict:
 
 
 def _relate_pair(a: Contract, b: Contract, rivals: frozenset[frozenset[str]]) -> Derived | None:
-    found = _relate(a.proposition, b.proposition, rivals)
+    found = _relate(a.proposition, b.proposition, rivals, same_venue=a.venue == b.venue)
     if found is None:
         return None
     forward, backward, flags, rule = found

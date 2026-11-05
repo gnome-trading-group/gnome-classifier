@@ -14,7 +14,7 @@ import dataclasses
 import re
 from collections.abc import Iterable
 
-from classifier.propositions.types import Proposition
+from classifier.propositions.types import Kind, Proposition
 
 GAME_SUBJECT_PREFIX = "game:"
 # Measure names the extractor spells two ways for one quantity.
@@ -26,6 +26,9 @@ MEASURE_ALIASES = {
     "fantasy_points_per_game": "fantasy_ppg",
     "vote_percent": "vote_share",
 }
+# A map's winner as the extractor spells it (`map_winner`, `map_2_winner`) is the map's `winner`, as the venue readers
+# read it, when its scope names that map.
+_MAP_WINNER = re.compile(r"^map_(?:(?P<map>\d+)_)?winner$")
 _MAX_CODE_LENGTH = 4
 ROUND_WORDS = {"1st": "first", "first": "first", "2nd": "second", "second": "second", "3rd": "third",
                "third": "third", "1": "first", "2": "second", "3": "third"}
@@ -35,9 +38,14 @@ _ROUND_SCOPE = re.compile(
 )
 
 
-def _measure(measure: str | None) -> str | None:
+def _measure(p: Proposition) -> str | None:
+    measure = p.measure
     if not measure:
         return measure
+    m = _MAP_WINNER.match(measure)
+    if p.kind == Kind.WINNER and m and (p.scope or "").startswith("map:") \
+            and m.group("map") in (None, p.scope.partition(":")[2]):
+        return "winner"
     head, sep, tail = measure.partition(":")
     return MEASURE_ALIASES.get(head, head) + sep + tail
 
@@ -96,7 +104,7 @@ def canonical(p: Proposition, aliases: dict[str, str]) -> Proposition:
     def key(k: str | None) -> str | None:
         return aliases.get(k, k) if k else k
 
-    measure = _measure(p.measure)
+    measure = _measure(p)
     if measure and ":" in measure:
         head, _, tail = measure.partition(":")
         measure = f"{head}:{key(tail)}"

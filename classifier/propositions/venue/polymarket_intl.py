@@ -20,7 +20,12 @@ candidate the outcome is labelled with ("Pete Sessions (R)"): `correct` keys the
 
 Game spreads ("Spread: Rams (-16.5)") resolve to the favoured team "if the Rams win the game by 17 or more points",
 otherwise to the other. The model now and then reads one as the moneyline, which makes it equivalent to every spread on
-the game; `correct` puts the rules' margin on whichever team the model keyed, the way it reads the rest.
+the game; `correct` puts the rules' margin on whichever team the model keyed, the way it reads the rest. A map's rounds
+handicap ("Map 3 Rounds Handicap: Liquid (-3.5) vs BetBoom Team (+3.5)") is put right the same way, on that map, and
+a series' maps handicap ("Map Handicap: SAW.Y (-1.5) vs Four Magic (+1.5)") on the match.
+
+A map's winner ("Counter-Strike: KUUSAMO.gg vs maybe - Map 2 Winner") is the map's `winner`, scoped `map:2` as Kalshi
+reads its map markets: the model leaves the measure out or scopes it to the whole match.
 """
 import dataclasses
 import json
@@ -95,6 +100,17 @@ _BETWEEN = re.compile(r"^(?P<low>[\d,.]+)\s?-\s?(?P<high>[\d,.]+)$")
 _SPREAD_RULE = re.compile(
     r'resolve to "(?P<team>[^"]+)" if (?:the )?.+? wins? the game by (?P<n>\d+) or more (?P<unit>[a-z]+)\.'
 )
+# A map's rounds handicap: 'resolve to "Brute" if Brute wins Map 1 by 7 or more rounds, including any overtime'.
+_ROUND_HANDICAP_RULE = re.compile(
+    r'resolve to "(?P<team>[^"]+)" if .+? wins? Map (?P<map>\d+) by (?P<n>\d+) or more (?P<unit>rounds)\b'
+)
+_ROUND_HANDICAP_TYPE = re.compile(r"^round_handicap_game_\d+$")
+# A series' maps handicap: 'resolve to "SAW Youngsters" if SAW Youngsters wins 2 or more maps than Four Magic in this
+# match'.
+_MAP_HANDICAP_RULE = re.compile(
+    r'resolve to "(?P<team>[^"]+)" if .+? wins (?P<n>\d+) or more (?P<unit>maps|games) than .+? in this match'
+)
+_MAP_WINNER = re.compile(r" - Map (?P<map>\d+) Winner$")
 
 
 def _slug(source: dict) -> str:
@@ -264,9 +280,11 @@ def _party(source: dict) -> str | None:
 
 
 def _spread_key(proposition: Proposition) -> str | None:
-    """The team key the model put a spread on: a margin's, or the winner it misread the spread as."""
-    if proposition.kind == Kind.THRESHOLD and (proposition.measure or "").startswith("margin:"):
-        return proposition.measure.partition(":")[2]
+    """The team key the model put a spread on: a margin's (however the model spelled the margin: `map1_margin:x`,
+    `round_margin_map1:x`), or the winner it misread the spread as."""
+    head, _, key = (proposition.measure or "").partition(":")
+    if proposition.kind == Kind.THRESHOLD and key and "margin" in head.split("_"):
+        return key
     if proposition.kind == Kind.WINNER and proposition.measure == "winner" and proposition.entity:
         return proposition.entity
     return None
@@ -288,15 +306,27 @@ def _spread_sides(proposition: Proposition, points: int, covers: bool) -> tuple[
 
 
 def _spread(source: dict, proposition: Proposition) -> Proposition:
-    """A game spread as its rules ask it, keyed by the team the model chose: the favoured team's margin at least the
-    rules' points when the outcome is the favoured team, under them when it's the other. Which team a key stands for
-    is matched by name; the slug's team codes aren't used, since a slug can list the teams in the other order from the
-    title. Unless the name settles it surely, a margin already read in one of the rules' forms is taken as keyed the
-    way it reads: an abbreviation alone can point at the wrong team (`ceu` reads as CD Tenerife)."""
+    """A game spread or a map's rounds handicap as its rules ask it, keyed by the team the model chose: the favoured
+    team's margin at least the rules' points when the outcome is the favoured team, under them when it's the other.
+    Which team a key stands for is matched by name; the slug's team codes aren't used, since a slug can list the teams
+    in the other order from the title. Unless the name settles it surely, a margin already read in one of the rules'
+    forms is taken as keyed the way it reads: an abbreviation alone can point at the wrong team (`ceu` reads as CD
+    Tenerife)."""
     market = source.get("market") or {}
-    rule = _SPREAD_RULE.search(market.get("description") or "")
+    description, family = market.get("description") or "", market.get("sportsMarketType") or ""
+    if family == "spreads":
+        rule = _SPREAD_RULE.search(description)
+        scope = proposition.scope
+    elif _ROUND_HANDICAP_TYPE.match(family):
+        rule = _ROUND_HANDICAP_RULE.search(description)
+        scope = f"map:{rule.group('map')}" if rule else None
+    elif family == "map_handicap":
+        rule = _MAP_HANDICAP_RULE.search(description)
+        scope = "match"
+    else:
+        return proposition
     key = _spread_key(proposition)
-    if market.get("sportsMarketType") != "spreads" or rule is None or key is None:
+    if rule is None or key is None:
         return proposition
     try:
         outcomes = json.loads(market.get("outcomes") or "[]")
@@ -324,12 +354,22 @@ def _spread(source: dict, proposition: Proposition) -> Proposition:
         comparator, value = (Comparator.LTE, -points) if covers else (Comparator.GT, -points)
     return dataclasses.replace(
         proposition, kind=Kind.THRESHOLD, measure=f"margin:{key}", comparator=comparator, value=value,
-        low=None, high=None, negated=False, unit=rule.group("unit"), observation=Observation.CUMULATIVE,
-        unknown=proposition.unknown - {"measure", "comparator", "value", "unit", "observation"})
+        low=None, high=None, negated=False, unit=rule.group("unit"), observation=Observation.CUMULATIVE, scope=scope,
+        unknown=proposition.unknown - {"measure", "comparator", "value", "unit", "observation"}
+        - ({"scope"} if scope else set()))
+
+
+def _map_winner(source: dict, proposition: Proposition) -> Proposition:
+    market = source.get("market") or {}
+    title = _MAP_WINNER.search(market.get("question") or "")
+    if market.get("sportsMarketType") != "child_moneyline" or title is None or proposition.kind != Kind.WINNER:
+        return proposition
+    return dataclasses.replace(proposition, measure="winner", scope=f"map:{title.group('map')}",
+                               unknown=proposition.unknown - {"measure", "scope"})
 
 
 def correct(source: dict, proposition: Proposition) -> Proposition:
-    proposition = _spread(source, as_party_winner(proposition, _party(source)))
+    proposition = _map_winner(source, _spread(source, as_party_winner(proposition, _party(source))))
     direction = _direction(source.get("market") or {})
     if direction is None or proposition.kind != Kind.THRESHOLD or proposition.comparator == direction:
         return proposition

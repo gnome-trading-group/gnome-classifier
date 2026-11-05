@@ -5,7 +5,8 @@ the party ("a representative of the Democratic party is inaugurated"), whatever 
 with; `correct` keys the LLM's reading by that party. Head-to-head outcomes ("Will JD Vance defeat Kamala Harris in the
 2028 presidential election") are read by the LLM as `matchup_winner:<opponent>` won by the winner, and `correct` puts
 the two names back where the title has them: the model sometimes keys the winner as their own opponent, which makes two
-matchups read alike. A game's markets share one
+matchups read alike. A fight's round-of-finish ladder ("Fight ends before round 4?") is read by `correct` as the round
+the fight ended in under the title's number, so each rung implies the next. A game's markets share one
 subject, `game:<league>:<date>:<teams>[-<hhmm>]`, so its ladders compare with each other; a rate decision's subject,
 measure and time come from the bank table Polymarket's reader shares (`common.RATE_BANKS`), so the venues' meetings
 compare.
@@ -34,6 +35,8 @@ _MONTHS = {m: i for i, m in enumerate(("JAN", "FEB", "MAR", "APR", "MAY", "JUN",
 _PARTY_RULE = re.compile(r"\b(?:a representative|a member) of the (?P<party>[A-Za-z]+) [Pp]arty\b")
 _MATCHUP_TITLE = re.compile(r"^Will (?P<winner>.+?) defeat (?P<loser>.+?) in the ")
 _MATCHUP_MEASURE = "matchup_winner"
+_FINISH_TITLE = re.compile(r"^Fight ends before round (?P<round>\d+)\?$")
+_FINISH_MEASURE = "end_round"
 _KALSHI_CRYPTO_SERIES = re.compile(r"^KX(?P<asset>[A-Z]+?)D?$")
 _KALSHI_CRYPTO_15M_SERIES = re.compile(r"^KX(?P<asset>[A-Z]+)15M$")
 _KALSHI_INDEX = {"KXINXU": ("spx", "sp-dow-jones-indices"), "KXINX": ("spx", "sp-dow-jones-indices")}
@@ -343,7 +346,22 @@ def _matchup(source: dict, proposition: Proposition) -> Proposition:
                                unknown=proposition.unknown - {"entity", "measure"})
 
 
+def _round_of_finish(source: dict, proposition: Proposition) -> Proposition:
+    """A fight's round-of-finish rung as the round it ended in, under the title's number. The fight ends once, so the
+    window the model read for it fixes nothing; the model spells the measure a different way per rung and once gave a
+    rung the number of the one below."""
+    title = _FINISH_TITLE.match((source.get("market") or {}).get("title") or "")
+    if title is None:
+        return proposition
+    return dataclasses.replace(
+        proposition, kind=Kind.THRESHOLD, measure=_FINISH_MEASURE, comparator=Comparator.LT,
+        value=float(title.group("round")), low=None, high=None, unit="rounds", entity=None,
+        observation=Observation.CUMULATIVE, window_start=None, window_end=None,
+        unknown=proposition.unknown - {"measure", "comparator", "value", "unit", "entity", "observation", "window_start",
+                                       "window_end"})
+
+
 def correct(source: dict, proposition: Proposition) -> Proposition:
     m = _PARTY_RULE.search((source.get("market") or {}).get("rules_primary") or "")
     proposition = as_party_winner(proposition, PARTIES.get(m.group("party").lower()) if m else None)
-    return _matchup(source, proposition)
+    return _round_of_finish(source, _matchup(source, proposition))

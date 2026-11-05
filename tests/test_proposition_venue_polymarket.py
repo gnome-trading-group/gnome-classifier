@@ -442,3 +442,86 @@ class TestPolymarketIntlSpreads:
     def test_other_markets_are_left_alone(self):
         source = {**self.source("Rams"), "market": {**self.source("Rams")["market"], "sportsMarketType": "moneyline"}}
         assert correct_venue(source, self.winner("rams")) == self.winner("rams")
+
+
+class TestPolymarketIntlMapWinners:
+    def correct(self, measure, scope):
+        source = {"venue": "POLYMARKET_INTL", "outcome": "maybe", "event": {},
+                  "market": {"question": "Counter-Strike: KUUSAMO.gg vs maybe - Map 2 Winner",
+                             "sportsMarketType": "child_moneyline", "outcomes": '["KUUSAMO.gg", "maybe"]'}}
+        reading = Proposition(subject="game:cs2:2026-11-05:ksm-maybe", kind=Kind.WINNER, entity="maybe",
+                              measure=measure, scope=scope)
+        return correct_venue(source, reading)
+
+    def test_a_map_winner_read_as_the_series_winner_is_scoped_to_its_map(self):
+        fixed = self.correct("winner", "match")
+        assert (fixed.measure, fixed.scope) == ("winner", "map:2")
+
+    def test_every_spelling_of_the_measure_becomes_winner(self):
+        assert {self.correct(m, "map:2").measure for m in (None, "map_winner", "map_2_winner")} == {"winner"}
+
+
+class TestPolymarketIntlMapHandicaps:
+    """`Map Handicap: SAW.Y (-1.5) vs Four Magic (+1.5)` resolves to SAW Youngsters if it wins 2 or more maps than Four
+    Magic, otherwise to Four Magic."""
+
+    def source(self, outcome):
+        rules = ('This market will resolve to "SAW Youngsters" if SAW Youngsters wins 2 or more maps than Four Magic in '
+                 'this match. Otherwise, this market will resolve to "Four Magic".')
+        return {"venue": "POLYMARKET_INTL", "outcome": outcome, "event": {},
+                "market": {"question": "Map Handicap: SAW.Y (-1.5) vs Four Magic (+1.5)", "sportsMarketType": "map_handicap",
+                           "outcomes": '["SAW Youngsters", "Four Magic"]', "description": rules}}
+
+    def test_a_handicap_read_as_the_series_winner_becomes_the_maps_margin(self):
+        wrong = Proposition(subject="game:cs2:2026-11-06:sawy-4m1", kind=Kind.WINNER, measure="winner",
+                            entity="saw-youngsters", scope="match")
+        fixed = correct_venue(self.source("SAW Youngsters"), wrong)
+        assert (fixed.kind, fixed.measure, fixed.comparator, fixed.value, fixed.unit, fixed.scope) == (
+            Kind.THRESHOLD, "margin:saw-youngsters", Comparator.GTE, 2, "maps", "match")
+
+    def test_the_underdog_side(self):
+        wrong = Proposition(subject="game:cs2:2026-11-06:sawy-4m1", kind=Kind.THRESHOLD, measure="map_margin:four-magic",
+                            comparator=Comparator.GTE, value=2, unit="maps", observation=Observation.CUMULATIVE,
+                            scope="match")
+        fixed = correct_venue(self.source("Four Magic"), wrong)
+        assert (fixed.measure, fixed.comparator, fixed.value) == ("margin:four-magic", Comparator.GT, -2)
+
+
+class TestPolymarketIntlRoundHandicaps:
+    """`Map 3 Rounds Handicap: BetBoom Team (-3.5) vs Liquid (+3.5)` resolves to BetBoom Team if it wins map 3 by 4 or
+    more rounds, otherwise to Liquid."""
+
+    RULES = ('This market will resolve to "BetBoom Team" if BetBoom Team wins Map 3 by 4 or more rounds, including any '
+             "overtime (i.e. BetBoom Team's round total on Map 3 exceeds Liquid's by 4 or more). Otherwise, this market "
+             'will resolve to "Liquid".')
+
+    def source(self, outcome):
+        return {"venue": "POLYMARKET_INTL", "outcome": outcome, "event": {},
+                "market": {"question": "Map 3 Rounds Handicap: BetBoom Team (-3.5) vs Liquid (+3.5)",
+                           "sportsMarketType": "round_handicap_game_3", "outcomes": '["BetBoom Team", "Liquid"]',
+                           "description": self.RULES}}
+
+    def reading(self, **fields):
+        base = dict(subject="game:cs2:2026-11-04:liquid-betboom", kind=Kind.THRESHOLD, unit="rounds",
+                    observation=Observation.CUMULATIVE, scope="map:3")
+        return Proposition(**{**base, **fields})
+
+    def test_the_underdog_side_read_as_winning_by_the_line_is_put_right(self):
+        wrong = self.reading(measure="margin:liquid", comparator=Comparator.GTE, value=4)
+        fixed = correct_venue(self.source("Liquid"), wrong)
+        assert (fixed.measure, fixed.comparator, fixed.value, fixed.scope) == ("margin:liquid", Comparator.GT, -4, "map:3")
+
+    def test_a_handicap_read_as_the_match_winner_becomes_the_maps_margin(self):
+        wrong = self.reading(kind=Kind.WINNER, measure="winner", entity="betboom", unit=None, observation=None,
+                             scope="match")
+        fixed = correct_venue(self.source("BetBoom Team"), wrong)
+        assert (fixed.kind, fixed.measure, fixed.comparator, fixed.value, fixed.unit, fixed.scope) == (
+            Kind.THRESHOLD, "margin:betboom", Comparator.GTE, 4, "rounds", "map:3")
+
+    def test_the_models_margin_spellings_become_one(self):
+        odd = self.reading(measure="round_margin_map3:betboom", comparator=Comparator.GTE, value=4)
+        assert correct_venue(self.source("BetBoom Team"), odd).measure == "margin:betboom"
+
+    def test_a_right_reading_is_left_alone(self):
+        right = self.reading(measure="margin:betboom", comparator=Comparator.LT, value=4)
+        assert correct_venue(self.source("Liquid"), right) == right
