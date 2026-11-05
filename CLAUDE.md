@@ -29,7 +29,10 @@ Python 3.13, Poetry, from the repo root:
   venues list now; dry run without `--apply`
 - `worker split-securities [--exchange X] [--apply]` - give each open market its own security where one security holds
   several (left from when symbols decided identity); dry run without `--apply`
-- Both read the database, so run them as a one-off ECS task on the Fetch task definition with the command overridden
+- `worker repair-overdue [--exchange X] [--expired-days 7] [--apply]` - settle and resolve unresolved events that expired
+  long ago, which no regular cycle revisits; looks Polymarket International up on the CLOB without the hourly budget; on
+  Kalshi also resolves (stale-style) events whose markets Kalshi deleted (404); dry run without `--apply`
+- All three read the database, so run them as a one-off ECS task on the Fetch task definition with the command overridden
   (`aws ecs run-task ... --overrides '{"containerOverrides":[{"name":"FetchContainer","command":["sync-names"]}]}'`)
 - `poetry run tunnel` - currently broken: `<Stage>-DatabaseStack` no longer exports `BastionInstanceId`
 
@@ -77,8 +80,9 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   securities and re-reads, by code alone, those the readers now read differently, and stores corrected any LLM reading
   a venue module's `correct` now changes (Polymarket Intl `↑`/`↓` level markets, whose shared rules text only says
   "reaches or exceeds"; Kalshi and Polymarket Intl election winners, which settle on the party whatever candidate the
-  outcome names; Polymarket US game spreads, whose title names the team the line favours while the market asks whether
-  the event's first team covers it, so a margin keyed to neither team is left unknown; Polymarket Intl game spreads,
+  outcome names; Kalshi head-to-head outcomes ("Will A defeat B"), whose winner and opponent come from the title since
+  the model sometimes keys the winner as their own opponent; Polymarket US game spreads, whose title names the team
+  the line favours while the market asks whether the event's first team covers it, so a margin keyed to neither team is left unknown; Polymarket Intl game spreads,
   set from the rules' "win the game by N or more" on the team the model keyed, which the model sometimes reads as the
   moneyline; and on every venue, a title naming the round a market counts, "First Round" or "(1st Round)", scopes the
   reading to `first_round`, so it never meets a reading naming no round: topping a first round is not winning, and a

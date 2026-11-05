@@ -164,6 +164,22 @@ class ClassifierDB:
                 )
                 return [(row[0], row[1]) for row in cur.fetchall()]
 
+    def get_overdue_outcomes(self, exchange_id: int, expired_for: timedelta) -> list[tuple[int, str, str]]:
+        """Returns [(event_id, native_event_id, exchange_security_id)], in event order, for every listing of this
+        exchange's unresolved events that expired more than `expired_for` ago."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT e.event_id, e.native_event_id, l.exchange_security_id"
+                    " FROM sm.event e"
+                    " JOIN sm.event_contract ec ON ec.event_id = e.event_id"
+                    " JOIN sm.listing l ON l.security_id = ec.security_id AND l.exchange_id = e.exchange_id"
+                    " WHERE e.exchange_id = %s AND NOT e.resolved AND e.expiry < NOW() - %s"
+                    " ORDER BY e.event_id",
+                    (exchange_id, expired_for),
+                )
+                return [(row[0], row[1], row[2]) for row in cur.fetchall()]
+
     def get_unsettled_event_contracts(
         self, exchange_id: int, exchange_security_ids: list[str],
     ) -> dict[str, tuple[int, int]]:

@@ -113,7 +113,7 @@ Runs for the exchanges whose fetch just succeeded. Each step is logged and skipp
 
 Recording a value runs `apply_market_states()`: values go to `sm.event_contract.settlement_price` (the registry keeps the first one), listings the venue no longer trades are deactivated, and events whose every outcome now has a value are resolved (`resolved_at = now`). Events resolved this way are published to SNS as `{"type": "resolved", ...counts, "resolved_event_ids": [...], "resolved_event_names": [...]}`, which the launcher reads to stop sessions on them.
 
-`fetch_market_states(exchange_security_ids)` returns a `MarketState(open, settlement)` per contract the venue answered for: open; closed with no final value yet (Kalshi `determined`/`disputed`, Polymarket UMA proposals, Polymarket US resolving); or settled. Hyperliquid only reports settled outcomes (`settledOutcome` can't tell open from closed). Polymarket International asks Gamma for closed and then open markets, and asks the CLOB (`/markets/{condition_id}`, which names the winner) about markets Gamma no longer returns, at most `CLOB_LOOKUPS_PER_HOUR` (2000) an hour.
+`fetch_market_states(exchange_security_ids)` returns a `MarketState(open, settlement)` per contract the venue answered for: open; closed with no final value yet (Kalshi `determined`/`disputed`, Polymarket UMA proposals, Polymarket US resolving); or settled. Hyperliquid only reports settled outcomes (`settledOutcome` can't tell open from closed). Polymarket International asks Gamma for closed and then open markets, and asks the CLOB (`/markets/{condition_id}`, which names the winner) about markets Gamma no longer returns, at most `CLOB_LOOKUPS_PER_HOUR` (2000) an hour in the regular cycles (`worker repair-overdue` lifts it).
 
 ---
 

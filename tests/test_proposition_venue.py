@@ -499,3 +499,33 @@ class TestNamedRounds:
         source = self.polymarket("Copa del Rey First round: UE Tavernes v Valencia CF")
         game = self.winner(subject="game:copadelrey:2026-11-05:tav-val", scope="regulation")
         assert correct_venue(source, game).scope == "regulation"
+
+
+class TestKalshiHeadToHead:
+    """"Will A defeat B" is read as `matchup_winner:<B>` won by A, whichever way round the model keyed it."""
+
+    def correct(self, title, entity, opponent):
+        source = {"venue": "KALSHI", "market": {"title": title, "rules_primary": ""}, "event": {}}
+        reading = Proposition(subject="us-presidential-2028", kind=Kind.WINNER, entity=entity,
+                              measure=f"matchup_winner:{opponent}")
+        return correct_venue(source, reading)
+
+    VANCE_HARRIS = "Will JD Vance defeat Kamala Harris in the 2028 presidential election, with Kamala Harris as the " \
+                   "Democratic nominee and JD Vance as the Republican nominee?"
+
+    def test_a_winner_keyed_as_their_own_opponent_gets_the_titles(self):
+        fixed = self.correct(self.VANCE_HARRIS, "jd-vance", "jd-vance")
+        assert (fixed.entity, fixed.measure) == ("jd-vance", "matchup_winner:kamala-harris")
+
+    def test_the_models_spelling_of_a_name_is_kept(self):
+        title = "Will Alexandria Ocasio-Cortez defeat JD Vance in the 2028 presidential election"
+        fixed = self.correct(title, "aoc", "jd-vance")
+        assert (fixed.entity, fixed.measure) == ("aoc", "matchup_winner:jd-vance")
+
+    def test_a_reading_keyed_right_is_left_alone(self):
+        fixed = self.correct(self.VANCE_HARRIS, "jd-vance", "kamala-harris")
+        assert (fixed.entity, fixed.measure) == ("jd-vance", "matchup_winner:kamala-harris")
+
+    def test_winner_and_opponent_swapped_are_put_back(self):
+        fixed = self.correct(self.VANCE_HARRIS, "kamala-harris", "jd-vance")
+        assert (fixed.entity, fixed.measure) == ("jd-vance", "matchup_winner:kamala-harris")

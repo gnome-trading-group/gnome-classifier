@@ -123,10 +123,9 @@ def test_polymarket_intl_asks_the_clob_about_markets_gamma_no_longer_returns():
     assert sorted(u.rsplit("/", 1)[1] for u in clob_urls) == ["0xgone", "0xold", "0xpending", "0xplaceholder"]
 
 
-def test_polymarket_intl_clob_lookups_are_budgeted_per_hour(monkeypatch):
-    monkeypatch.setattr("classifier.adapters.polymarket_intl.CLOB_LOOKUPS_PER_HOUR", 2)
+def test_polymarket_intl_clob_lookups_are_budgeted_per_hour():
     session = _routed_session([], [], {})
-    adapter = PolymarketIntlAdapter(session=session)
+    adapter = PolymarketIntlAdapter(session=session, clob_lookups_per_hour=2)
     adapter.fetch_market_states({"0xa:1", "0xb:1", "0xc:1"})
     adapter.fetch_market_states({"0xd:1"})
     assert sum(c.args[0].startswith(CLOB_API_URL) for c in session.get.call_args_list) == 2

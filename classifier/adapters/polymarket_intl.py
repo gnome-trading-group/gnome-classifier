@@ -148,8 +148,10 @@ class PolymarketIntlAdapter:
     exchange_code = "POLYMARKET_INTL"
     symbol_prefix = "PM_I"
 
-    def __init__(self, session: RateLimitedSession | None = None):
+    def __init__(self, session: RateLimitedSession | None = None,
+                 clob_lookups_per_hour: int | None = CLOB_LOOKUPS_PER_HOUR):
         self._session = session or RateLimitedSession(min_request_interval=0.1)
+        self._clob_lookups_per_hour = clob_lookups_per_hour
         self._fee_definitions: dict[str, dict] = {}
         self._clob_window_start = -float("inf")
         self._clob_lookups = 0
@@ -299,7 +301,7 @@ class PolymarketIntlAdapter:
         now = time.monotonic()
         if now - self._clob_window_start >= 3600:
             self._clob_window_start, self._clob_lookups = now, 0
-        if self._clob_lookups >= CLOB_LOOKUPS_PER_HOUR:
+        if self._clob_lookups_per_hour is not None and self._clob_lookups >= self._clob_lookups_per_hour:
             return False
         self._clob_lookups += 1
         return True

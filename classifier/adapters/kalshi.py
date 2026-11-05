@@ -149,6 +149,9 @@ def _slugify(text: str) -> str:
 class KalshiAdapter:
     exchange_code = "KALSHI"
     symbol_prefix = "KX"
+    # fetch_market_states asks for every ticker and leaves out only those Kalshi doesn't have (it deletes some markets
+    # that never opened), so a market missing from its answer is gone, not unread.
+    omits_only_unknown_markets = True
 
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.15)
