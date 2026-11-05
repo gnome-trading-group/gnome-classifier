@@ -15,6 +15,7 @@ from pathlib import Path
 
 from classifier.propositions.types import Proposition
 from classifier.propositions.venue import hyperliquid, kalshi, polymarket_intl, polymarket_us
+from classifier.propositions.venue.common import with_named_round
 
 _READERS = {"KALSHI": kalshi, "HYPERLIQUID": hyperliquid, "POLYMARKET_INTL": polymarket_intl,
             "POLYMARKET_US": polymarket_us}
@@ -32,15 +33,18 @@ def extract_venue(source: dict, prices: Mapping[str, float] | None = None) -> Pr
     if reader is None:
         return None
     proposition = reader.read(source, prices or {})
-    if proposition is not None and reader.is_no_side(source):
+    if proposition is None:
+        return None
+    if reader.is_no_side(source):
         proposition = proposition.negate()
-    return proposition
+    return with_named_round(source, proposition)
 
 
 def correct_venue(source: dict, proposition: Proposition) -> Proposition:
-    """The LLM's reading with any field the venue states structurally put right."""
+    """The LLM's reading with any field the venue states structurally put right, and the round a title names on
+    every venue."""
     fix = getattr(_READERS.get(source.get("venue")), "correct", None)
-    return fix(source, proposition) if fix else proposition
+    return with_named_round(source, fix(source, proposition) if fix else proposition)
 
 
 def needs_prices(source: dict) -> bool:

@@ -11,6 +11,7 @@ A key is never extended by a word (`iowa` is not `iowa-state`, `miami` is not `m
 different outcomes are never joined, and a key that could be either of two others is left alone.
 """
 import dataclasses
+import re
 from collections.abc import Iterable
 
 from classifier.propositions.types import Proposition
@@ -26,6 +27,12 @@ MEASURE_ALIASES = {
     "vote_percent": "vote_share",
 }
 _MAX_CODE_LENGTH = 4
+ROUND_WORDS = {"1st": "first", "first": "first", "2nd": "second", "second": "second", "3rd": "third",
+               "third": "third", "1": "first", "2": "second", "3": "third"}
+# Spellings the extractor gives a round's scope.
+_ROUND_SCOPE = re.compile(
+    r"^(?:(?P<word>first|second|third)_round|round[_:]?(?P<number>[1-3])|(?P<nth>[1-3])(?:st|nd|rd)_round)$"
+)
 
 
 def _measure(measure: str | None) -> str | None:
@@ -103,3 +110,10 @@ def canonical_readings(readings: list[tuple[int | None, Proposition]]) -> list[P
     aliases = entity_aliases(readings)
     return [canonical(p, aliases) for _, p in readings]
 
+
+def round_scope(scope: str | None) -> str | None:
+    """A round scope in one spelling (`round_1`, `round:1` and `1st_round` are `first_round`); None for any other."""
+    m = _ROUND_SCOPE.match(scope or "")
+    if m is None:
+        return None
+    return f"{ROUND_WORDS[m.group('word') or m.group('number') or m.group('nth')]}_round"

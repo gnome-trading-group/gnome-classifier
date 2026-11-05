@@ -4,6 +4,7 @@ import re
 from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo
 
+from classifier.propositions.canonical import GAME_SUBJECT_PREFIX, ROUND_WORDS, round_scope
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
 
 EASTERN = ZoneInfo("America/New_York")
@@ -151,3 +152,46 @@ def names_team(team: str, code: str | None, key: str) -> int:
             or flat == "".join(w[0] for w in words) or flat in words):
         return 2
     return 1 if _abbreviates(flat, name) else 0
+
+
+# A round of a count or contest named in a market's title: "(First Round)", "1st Round", "First Round Winner",
+# "End of Round 1". A final round is left unnamed: in a runoff or instant-runoff count it is the count that decides
+# the winner, which is what a market naming no round settles on.
+_NAMED_ROUND = re.compile(r"\b(?:(?P<word>1st|first|2nd|second|3rd|third)[ -]round|round (?P<number>[1-3])\b)", re.I)
+# "advance to the second round" names the round reached, not the one counted.
+_ROUND_REACHED = re.compile(r"\b(?:to|reach(?:es)?|make|makes|into) the\s*$", re.I)
+_OUTRIGHT = re.compile(r"\boutright\b", re.I)
+
+
+def _titles(source: dict) -> list[str]:
+    market, event = source.get("market") or {}, source.get("event") or {}
+    return [t for t in (source.get("title"), market.get("title"), market.get("question"), market.get("groupItemTitle"),
+                        event.get("title")) if t]
+
+
+def _named_round(source: dict) -> str | None:
+    found = set()
+    for title in _titles(source):
+        for m in _NAMED_ROUND.finditer(title):
+            if not _ROUND_REACHED.search(title[:m.start()]):
+                found.add(ROUND_WORDS[(m.group("word") or m.group("number")).lower()])
+    return f"{found.pop()}_round" if len(found) == 1 else None
+
+
+def with_named_round(source: dict, proposition: Proposition) -> Proposition:
+    """A reading of a market that counts one named round (an election's first round, a golf round) scoped to that
+    round, so it only compares with readings of the same round: topping a first round is not winning a runoff. An
+    "outright" first-round win (a majority, no runoff needed) is its own measure, not topping the first round. Games are
+    left alone: their rounds are the tournament's, not the game's."""
+    if proposition.subject.startswith(GAME_SUBJECT_PREFIX) or proposition.kind == Kind.OTHER:
+        return proposition
+    named = _named_round(source)
+    scope = round_scope(proposition.scope)
+    if named is None:
+        return proposition if scope in (None, proposition.scope) else dataclasses.replace(proposition, scope=scope)
+    if proposition.scope is not None and scope is None:
+        return proposition
+    fixed = dataclasses.replace(proposition, scope=named, unknown=proposition.unknown - {"scope"})
+    if fixed.kind == Kind.WINNER and fixed.measure == "winner" and any(_OUTRIGHT.search(t) for t in _titles(source)):
+        fixed = dataclasses.replace(fixed, measure="outright_winner")
+    return fixed

@@ -22,12 +22,12 @@ from itertools import combinations
 
 from gnomepy.registry.relations import Edge, close, reduce
 
-from classifier.propositions.canonical import GAME_SUBJECT_PREFIX, canonical_readings
+from classifier.propositions.canonical import GAME_SUBJECT_PREFIX, canonical_readings, round_scope
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
 
 logger = logging.getLogger(__name__)
 
-DERIVATION_VERSION = "d9"
+DERIVATION_VERSION = "d10"
 
 EQUIVALENT = "EQUIVALENT"
 IMPLIES = "IMPLIES"
@@ -72,8 +72,8 @@ FLAG_SNAPSHOT_TIME = "OBSERVATION_TIME_DIFFERS"
 # deadline is unknown: they agree when the contest is decided in time, and can differ when it isn't (a venue's
 # "No one" if no government forms by its deadline).
 FLAG_DEADLINE_DIFFERS = "DEADLINE_DIFFERS"
-# Games on different venues: each venue settles a postponed, cancelled or unfinished game its own way (a fair price,
-# the Draw, or waiting for the rescheduled game), so they can differ when the game isn't played as scheduled.
+# Game markets settled by different rules when the game isn't played as scheduled: different venues (a fair price,
+# the Draw, or waiting for the rescheduled game), or one venue's markets of different kinds (`_void_rule`).
 FLAG_VOID_RULES = "VOID_RULES_DIFFER"
 # A vote margin implying the winner where neither side names the vote it is counted in: right for a race decided by
 # one vote (a governor, a House seat), wrong where a first round can be won without winning (a runoff).
@@ -211,7 +211,14 @@ def _same_entity(a: Proposition, b: Proposition) -> bool:
 
 
 def _scope_matches(a: Proposition, b: Proposition) -> bool:
-    return a.scope is None or b.scope is None or a.scope == b.scope
+    """A reading naming no scope is about the whole contest, so it matches any part of it, except one named round:
+    topping a first round is not winning, and a first-round count is not the final one."""
+    if a.scope == b.scope:
+        return True
+    rounds = round_scope(a.scope), round_scope(b.scope)
+    if any(rounds):
+        return rounds[0] == rounds[1]
+    return a.scope is None or b.scope is None
 
 
 def _contest_result(p: Proposition) -> bool:
@@ -529,8 +536,19 @@ def _source_flags(a: Contract, b: Contract) -> list[str]:
     return [FLAG_SOURCE_UNKNOWN]
 
 
+def _void_rule(c: Contract) -> str:
+    """How a market settles a game that isn't played. Polymarket International settles a canceled soccer game's
+    winner markets as the Draw (and its exact scores as 0-0) but its spreads and totals 50-50, so its own markets differ
+    by kind; every other venue is taken to settle all of a game's markets one way."""
+    if c.venue == "POLYMARKET_INTL":
+        return "draw" if c.proposition.kind in (Kind.WINNER, Kind.SCORE) else "even"
+    return c.venue
+
+
 def _void_flags(a: Contract, b: Contract) -> list[str]:
-    return [FLAG_VOID_RULES] if a.venue != b.venue and a.proposition.subject.startswith(GAME_SUBJECT_PREFIX) else []
+    if not a.proposition.subject.startswith(GAME_SUBJECT_PREFIX):
+        return []
+    return [FLAG_VOID_RULES] if _void_rule(a) != _void_rule(b) else []
 
 
 def _evidence(rule: str, a: Proposition, b: Proposition) -> dict:

@@ -451,3 +451,51 @@ class TestKalshiElectionsSettleOnTheParty:
     def test_markets_that_name_no_party_are_left_alone(self):
         person = self.source("If Aaron Ford is inaugurated as the governor of Nevada, then the market resolves to Yes.")
         assert correct_venue(person, self.candidate()).entity == "aaron-ford"
+
+
+class TestNamedRounds:
+    """A title naming the round a market counts scopes its reading to that round, on every venue."""
+
+    def winner(self, subject="argentina-presidential-election-2027", scope=None, measure="winner"):
+        return Proposition(subject=subject, kind=Kind.WINNER, measure=measure, entity="axel-kicillof", scope=scope)
+
+    def polymarket(self, title):
+        return {"venue": "POLYMARKET_INTL", "outcome": "Axel Kicillof", "event": {"title": title},
+                "market": {"question": "Axel Kicillof"}}
+
+    def test_a_first_round_market_is_scoped_to_it(self):
+        source = self.polymarket("Argentina Presidential Election First Round Winner")
+        assert correct_venue(source, self.winner()).scope == "first_round"
+
+    def test_a_round_in_parentheses_on_kalshi(self):
+        source = {"venue": "KALSHI", "market": {"title": "Will Mary Peltola get at least 50%?"},
+                  "event": {"title": "Alaska Senate election: Mary Peltola vote percent (1st Round)"}}
+        reading = Proposition(subject="alaska-senate-2026", kind=Kind.THRESHOLD, measure="vote_share:mary-peltola",
+                              comparator=Comparator.GTE, value=50, unit="percent", observation=Observation.CUMULATIVE)
+        assert correct_venue(source, reading).scope == "first_round"
+
+    def test_a_final_round_is_left_unnamed(self):
+        source = self.polymarket("Alaska Senate Election Margin of Victory (Final Round)")
+        assert correct_venue(source, self.winner()).scope is None
+
+    def test_the_round_a_candidate_advances_to_is_not_the_one_counted(self):
+        source = self.polymarket("Will Axel Kicillof advance to the second round?")
+        assert correct_venue(source, self.winner(measure="top:2")).scope is None
+
+    def test_an_outright_first_round_win_is_its_own_measure(self):
+        source = self.polymarket("First Round Outright Winner in the LA-01 House Election?")
+        fixed = correct_venue(source, self.winner())
+        assert (fixed.scope, fixed.measure) == ("first_round", "outright_winner")
+
+    def test_old_round_spellings_become_one(self):
+        source = self.polymarket("World Wide Technology Championship Leader")
+        assert correct_venue(source, self.winner(scope="round_1")).scope == "first_round"
+
+    def test_another_scope_is_left_alone(self):
+        source = self.polymarket("1st Round 3-Ball: Finau/Mitchell/Vilips")
+        assert correct_venue(source, self.winner(scope="match")).scope == "match"
+
+    def test_games_are_left_alone(self):
+        source = self.polymarket("Copa del Rey First round: UE Tavernes v Valencia CF")
+        game = self.winner(subject="game:copadelrey:2026-11-05:tav-val", scope="regulation")
+        assert correct_venue(source, game).scope == "regulation"

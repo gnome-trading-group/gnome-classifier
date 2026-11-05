@@ -80,12 +80,17 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   outcome names; Polymarket US game spreads, whose title names the team the line favours while the market asks whether
   the event's first team covers it, so a margin keyed to neither team is left unknown; Polymarket Intl game spreads,
   set from the rules' "win the game by N or more" on the team the model keyed, which the model sometimes reads as the
-  moneyline). Exact scores are kind `SCORE`
+  moneyline; and on every venue, a title naming the round a market counts, "First Round" or "(1st Round)", scopes the
+  reading to `first_round`, so it never meets a reading naming no round: topping a first round is not winning, and a
+  final round is left unnamed as the deciding count). Exact scores are kind `SCORE`
   (`scores`: each side's entity and value), which decide the game's winner, totals and margins. Before deriving, a
   subject's readings get one spelling per measure and entity (`propositions/canonical.py`: a measure alias table,
   truncated last words, team codes in games; never a key extended by a word). A contest result (`margin`, `seats`,
   `vote_share`, `governors`, ...; not Senate seats, where "held" and "won" differ) is one reading whatever its
-  observation, and different deadlines compare flagged `DEADLINE_DIFFERS`. Kalshi part-of-game series
+  observation, and different deadlines compare flagged `DEADLINE_DIFFERS`. Game pairs that a game not played as
+  scheduled can settle differently are flagged `VOID_RULES_DIFFER`: any two venues, and within Polymarket
+  International a winner or exact score against a spread or total (a canceled soccer game settles the first as the
+  Draw, the second 50-50). Kalshi part-of-game series
   (`KX<league>1QSPREAD`, `2H`, `1P`) share the full game's subject, scoped from the rules (`first_quarter`). Hyperliquid price touches are read from the perp's current mid (`quotes.hyperliquid_mids`,
   builder exchanges included): an open touch is still on the side it started from. Only `EQUIVALENT` and `IMPLIES`
   exist; exclusion and complements come from `contract_type` and event membership. A field the extractor couldn't

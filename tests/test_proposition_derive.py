@@ -520,6 +520,16 @@ class TestScores:
         assert relation(score(0, 1), score(0, 1), "K", "PMI")[0] == EQUIVALENT
         assert relation(score(0, 1), score(1, 0), "K", "PMI") is None
 
+    def test_a_canceled_game_settles_polymarket_intls_winners_and_spreads_differently(self):
+        # The moneyline and exact scores settle as the Draw (0-0), the spreads and totals 50-50.
+        game = lambda p: dataclasses.replace(p, subject="game:epl:2026-11-14:aek-rma")
+        draw, two_one = game(winner("tie", scope="regulation")), game(score(2, 1))
+        total, margin_line = game(goals_market(GT, 2.5)), game(goals_market(GT, 0.5, measure="margin:aek"))
+        assert relation(two_one, total, "POLYMARKET_INTL", "POLYMARKET_INTL") == ("1=>2", (FLAG_VOID_RULES,))
+        assert relation(two_one, margin_line, "POLYMARKET_INTL", "POLYMARKET_INTL")[1] == (FLAG_VOID_RULES,)
+        assert relation(game(score(1, 1)), draw, "POLYMARKET_INTL", "POLYMARKET_INTL") == ("1=>2", ())
+        assert relation(two_one, total, "KALSHI", "KALSHI") == ("1=>2", ())
+
     def test_a_score_says_nothing_in_another_unit_scope_or_on_its_no_side(self):
         assert relation(score(2, 1, scope="first_half"), goals_market(GT, 2.5)) is None
         assert relation(score(2, 1, unit="points"), goals_market(GT, 2.5)) is None
@@ -574,6 +584,25 @@ class TestContestResults:
 
     def test_a_price_is_still_read_at_its_own_time(self):
         assert relation(threshold(GT, 100), threshold(GT, 90, end=T + timedelta(days=2))) is None
+
+
+class TestNamedRounds:
+    def test_topping_a_first_round_is_not_winning(self):
+        assert relation(winner("kicillof", scope="first_round"), winner("kicillof", scope=None)) is None
+
+    def test_one_round_on_two_venues_is_one_reading(self):
+        assert relation(winner("kicillof", scope="first_round"), winner("kicillof", scope="first_round")) is not None
+
+    def test_old_spellings_of_a_round_compare(self):
+        assert relation(winner("hall", scope="round_1"), winner("hall", scope="first_round")) is not None
+
+    def test_a_first_round_margin_does_not_imply_the_winner(self):
+        first_round = margin("mary-peltola", GTE, 3, observation=Observation.CUMULATIVE, scope="first_round")
+        assert relation(first_round, winner("mary-peltola", scope=None)) is None
+
+    def test_a_margin_naming_no_round_still_implies_the_winner_flagged(self):
+        found = relation(margin("mary-peltola", GTE, 3, observation=Observation.CUMULATIVE), winner("mary-peltola", scope=None))
+        assert found == ("1=>2", (FLAG_VOTE_SCOPE,))
 
 
 class TestCanonicalKeys:
