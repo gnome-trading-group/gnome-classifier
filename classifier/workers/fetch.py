@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 _REDIS_KNOWN_CONTRACTS_KEY = "fetch:known_contracts"
 _REDIS_SENT_RESOLVED_KEY = "fetch:sent_resolved"
 _REDIS_STALE_TRACKER_KEY = "fetch:stale_tracker"
+_REDIS_STALE_FEED_COUNTS_KEY = "fetch:stale_feed_counts"
 _REDIS_TTL = 7 * 86400
 
 
@@ -88,6 +89,22 @@ def _redis_save_stale_tracker(r: redis_lib.Redis, data: dict[str, dict]):
         r.set(_REDIS_STALE_TRACKER_KEY, json.dumps(data), ex=_REDIS_TTL)
     except Exception:
         logger.exception("Failed to save stale_tracker to Redis")
+
+
+def _redis_load_stale_feed_counts(r: redis_lib.Redis) -> dict[int, int]:
+    try:
+        raw = r.get(_REDIS_STALE_FEED_COUNTS_KEY)
+        return {int(k): int(v) for k, v in json.loads(raw).items()} if raw is not None else {}
+    except Exception:
+        logger.exception("Failed to load stale_feed_counts from Redis, starting empty")
+        return {}
+
+
+def _redis_save_stale_feed_counts(r: redis_lib.Redis, data: dict[int, int]):
+    try:
+        r.set(_REDIS_STALE_FEED_COUNTS_KEY, json.dumps({str(k): v for k, v in data.items()}), ex=_REDIS_TTL)
+    except Exception:
+        logger.exception("Failed to save stale_feed_counts to Redis")
 
 
 # ── FetchRunner ───────────────────────────────────────────────────────────────
@@ -444,11 +461,12 @@ class FetchRunner:
                     logger.error("Failed to fetch from %s: %s", adapter.exchange_code, e)
                     failed_exchange_ids.add(exchange.exchange_id)
 
-        stale_messages, new_tracker = update_stale_tracker(
+        stale_messages, new_tracker, feed_counts = update_stale_tracker(
             tracker, active_by_exchange, failed_exchange_ids,
             miss_threshold=rc.config.processing.stale_miss_threshold,
             max_messages=rc.config.processing.stale_max_sqs_messages,
             min_feed_ratio=rc.config.processing.stale_min_feed_ratio,
+            feed_counts=_redis_load_stale_feed_counts(r),
         )
 
         if stale_messages:
@@ -459,5 +477,6 @@ class FetchRunner:
             logger.warning("Skipped miss-counting for failed exchange ids: %s", failed_exchange_ids)
 
         _redis_save_stale_tracker(r, new_tracker)
+        _redis_save_stale_feed_counts(r, feed_counts)
         logger.info("Stale cycle complete: %d stale events", len(stale_messages))
 

@@ -21,17 +21,20 @@ _LIVE_IDS = ["evt-live-1", "evt-live-2", "evt-live-3"]
 _LIVE = {f"1:{n}": {"exchange_id": 1, "native_event_id": n, "miss_count": 0} for n in _LIVE_IDS}
 
 
-def _make_redis(tracker: dict | None = None) -> MagicMock:
+def _make_redis(tracker: dict | None = None, feed_counts: dict | None = None) -> MagicMock:
+    stored = {"fetch:stale_tracker": tracker, "fetch:stale_feed_counts": feed_counts}
     r = MagicMock()
-    r.get.return_value = json.dumps(tracker).encode() if tracker is not None else None
+    r.get.side_effect = lambda key: json.dumps(stored[key]).encode() if stored.get(key) is not None else None
     return r
 
 
+def _saved(r: MagicMock, key: str) -> dict:
+    calls = [c for c in r.set.call_args_list if c[0][0] == key]
+    return json.loads(calls[-1][0][1]) if calls else {}
+
+
 def _saved_tracker(r: MagicMock) -> dict:
-    call_args = r.set.call_args
-    if call_args is None:
-        return {}
-    return json.loads(call_args[0][1])
+    return _saved(r, "fetch:stale_tracker")
 
 
 class TestStaleCleanupHandler:
@@ -105,3 +108,14 @@ class TestStaleCleanupHandler:
             QueueUrl=moto_env["contracts_queue"], MaxNumberOfMessages=10, WaitTimeSeconds=0
         )
         assert resp.get("Messages", []) == []
+
+    def test_keeps_the_last_good_feed_count(self, moto_env):
+        r = _make_redis(dict(_LIVE), feed_counts={"1": 3})
+        runner = FetchRunner()
+        runner._active_events = ({1: set(_LIVE_IDS[:1])}, {1})
+
+        runner._run_stale(_make_stale_rc(), r, moto_env["sqs"], MagicMock())
+
+        # One of three is a partial feed: nothing counted, and the count it is judged against stays.
+        assert _saved(r, "fetch:stale_feed_counts") == {"1": 3}
+        assert _saved_tracker(r) == _LIVE

@@ -134,7 +134,8 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   enabled per account. Embeddings are Voyage (proposition subjects). Model ids are cache keys: changing a model
   re-runs everything once.
 - Redis (single `cache.t3.micro`, private subnets): `fetch:known_contracts`, `fetch:sent_resolved`,
-  `fetch:stale_tracker`, `exchange_events`, `canon:*`, `prop:attempt:*` (proposition read backoff), `merge:judged:*`
+  `fetch:stale_tracker`, `fetch:stale_feed_counts` (each venue's event count on its last fetch that counted misses),
+  `exchange_events`, `canon:*`, `prop:attempt:*` (proposition read backoff), `merge:judged:*`
   (what the merge pass made of each subject pair: judgment, what it rested on, outcome) and
   `merge:last-sweep:<MERGE_RULES_VERSION>` (30 days each; losing them costs one full re-judging sweep, about $5–8).
   Every key expires, since the node's `volatile-lru` only evicts keys that do. No bastion, SSM or ECS Exec reaches it, and
@@ -192,8 +193,9 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
     gnomepy bump; a venue HTTP error is usually that venue being down.
   - `Classifier--WorkerHealth-IdentityRegressions-Error`: an adapter tried to link a security to a second event. Code
     bug in that adapter's event id; find `already in event` in the Normalize logs.
-  - `Classifier--WorkerHealth-VenueFeedGaps-Warning`: 6 hours running a venue returned under `stale_min_feed_ratio`
-    (0.5) of its tracked events; stale cleanup is paused for it. Check the venue's API.
+  - `Classifier--WorkerHealth-VenueFeedGaps-Warning`: 6 hours running a venue returned no events, or under
+    `stale_min_feed_ratio` (0.5) of what it returned on its last fetch that counted misses; stale cleanup is paused
+    for it. Check the venue's API.
   - `Classifier--WorkerHealth-ClosureChecksSkipped-Warning`: > `closure_check_max_lookups` (500) contracts left one feed
     at once; treated as a feed fault, left to the resolve cycle.
   - `Classifier--WorkerHealth-VenueReaderFallbacks-Warning`: 25+ in an hour of `venue reader fell back`: a family the

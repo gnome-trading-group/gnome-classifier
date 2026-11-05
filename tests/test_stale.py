@@ -165,24 +165,47 @@ def _tracker(exchange_id: int, natives: list[str], misses: int = 0) -> dict[str,
 def test_missing_events_count_misses_until_stale():
     tracker = _tracker(1, [f"e{i}" for i in range(10)], misses=5)
     live = {1: {f"e{i}" for i in range(1, 10)}}
-    messages, new = update_stale_tracker(tracker, live, set(), miss_threshold=6, max_messages=100, min_feed_ratio=0.5)
+    messages, new, counts = update_stale_tracker(tracker, live, set(), miss_threshold=6, max_messages=100,
+                                                 min_feed_ratio=0.5, feed_counts={1: 10})
     assert messages == [{"type": "stale", "exchange_id": 1, "native_event_id": "e0"}]
     assert "1:e0" not in new and new["1:e1"]["miss_count"] == 0
+    assert counts == {1: 9}
 
 
 def test_an_empty_feed_counts_no_misses():
     tracker = {**_tracker(1, [f"e{i}" for i in range(10)], misses=5), **_tracker(2, ["x0", "x1"], misses=5)}
     # Exchange 1 answered with nothing (maintenance); exchange 2 is healthy and still loses its missing event.
-    messages, new = update_stale_tracker(tracker, {2: {"x1"}}, set(), miss_threshold=6, max_messages=100,
-                                         min_feed_ratio=0.5)
+    messages, new, counts = update_stale_tracker(tracker, {2: {"x1"}}, set(), miss_threshold=6, max_messages=100,
+                                                 min_feed_ratio=0.5, feed_counts={})
     assert messages == [{"type": "stale", "exchange_id": 2, "native_event_id": "x0"}]
     assert all(new[f"1:e{i}"]["miss_count"] == 5 for i in range(10))
+    assert counts == {2: 1}
 
 
-def test_a_partial_feed_counts_no_misses():
+def test_a_partial_feed_counts_no_misses_and_adds_nothing():
     tracker = _tracker(1, [f"e{i}" for i in range(10)], misses=5)
-    messages, new = update_stale_tracker(tracker, {1: {"e0", "e1", "e2", "e3"}}, set(), miss_threshold=6,
-                                         max_messages=100, min_feed_ratio=0.5)
-    # The exchange's entries stay as they were, as for a fetch that failed outright.
+    messages, new, counts = update_stale_tracker(tracker, {1: {"e0", "e1", "e2", "new"}}, set(), miss_threshold=6,
+                                                 max_messages=100, min_feed_ratio=0.5, feed_counts={1: 10})
+    # The exchange's entries stay as they were, as for a fetch that failed outright, and the last good count stands.
     assert messages == []
-    assert {entry["miss_count"] for entry in new.values()} == {5}
+    assert {entry["miss_count"] for entry in new.values()} == {5} and "1:new" not in new
+    assert counts == {1: 10}
+
+
+def test_dropped_events_waiting_out_their_misses_never_hold_the_check_failed():
+    # A venue of short-lived markets: 200 live, 500 already dropped and counting misses. Against everything tracked
+    # that reads as a partial feed every time, and the dropped ones would never leave.
+    live = [f"live{i}" for i in range(200)]
+    tracker = {**_tracker(1, live), **_tracker(1, [f"gone{i}" for i in range(500)], misses=23)}
+    messages, new, counts = update_stale_tracker(tracker, {1: set(live)}, set(), miss_threshold=24,
+                                                 max_messages=1000, min_feed_ratio=0.5, feed_counts={1: 210})
+    assert len(messages) == 500 and len(new) == 200
+    assert counts == {1: 200}
+
+
+def test_a_partial_feed_with_no_last_count_still_counts_misses():
+    # The first fetch after the counts are lost has nothing to compare with; misses take 24 fetches to retire anyway.
+    tracker = _tracker(1, [f"e{i}" for i in range(10)], misses=0)
+    messages, new, counts = update_stale_tracker(tracker, {1: {"e0", "e1"}}, set(), miss_threshold=24,
+                                                 max_messages=100, min_feed_ratio=0.5, feed_counts={})
+    assert messages == [] and new["1:e5"]["miss_count"] == 1 and counts == {1: 2}

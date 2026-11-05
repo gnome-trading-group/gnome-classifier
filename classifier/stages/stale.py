@@ -1,5 +1,4 @@
 import logging
-from collections import Counter
 from datetime import datetime, timezone
 
 from classifier.db import ClassifierDB
@@ -14,22 +13,32 @@ def update_stale_tracker(
     miss_threshold: int,
     max_messages: int,
     min_feed_ratio: float,
-) -> tuple[list[dict], dict[str, dict]]:
-    """Returns (stale_messages, new_tracker)."""
+    feed_counts: dict[int, int],
+) -> tuple[list[dict], dict[str, dict], dict[int, int]]:
+    """Returns (stale_messages, new_tracker, new_feed_counts). `feed_counts` is how many events each exchange returned
+    on its last fetch that counted misses."""
     new_tracker: dict[str, dict] = {}
+    new_feed_counts = dict(feed_counts)
     all_stale: list[dict] = []
 
     # A venue down for maintenance, or serving a partial feed, can answer successfully with few or none of its
-    # markets. Markets never close at that rate between two checks, so such a fetch counts no misses for its exchange.
-    tracked = Counter(entry["exchange_id"] for entry in tracker.values())
+    # markets. Markets never close at that rate between two checks, so a fetch that returns nothing, or under
+    # `min_feed_ratio` of what the exchange returned the last time misses counted, counts no misses and adds nothing.
+    # Compared with the last good fetch, not with everything tracked: tracked events the venue already dropped wait
+    # out their misses there, and on a venue that lists short-lived markets (Hyperliquid's daily outcomes) they
+    # outnumber its live ones, which would hold the check failed for good.
     failed_exchange_ids = set(failed_exchange_ids)
-    for exchange_id, count in tracked.items():
+    exchanges = {entry["exchange_id"] for entry in tracker.values()} | set(active_by_exchange)
+    for exchange_id in sorted(exchanges - failed_exchange_ids):
         seen = len(active_by_exchange.get(exchange_id, ()))
-        if exchange_id not in failed_exchange_ids and seen < count * min_feed_ratio:
+        last = feed_counts.get(exchange_id)
+        if seen == 0 or (last and seen < last * min_feed_ratio):
             # Counted by the VenueFeedGaps metric filter (cdk/lib/stacks/classifier-stack.ts); keep the wording.
-            logger.warning("Exchange %d returned %d events against %d tracked; not counting misses this cycle",
-                           exchange_id, seen, count)
+            logger.warning("Exchange %d returned %d events against %s last time; not counting misses this cycle",
+                           exchange_id, seen, last)
             failed_exchange_ids.add(exchange_id)
+        else:
+            new_feed_counts[exchange_id] = seen
 
     for tk, entry in tracker.items():
         exchange_id = entry["exchange_id"]
@@ -50,6 +59,8 @@ def update_stale_tracker(
                 new_tracker[tk] = {"exchange_id": exchange_id, "native_event_id": native_event_id, "miss_count": miss_count}
 
     for exchange_id, native_ids in active_by_exchange.items():
+        if exchange_id in failed_exchange_ids:
+            continue
         for native_event_id in native_ids:
             tk = f"{exchange_id}:{native_event_id}"
             if tk not in new_tracker:
@@ -63,7 +74,7 @@ def update_stale_tracker(
         tk = f"{msg['exchange_id']}:{msg['native_event_id']}"
         new_tracker[tk] = {"exchange_id": msg["exchange_id"], "native_event_id": msg["native_event_id"], "miss_count": miss_threshold}
 
-    return stale_messages, new_tracker
+    return stale_messages, new_tracker, new_feed_counts
 
 
 def deactivate_stale_events(
