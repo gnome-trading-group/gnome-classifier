@@ -195,3 +195,41 @@ def with_named_round(source: dict, proposition: Proposition) -> Proposition:
     if fixed.kind == Kind.WINNER and fixed.measure == "winner" and any(_OUTRIGHT.search(t) for t in _titles(source)):
         fixed = dataclasses.replace(fixed, measure="outright_winner")
     return fixed
+
+
+# A part of a game named in a market's title: "2nd Half", "Third Quarter", "1Q Moneyline", "Map 1 Total Rounds",
+# "Set 2 Winner". A map or set is scoped as the venue readers scope a map (`map:N`). Two maps named together
+# ("Maps 1-2") are not one map.
+_NAMED_PART = re.compile(r"\b(?P<nth>1st|2nd|3rd|4th|first|second|third|fourth)[ -](?P<part>half|quarter|period)\b", re.I)
+_SHORT_PART = re.compile(r"\b(?P<n>[1-4])(?P<part>Q|H)\b")
+_NAMED_MAP = re.compile(r"\b(?:set|map) (?P<n>[1-9])\b(?!\s*(?:[-–&+,/]|and\b)\s*\d)", re.I)
+_PART_ORDINALS = {"1st": "first", "2nd": "second", "3rd": "third", "4th": "fourth", "1": "first", "2": "second",
+                  "3": "third", "4": "fourth"}
+
+
+def _named_parts(source: dict) -> set[str]:
+    found = set()
+    for title in _titles(source):
+        for m in _NAMED_PART.finditer(title):
+            nth = m.group("nth").lower()
+            found.add(f"{_PART_ORDINALS.get(nth, nth)}_{m.group('part').lower()}")
+        for m in _SHORT_PART.finditer(title):
+            if m.group("part") == "Q" or m.group("n") in "12":
+                found.add(f"{_PART_ORDINALS[m.group('n')]}_{'quarter' if m.group('part') == 'Q' else 'half'}")
+        found.update(f"map:{m.group('n')}" for m in _NAMED_MAP.finditer(title))
+    return found
+
+
+def with_named_part(source: dict, proposition: Proposition) -> Proposition:
+    """A game market whose title names one part of the game (a half, a quarter, a period, a map or set) scoped to that
+    part. A game reading naming no part is about the whole game, so a part the reading missed would otherwise compare
+    with the whole game's markets ("Over 57.5 points in the 2nd quarter" with the game's total)."""
+    if not proposition.subject.startswith(GAME_SUBJECT_PREFIX) or proposition.kind in (Kind.OTHER, Kind.OCCURS_BY):
+        return proposition
+    parts = _named_parts(source)
+    if len(parts) != 1:
+        return proposition
+    part = parts.pop()
+    if proposition.scope == part:
+        return proposition
+    return dataclasses.replace(proposition, scope=part, unknown=proposition.unknown - {"scope"})

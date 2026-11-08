@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import datetime, timezone
 
 import pytest
@@ -551,3 +552,49 @@ class TestKalshiRoundOfFinish:
     def test_every_spelling_reads_as_one_measure(self):
         assert {self.correct("Fight ends before round 3?", m).measure
                 for m in ("fight_ends_before_round_3", "end_before_round_3", "round_of_finish")} == {"end_round"}
+
+
+class TestNamedParts:
+    GAME = "game:nba:2026-10-30:lal-gsw"
+
+    def total(self, scope=None, **kw):
+        return Proposition(subject=self.GAME, kind=Kind.THRESHOLD, measure="total_points", comparator=Comparator.GT,
+                           value=57.5, unit="points", observation=Observation.CUMULATIVE, scope=scope, **kw)
+
+    def polymarket(self, question, event="LA Lakers vs. GS Warriors"):
+        return {"venue": "POLYMARKET_INTL", "event": {"title": event}, "market": {"question": question}}
+
+    def test_a_quarter_named_in_the_title_is_the_scope(self):
+        source = self.polymarket("LA Lakers vs. GS Warriors: Over 57.5 total points in 2nd quarter?")
+        assert correct_venue(source, self.total()).scope == "second_quarter"
+
+    def test_a_short_part_name(self):
+        assert correct_venue(self.polymarket("Michigan vs. Rutgers: 1Q Moneyline"), self.total()).scope == "first_quarter"
+        assert correct_venue(self.polymarket("1H Spread: Michigan (-9.5)"), self.total()).scope == "first_half"
+
+    def test_a_map_or_set_is_scoped_as_a_map(self):
+        assert correct_venue(self.polymarket("Map 1 Total Rounds: Over/Under 24.5"), self.total()).scope == "map:1"
+        assert correct_venue(self.polymarket("Set 1 Winner: Jan-Lennard Struff vs Casper Ruud"),
+                             self.total()).scope == "map:1"
+
+    def test_two_maps_named_together_are_no_one_map(self):
+        assert correct_venue(self.polymarket("Maps 1-2 Winner"), self.total()).scope is None
+
+    def test_two_parts_named_are_left_alone(self):
+        source = self.polymarket("Lakers lead after 1st quarter and 2nd half?")
+        assert correct_venue(source, self.total(scope="match")).scope == "match"
+
+    def test_a_title_naming_no_part_leaves_the_reading_alone(self):
+        assert correct_venue(self.polymarket("Lakers vs. Warriors: O/U 225.5"), self.total()).scope is None
+
+    def test_another_spelling_of_the_part_becomes_one(self):
+        source = self.polymarket("1st Half Total: Over 110.5")
+        assert correct_venue(source, self.total(scope="1h")).scope == "first_half"
+
+    def test_only_games(self):
+        reading = dataclasses.replace(self.total(), subject="nba-2026-27")
+        assert correct_venue(self.polymarket("Most points in a 2nd quarter this season"), reading).scope is None
+
+    def test_the_kalshi_reader_agrees(self):
+        p = extract_venue(kalshi("KXEFLCUP1HTOTAL-26OCT29EVENEW-1", FIRST_HALF_RULES, title="Everton vs Newcastle: 1st Half Total"))
+        assert p.scope == "first_half"

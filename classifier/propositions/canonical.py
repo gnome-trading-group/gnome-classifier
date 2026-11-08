@@ -7,8 +7,13 @@ another. Derivation sees them as different measures and entities and relates not
 Only two kinds of entity key are taken as one:
 - the same two or more words with the last one cut short (`new-york-j`, `new-york-jets`): a venue's truncated label;
 - in a game, a short code that begins the hyphenless key (`hul`, `hull-city`): a venue's team code.
+- in a game, keys the winner markets list under one outcome name (`missouri` and `mizz`, both "Missouri"): one
+  team's keys from two venues' readers.
 A key is never extended by a word (`iowa` is not `iowa-state`, `miami` is not `miami-oh`), two keys an event lists as
 different outcomes are never joined, and a key that could be either of two others is left alone.
+
+In a game, a reading naming no part of the game is about the whole game (`match`): the venue readers scope the parts
+their titles name (`with_named_part`), so a reading left unscoped is not a part of the game.
 """
 import dataclasses
 import re
@@ -17,6 +22,9 @@ from collections.abc import Iterable
 from classifier.propositions.types import Kind, Proposition
 
 GAME_SUBJECT_PREFIX = "game:"
+FULL_GAME_SCOPE = "match"
+# Outcome names and key words that are no team: a binary's sides, a game's other outcomes.
+NOT_TEAMS = frozenset({"yes", "no", "over", "under", "tie", "draw", "other", "none", "neither"})
 # Measure names the extractor spells two ways for one quantity.
 MEASURE_ALIASES = {
     "regular_season_wins": "wins",
@@ -69,13 +77,13 @@ def _same_entity(short: str, long: str, game: bool) -> bool:
         and flat.startswith(short)
 
 
-def entity_aliases(propositions: Iterable[tuple[int | None, Proposition]]) -> dict[str, str]:
-    """{key: the longer key it is short for} among one subject's (event_id, proposition) readings."""
-    readings = list(propositions)
+def entity_aliases(readings: Iterable[tuple[int | None, Proposition, str | None]]) -> dict[str, str]:
+    """{key: the key it is another spelling of} among one subject's (event_id, proposition, outcome label) readings."""
+    readings = list(readings)
     keys: set[str] = set()
     listed: dict[int, set[str]] = {}
     game = False
-    for event_id, p in readings:
+    for event_id, p, _ in readings:
         found = _keys(p)
         keys.update(found)
         game = game or p.subject.startswith(GAME_SUBJECT_PREFIX)
@@ -88,7 +96,51 @@ def entity_aliases(propositions: Iterable[tuple[int | None, Proposition]]) -> di
         if len(longer) == 1:
             aliases[short] = longer[0]
     # A chain (`a` -> `ab` -> `abc`) resolves to its end.
-    return {k: _resolve(k, aliases) for k in aliases}
+    aliases = {k: _resolve(k, aliases) for k in aliases}
+    if game:
+        aliases = _named_teams(readings, aliases)
+    return aliases
+
+
+def _named_teams(readings: list[tuple[int | None, Proposition, str | None]], aliases: dict[str, str]) -> dict[str, str]:
+    """The aliases with keys the game's winner markets list under one outcome name joined, on top of the spellings
+    already joined, as the longest of them (the key prefix aliasing would pick)."""
+    resolve = lambda k: aliases.get(k, k)
+    parent: dict[str, str] = {}
+
+    def root(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    opponents: dict[int, set[str]] = {}
+    for event_id, p, label in readings:
+        if p.kind != Kind.WINNER or p.negated or not p.entity:
+            continue
+        if event_id is not None:
+            opponents.setdefault(event_id, set()).add(resolve(p.entity))
+        if not label:
+            continue
+        name = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
+        if name and name not in NOT_TEAMS and p.entity not in NOT_TEAMS:
+            parent[root(resolve(p.entity))] = root("name:" + name)
+    teams: dict[str, set[str]] = {}
+    for x in list(parent):
+        if not x.startswith("name:"):
+            teams.setdefault(root(x), set()).add(x)
+    out = dict(aliases)
+    for members in teams.values():
+        # Two keys one event lists as opponents are two teams, whatever their names say.
+        if len(members) < 2 or any(len(members & found) > 1 for found in opponents.values()):
+            continue
+        target = max(members, key=lambda k: (len(k), k))
+        for k in members - {target}:
+            out[k] = target
+        for short, long in aliases.items():
+            if long in members:
+                out[short] = target
+    return out
 
 
 def _resolve(key: str, aliases: dict[str, str]) -> str:
@@ -109,14 +161,17 @@ def canonical(p: Proposition, aliases: dict[str, str]) -> Proposition:
         head, _, tail = measure.partition(":")
         measure = f"{head}:{key(tail)}"
     scores = tuple((key(entity), value) for entity, value in p.scores)
-    if measure == p.measure and key(p.entity) == p.entity and scores == p.scores:
+    scope = p.scope
+    if scope is None and p.subject.startswith(GAME_SUBJECT_PREFIX) and p.kind not in (Kind.OCCURS_BY, Kind.OTHER):
+        scope = FULL_GAME_SCOPE
+    if measure == p.measure and key(p.entity) == p.entity and scores == p.scores and scope == p.scope:
         return p
-    return dataclasses.replace(p, measure=measure, entity=key(p.entity), scores=scores)
+    return dataclasses.replace(p, measure=measure, entity=key(p.entity), scores=scores, scope=scope)
 
 
-def canonical_readings(readings: list[tuple[int | None, Proposition]]) -> list[Proposition]:
+def canonical_readings(readings: list[tuple[int | None, Proposition, str | None]]) -> list[Proposition]:
     aliases = entity_aliases(readings)
-    return [canonical(p, aliases) for _, p in readings]
+    return [canonical(p, aliases) for _, p, _ in readings]
 
 
 def round_scope(scope: str | None) -> str | None:

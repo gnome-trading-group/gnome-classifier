@@ -11,23 +11,25 @@ left unknown is skipped: no relationship is better than a wrong one.
 A subject can hold thousands of contracts (every BTC strike on every venue and expiry), so contracts are first split
 into groups that no rule can relate across (snapshots at different times, deadlines on different events), and only
 pairs inside a group are compared. Groups that share a contract form one derivation unit, the set the classifier
-re-derives and replaces together.
+re-derives and replaces together. A game subject's contracts are first split by fixture (`fixtures`), since one
+subject can hold two matches of the same teams.
 """
 import dataclasses
 import logging
 import math
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from itertools import combinations
 
 from gnomepy.registry.relations import Edge, close, reduce
 
-from classifier.propositions.canonical import GAME_SUBJECT_PREFIX, canonical_readings, round_scope
+from classifier.propositions.canonical import GAME_SUBJECT_PREFIX, NOT_TEAMS, canonical_readings, round_scope
+from classifier.propositions.fixtures import split_fixtures
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
 
 logger = logging.getLogger(__name__)
 
-DERIVATION_VERSION = "d11"
+DERIVATION_VERSION = "d12"
 
 EQUIVALENT = "EQUIVALENT"
 IMPLIES = "IMPLIES"
@@ -95,6 +97,12 @@ class Contract:
     # The other security of its BINARY event (its No side, or Yes side), when the event has exactly two.
     complement: int | None = None
     event_id: int | None = None
+    # The venue's own id for the game a game contract is about, and when its event starts: which match it is, when a
+    # subject holds two.
+    game: str | None = None
+    start: datetime | None = None
+    # The outcome's name as the venue lists it ("Missouri"), which ties a team's keys together across venues.
+    label: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -244,7 +252,10 @@ def _same_reading(a: Proposition, b: Proposition) -> tuple[bool, list[str]]:
         # A live change over a window (up or down in 15 minutes vs in the hour ending at the same time) depends on
         # exactly when it starts.
         return False, []
-    if a.window_start != b.window_start and not (
+    game_total = a.observation == Observation.CUMULATIVE and a.subject.startswith(GAME_SUBJECT_PREFIX)
+    # A game's totals and margins are counted over the game: a window start on one is when the reader thought the game
+    # began (kickoff, or the date's midnight), not a different period.
+    if not game_total and a.window_start != b.window_start and not (
             a.window_start and b.window_start and abs(a.window_start - b.window_start) <= DEADLINE_TOLERANCE):
         # Different measurement periods (a year's growth vs one quarter's) are different readings.
         return False, []
@@ -412,12 +423,17 @@ def _unit(p: Proposition) -> str:
     return re.sub(r"[\s-]+", "_", (p.unit or "").strip().lower())
 
 
-def _margin_implies_winner(margin: Proposition, winner: Proposition) -> list[str] | None:
-    """The flags when a margin all above zero implies its side wins, else None."""
+def _margin_implies_winner(margin: Proposition, winner: Proposition,
+                           rivals: frozenset[frozenset[str]] = frozenset()) -> list[str] | None:
+    """The flags when a margin all above zero implies its side wins (or, in a game, all below zero implies the
+    opponent wins), else None."""
     if winner.negated or margin.negated or winner.measure != "winner":
         return None
     if not (margin.measure or "").startswith("margin:"):
         return None
+    if margin.measure.split(":", 1)[1] != winner.entity and _team(winner.entity):
+        margin = _from_rival_side(margin, dataclasses.replace(margin, measure=f"margin:{winner.entity}"), rivals) \
+            or margin
     flags: list[str] = []
     unit = _unit(margin)
     if unit in _VOTE_MARGIN_UNITS:
@@ -456,6 +472,10 @@ def _relate(a: Proposition, b: Proposition, rivals: frozenset[frozenset[str]] = 
     """(a ⇒ b, b ⇒ a, flags, rule) or None when the rules say nothing."""
     if a.kind in (Kind.THRESHOLD, Kind.RANGE) and b.kind in (Kind.THRESHOLD, Kind.RANGE):
         found = _values(a, b)
+        if found is None and (mirrored := _from_rival_side(b, a, rivals)) is not None:
+            found = _values(a, mirrored)
+            if found is not None:
+                return *found, "opposite_margins"
         if found is None and a.kind == b.kind == Kind.THRESHOLD:
             if _team_total_implies_total(a, b):
                 return "y", "n", [], "team_total_within_total"
@@ -472,14 +492,45 @@ def _relate(a: Proposition, b: Proposition, rivals: frozenset[frozenset[str]] = 
         found = _scores(a, b) if a.kind == Kind.SCORE else _flipped(_scores(b, a))
         return None if found is None else (*found, "score")
     if a.kind in (Kind.THRESHOLD, Kind.RANGE) and b.kind == Kind.WINNER:
-        flags = _margin_implies_winner(a, b)
+        flags = _margin_implies_winner(a, b, rivals)
         if flags is not None:
             return "y", "n", flags, "margin_implies_winner"
     if b.kind in (Kind.THRESHOLD, Kind.RANGE) and a.kind == Kind.WINNER:
-        flags = _margin_implies_winner(b, a)
+        flags = _margin_implies_winner(b, a, rivals)
         if flags is not None:
             return "n", "y", flags, "margin_implies_winner"
     return None
+
+
+def _team(key: str | None) -> bool:
+    return bool(key) and not set(key.split("-")) & NOT_TEAMS
+
+
+def _from_rival_side(margin: Proposition, side: Proposition, rivals: frozenset[frozenset[str]]) -> Proposition | None:
+    """A game margin on one team read as the other team's, when `side` is a margin on that other team: one team
+    winning by more than v is its opponent winning by less than -v. None when they aren't two teams some event lists as
+    each other's opponents."""
+    if not margin.subject.startswith(GAME_SUBJECT_PREFIX) or not (margin.measure or "").startswith("margin:") \
+            or not (side.measure or "").startswith("margin:"):
+        return None
+    team, other = margin.measure.partition(":")[2], side.measure.partition(":")[2]
+    if team == other or not _team(team) or not _team(other) or frozenset((team, other)) not in rivals:
+        return None
+    if {"comparator", "value", "low", "high"} & margin.unknown:
+        return None
+    if margin.kind == Kind.THRESHOLD:
+        if margin.value is None:
+            return None
+        return dataclasses.replace(margin, measure=f"margin:{other}", comparator=_FLIPPED[margin.comparator],
+                                   value=-margin.value)
+    if margin.low is None or margin.high is None:
+        return None
+    return dataclasses.replace(margin, measure=f"margin:{other}", low=-margin.high, high=-margin.low,
+                               low_inclusive=margin.high_inclusive, high_inclusive=margin.low_inclusive)
+
+
+_FLIPPED = {Comparator.GT: Comparator.LT, Comparator.GTE: Comparator.LTE, Comparator.LT: Comparator.GT,
+            Comparator.LTE: Comparator.GTE}
 
 
 def _flipped(found: tuple[str, str, list[str]] | None) -> tuple[str, str, list[str]] | None:
@@ -645,7 +696,19 @@ class Unit:
 
 
 def derivation_units(contracts: list[Contract]) -> list[Unit]:
-    readings = canonical_readings([(c.event_id, c.proposition) for c in contracts])
+    """One subject's derivation units; in a game subject, units never span two fixtures."""
+    if not contracts or not contracts[0].proposition.subject.startswith(GAME_SUBJECT_PREFIX):
+        return sorted(_fixture_units(contracts), key=lambda u: u.contracts[0].security_id)
+    fixtures, left_out = split_fixtures(contracts)
+    if left_out:
+        logger.info("contracts left out of fixtures: subject=%s securities=%s",
+                    contracts[0].proposition.subject, sorted(c.security_id for c in left_out))
+    units = [u for fixture in fixtures for u in _fixture_units(fixture)]
+    return sorted(units, key=lambda u: u.contracts[0].security_id)
+
+
+def _fixture_units(contracts: list[Contract]) -> list[Unit]:
+    readings = canonical_readings([(c.event_id, c.proposition, c.label) for c in contracts])
     contracts = [c if p is c.proposition else dataclasses.replace(c, proposition=p) for c, p in zip(contracts, readings)]
     usable_contracts = [c for c in contracts if usable(c.proposition)]
     groups = _candidate_groups(usable_contracts)
@@ -674,7 +737,7 @@ def derivation_units(contracts: list[Contract]) -> list[Unit]:
             contracts=tuple(sorted(members.values(), key=lambda c: c.security_id)),
             groups=tuple(tuple(sorted(groups[i], key=lambda c: c.security_id)) for i in indexes),
         ))
-    return sorted(units, key=lambda u: u.contracts[0].security_id)
+    return units
 
 
 def derive_unit(unit: Unit) -> list[Derived]:

@@ -10,6 +10,7 @@ from pgvector.psycopg2 import register_vector
 
 from gnomepy.registry.types import ContractType, Currency, Event, EventContract, Listing, Security
 
+from classifier.adapters.types import polymarket_game
 from classifier.propositions.derive import Contract
 from classifier.propositions.inputs import ExtractionInput
 from classifier.propositions.subjects import KnownSubject
@@ -28,6 +29,12 @@ class EventLink(NamedTuple):
     event_id: int
     event_contract_id: int
     outcome_label: str
+
+
+def _game_id(venue: str, game: str | None) -> str | None:
+    if not game or venue == "KALSHI":
+        return game
+    return polymarket_game(game) or game
 
 
 class ClassifierDB:
@@ -675,7 +682,12 @@ class ClassifierDB:
                     "  WHERE o.event_id = ec.event_id AND o.security_id <> p.security_id"
                     "  AND sec.contract_type = 7"
                     "  AND (SELECT count(*) FROM sm.event_contract n WHERE n.event_id = ec.event_id) = 2 LIMIT 1),"
-                    " ec.event_id"
+                    " ec.event_id, e.start_time, ec.outcome_label,"
+                    # The venue's id for the game: Kalshi's event-ticker game segment (26NOV061600HUNTOR), Polymarket's
+                    # event slug (cut to its game below).
+                    " CASE WHEN x.exchange_code = 'KALSHI'"
+                    "  THEN nullif(split_part(cs.source->'event'->>'event_ticker', '-', 2), '')"
+                    "  ELSE cs.source->'event'->>'slug' END"
                     " FROM sm.contract_proposition p"
                     " JOIN sm.security sec ON sec.security_id = p.security_id"
                     " JOIN sm.proposition_subject s ON s.subject_id = p.subject_id"
@@ -687,7 +699,8 @@ class ClassifierDB:
                     (subject_id,),
                 )
                 rows = cur.fetchall()
-                contracts = [Contract(row[0], row[1], Proposition.from_fields(row[2], row[3]), row[5], row[6])
+                contracts = [Contract(row[0], row[1], Proposition.from_fields(row[2], row[3]), row[5], row[6],
+                                      game=_game_id(row[1], row[9]), start=row[7], label=row[8])
                              for row in rows]
                 return contracts, {row[0] for row in rows if row[4]}, read_at
 

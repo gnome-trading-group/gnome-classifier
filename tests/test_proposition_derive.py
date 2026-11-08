@@ -675,3 +675,174 @@ class TestCanonicalKeys:
 def game_winner(entity):
     return Proposition(subject="game:epl:2026-11-07:x", kind=Kind.WINNER, measure="winner", entity=entity,
                        scope="regulation")
+
+
+GAME = "game:cod:2026-11-06:faze-m80"
+KICKOFF = datetime(2026, 11, 6, 21, tzinfo=timezone.utc)
+
+
+def team_wins(entity, subject=GAME, scope="match", **kw):
+    return Proposition(subject=subject, kind=Kind.WINNER, measure="winner", entity=entity, scope=scope, **kw)
+
+
+def listed(sid, venue, p, game, start, event=None, label=None):
+    return Contract(sid, venue, p, event_id=event if event is not None else sid, game=game, start=start, label=label)
+
+
+def pairs(found):
+    return {frozenset((d.security_id_a, d.security_id_b)) for d in found}
+
+
+class TestFixtures:
+    def test_two_matches_of_one_day_never_compare(self):
+        early, late = KICKOFF - timedelta(hours=3, minutes=30), KICKOFF + timedelta(minutes=40)
+        found = derive([
+            listed(1, "POLYMARKET_INTL", team_wins("faze"), "codmw-faz-m80-2026-11-06", early),
+            listed(2, "POLYMARKET_INTL", team_wins("faze"), "codmw-faz-m80-2026-11-06", late),
+            listed(3, "KALSHI", team_wins("faze"), "26NOV061600FAZEM80", KICKOFF),
+        ])
+        assert pairs(found) == {frozenset((2, 3))}
+
+    def test_venues_far_apart_on_one_match_still_compare(self):
+        tennis = "game:atp:2026-11-07:canfel"
+        found = derive([
+            listed(1, "KALSHI", team_wins("caniato", tennis), "26NOV07CANFEL", KICKOFF),
+            listed(2, "POLYMARKET_INTL", team_wins("caniato", tennis), "atp-caniato-feldbau-2026-11-07",
+                   KICKOFF + timedelta(hours=1, minutes=50)),
+        ])
+        assert pairs(found) == {frozenset((1, 2))}
+
+    def test_one_venues_events_starting_together_are_one_game(self):
+        found = derive([
+            listed(1, "HYPERLIQUID", team_wins("faze"), None, KICKOFF, event=10),
+            listed(2, "HYPERLIQUID", team_wins("faze"), None, KICKOFF + timedelta(minutes=10), event=11),
+            listed(3, "KALSHI", team_wins("faze"), "26NOV061600FAZEM80", KICKOFF),
+            listed(4, "KALSHI", team_wins("faze"), "26NOV062000FAZEM80", KICKOFF + timedelta(hours=4)),
+        ])
+        assert frozenset((1, 3)) in pairs(found) and frozenset((2, 3)) in pairs(found)
+        assert not {p for p in pairs(found) if 4 in p}
+
+    def test_a_game_between_two_matches_is_left_out(self):
+        found = derive([
+            listed(1, "KALSHI", team_wins("faze"), "A", KICKOFF),
+            listed(2, "KALSHI", team_wins("faze"), "B", KICKOFF + timedelta(hours=4)),
+            listed(3, "POLYMARKET_INTL", team_wins("faze"), "p", KICKOFF + timedelta(hours=2)),
+        ])
+        assert found == []
+
+    def test_contracts_with_no_start_time_join_the_one_match(self):
+        found = derive([
+            listed(1, "KALSHI", team_wins("faze"), "26NOV061600FAZEM80", None),
+            listed(2, "POLYMARKET_INTL", team_wins("faze"), "codmw-faz-m80-2026-11-06", KICKOFF),
+        ])
+        assert pairs(found) == {frozenset((1, 2))}
+
+    def test_other_subjects_are_never_split(self):
+        a = threshold(GT, 80000, measure="price")
+        b = threshold(GT, 79000, measure="price")
+        found = derive([Contract(1, "KALSHI", a, event_id=1, game="X", start=KICKOFF),
+                        Contract(2, "KALSHI", b, event_id=2, game="Y", start=KICKOFF + timedelta(hours=9))])
+        assert pairs(found) == {frozenset((1, 2))}
+
+
+def game_total(comparator, value, scope="match", start=None, measure="total_points", unit="points", **kw):
+    return Proposition(subject="game:ncaaf:2026-11-07:texmizz", kind=Kind.THRESHOLD, measure=measure,
+                       comparator=comparator, value=value, unit=unit, observation=Observation.CUMULATIVE, scope=scope,
+                       window_start=start, **kw)
+
+
+class TestFullGameReadings:
+    def test_a_window_start_on_a_game_total_is_not_a_period(self):
+        kalshi = game_total(GT, 50.5)
+        llm = game_total(GT, 48.5, start=datetime(2026, 11, 7, 5, tzinfo=timezone.utc))
+        assert relation(kalshi, llm)[0] == "1=>2"
+
+    def test_a_game_reading_naming_no_scope_is_the_whole_game(self):
+        quarter = game_total(GT, 57.5, scope="second_quarter")
+        assert relation(game_total(GT, 57.5, scope=None), game_total(GT, 50.5))[0] == "1=>2"
+        assert relation(game_total(GT, 57.5, scope=None), quarter) is None
+
+    def test_other_subjects_keep_unscoped_readings_unscoped(self):
+        season = threshold(GT, 9.5, measure="wins:texas", observation=Observation.CUMULATIVE, end=None)
+        first_round = threshold(GT, 8.5, measure="wins:texas", observation=Observation.CUMULATIVE, end=None,
+                                scope="first_half")
+        assert relation(season, first_round) is not None
+
+
+TEX = "game:ncaaf:2026-11-07:texmizz"
+
+
+def side_wins(entity, **kw):
+    return Proposition(subject=TEX, kind=Kind.WINNER, measure="winner", entity=entity, scope="match", **kw)
+
+
+def spread(team, comparator, value, **kw):
+    return Proposition(subject=TEX, kind=Kind.THRESHOLD, measure=f"margin:{team}", comparator=comparator, value=value,
+                       unit="points", observation=Observation.CUMULATIVE, scope="match", **kw)
+
+
+class TestTeamNames:
+    def test_keys_listed_under_one_name_are_one_team(self):
+        found = derive([
+            Contract(1, "KALSHI", side_wins("mizz"), event_id=1, label="Missouri"),
+            Contract(2, "KALSHI", side_wins("tex"), event_id=1, label="Texas"),
+            Contract(3, "POLYMARKET_INTL", side_wins("missouri"), event_id=2, label="Missouri"),
+            Contract(4, "KALSHI", spread("mizz", GT, 3.5), event_id=3),
+        ])
+        assert frozenset((1, 3)) in pairs(found)
+        assert frozenset((3, 4)) in pairs(found)
+
+    def test_keys_an_event_lists_as_opponents_stay_apart(self):
+        found = derive([
+            Contract(1, "KALSHI", side_wins("texas-a"), event_id=1, label="Texas"),
+            Contract(2, "KALSHI", side_wins("texas-b"), event_id=1, label="Texas"),
+            Contract(3, "POLYMARKET_INTL", side_wins("texas-b"), event_id=2, label="Texas"),
+        ])
+        assert frozenset((1, 3)) not in pairs(found)
+
+    def test_a_binary_sides_name_is_no_team(self):
+        found = derive([
+            Contract(1, "KALSHI", side_wins("mizz"), event_id=1, label="Yes"),
+            Contract(2, "POLYMARKET_INTL", side_wins("missouri-tigers"), event_id=2, label="Yes"),
+        ])
+        assert found == []
+
+
+class TestOppositeMargins:
+    RIVALS = [Contract(10, "POLYMARKET_INTL", side_wins("texas"), event_id=9),
+              Contract(11, "POLYMARKET_INTL", side_wins("missouri"), event_id=9)]
+
+    def derived(self, a, b):
+        found = derive([Contract(1, "KALSHI", a, event_id=1), Contract(2, "POLYMARKET_US", b, event_id=2), *self.RIVALS])
+        return {(d.security_id_a, d.security_id_b, d.relationship_type, d.evidence["rule"]) for d in found
+                if {d.security_id_a, d.security_id_b} <= {1, 2}}
+
+    def test_one_team_by_more_is_the_other_by_less(self):
+        # Texas by more than 7.5 is Missouri by less than -7.5, which is inside Missouri by less than 3.5.
+        assert self.derived(spread("texas", GT, 7.5), spread("missouri", LT, 3.5)) == {(1, 2, IMPLIES, "opposite_margins")}
+
+    def test_mirrored_lines_are_equivalent(self):
+        assert self.derived(spread("texas", GT, 7.5), spread("missouri", LT, -7.5)) == {(1, 2, EQUIVALENT,
+                                                                                         "opposite_margins")}
+
+    def test_ranges_mirror(self):
+        texas = dataclasses.replace(spread("texas", GT, 0), kind=Kind.RANGE, comparator=None, value=None, low=1, high=7,
+                                    low_inclusive=True, high_inclusive=True)
+        missouri = spread("missouri", LT, 0)
+        assert self.derived(texas, missouri) == {(1, 2, IMPLIES, "opposite_margins")}
+
+    def test_teams_no_event_lists_as_opponents_never_mirror(self):
+        found = derive([Contract(1, "KALSHI", spread("texas", GT, 7.5)),
+                        Contract(2, "POLYMARKET_US", spread("missouri", LT, 3.5))])
+        assert found == []
+
+    def test_a_margin_below_zero_implies_the_opponent_wins(self):
+        found = derive([Contract(1, "KALSHI", spread("texas", LT, -3.5), event_id=1), *self.RIVALS])
+        assert (1, 11, IMPLIES, "margin_implies_winner") in {
+            (d.security_id_a, d.security_id_b, d.relationship_type, d.evidence["rule"]) for d in found}
+
+    def test_a_draw_is_no_opponent(self):
+        rivals = [Contract(10, "POLYMARKET_INTL", side_wins("texas"), event_id=9),
+                  Contract(11, "POLYMARKET_INTL", side_wins("draw"), event_id=9)]
+        found = derive([Contract(1, "KALSHI", spread("texas", LT, -3.5), event_id=1), *rivals])
+        assert not [d for d in found if {d.security_id_a, d.security_id_b} == {1, 11}]
