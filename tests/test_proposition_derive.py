@@ -846,3 +846,59 @@ class TestOppositeMargins:
                   Contract(11, "POLYMARKET_INTL", side_wins("draw"), event_id=9)]
         found = derive([Contract(1, "KALSHI", spread("texas", LT, -3.5), event_id=1), *rivals])
         assert not [d for d in found if {d.security_id_a, d.security_id_b} == {1, 11}]
+
+
+CS2 = "game:cs2:2026-11-04:lowchama-1400"
+
+
+def map_wins(entity, scope="map:1", **kw):
+    return Proposition(subject=CS2, kind=Kind.WINNER, measure="winner", entity=entity, scope=scope, **kw)
+
+
+class TestTwoTeamContests:
+    """Kalshi lists a CS2 map as one event with both teams' markets; Polymarket US as one market per team, "BORRACHEIROS
+    wins map 1", whose No side is BORRACHEIROS not winning it."""
+
+    def derived(self, *contracts):
+        return {(d.security_id_a, d.security_id_b, d.relationship_type) for d in derive(list(contracts))}
+
+    def kalshi_map(self, scope="map:1", size=2):
+        return [Contract(1, "KALSHI", map_wins("low", scope), event_id=1, event_size=size),
+                Contract(2, "KALSHI", map_wins("chama", scope), event_id=1, event_size=size)]
+
+    def test_one_team_not_winning_is_the_other_winning(self):
+        no_side = Contract(3, "POLYMARKET_US", map_wins("chama", negated=True), event_id=2, event_size=2)
+        assert (1, 3, EQUIVALENT) in self.derived(*self.kalshi_map(), no_side)
+
+    def test_not_where_an_outcome_of_the_event_is_missing(self):
+        # A third outcome (a Draw market) the unit doesn't hold: the two listed teams needn't cover every result.
+        no_side = Contract(3, "POLYMARKET_US", map_wins("chama", negated=True), event_id=2, event_size=2)
+        assert (1, 3, EQUIVALENT) not in self.derived(*self.kalshi_map(size=3), no_side)
+
+    def test_not_where_the_event_lists_a_draw(self):
+        contracts = [Contract(1, "KALSHI", map_wins("low"), event_id=1, event_size=3),
+                     Contract(2, "KALSHI", map_wins("chama"), event_id=1, event_size=3),
+                     Contract(4, "KALSHI", map_wins("tie"), event_id=1, event_size=3),
+                     Contract(3, "POLYMARKET_US", map_wins("chama", negated=True), event_id=2, event_size=2)]
+        assert (1, 3, EQUIVALENT) not in self.derived(*contracts)
+
+    def test_not_at_another_scope(self):
+        no_side = Contract(3, "POLYMARKET_US", map_wins("chama", "map:2", negated=True), event_id=2, event_size=2)
+        assert not {r for r in self.derived(*self.kalshi_map(), no_side) if 3 in r[:2]}
+
+    def test_two_teams_not_winning_say_nothing_of_each_other(self):
+        contracts = [*self.kalshi_map(),
+                     Contract(3, "POLYMARKET_US", map_wins("chama", negated=True), event_id=2, event_size=2),
+                     Contract(4, "POLYMARKET_US", map_wins("low", negated=True), event_id=3, event_size=2)]
+        assert not {r for r in self.derived(*contracts) if {r[0], r[1]} == {3, 4}}
+
+    def test_only_in_games(self):
+        election = "election:2026-11-03:us-senate-tx"
+        found = self.derived(
+            Contract(1, "KALSHI", Proposition(subject=election, kind=Kind.WINNER, measure="winner", entity="allred"),
+                     event_id=1, event_size=2),
+            Contract(2, "KALSHI", Proposition(subject=election, kind=Kind.WINNER, measure="winner", entity="cruz"),
+                     event_id=1, event_size=2),
+            Contract(3, "POLYMARKET_US", Proposition(subject=election, kind=Kind.WINNER, measure="winner",
+                                                     entity="cruz", negated=True), event_id=2, event_size=2))
+        assert (1, 3, EQUIVALENT) not in found

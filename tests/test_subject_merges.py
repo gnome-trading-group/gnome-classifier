@@ -14,13 +14,14 @@ from classifier.propositions.merges import (
     SubjectMergeJudge,
     SubjectProfile,
     Verdict,
-    align,
     candidate_pairs,
     check_merge,
     key_tokens,
+    merge_aliases,
     parse_answer,
     profile,
 )
+from classifier.propositions.canonical import apply_stored
 from classifier.propositions.derive import Contract
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition
 
@@ -246,7 +247,8 @@ class TestCheckMerge:
         assert check.new_collisions == {20: frozenset({2, 3})}
 
 
-def test_aligning_a_merged_score_renames_both_sides():
+def test_a_merged_scores_sides_are_read_through_its_aliases():
     score = Proposition(subject="game:ucl:2026-11-04:aek1-rma", kind=Kind.SCORE, scores=(("aek1", 0), ("rma", 1)),
                         unit="goals", scope="regulation")
-    assert align(score, {"aek1": "aek"}, {}).scores == (("aek", 0), ("rma", 1))
+    (read,), _ = apply_stored([(None, score, None)], merge_aliases(Judgment(Verdict.SAME, "", (("aek", "aek1"),))))
+    assert read[1].scores == (("aek", 0), ("rma", 1))

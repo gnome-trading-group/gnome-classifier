@@ -2,8 +2,10 @@ import dataclasses
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+from classifier.propositions.canonical import StoredAlias
 from classifier.propositions.derive import Contract
 from classifier.propositions.merges import Judgment, SubjectProfile, Verdict
+from classifier.propositions.scope import LLMScope
 from classifier.propositions.quotes import (
     ListingRef,
     Quote,
@@ -32,6 +34,10 @@ class FakeDB:
         self.clock = datetime(2026, 11, 3, 12, 0)
         self.changed_at = {}
         self.neighbour_lookups = []
+        # {subject_id: (category, tags)} of its events; unlisted subjects are OTHER with no tags.
+        self.labels = {}
+        # {subject_id: [StoredAlias]}
+        self.key_aliases = {}
 
     def subject_clock(self):
         return self.clock
@@ -49,6 +55,10 @@ class FakeDB:
                         self.changed_at.get(key, datetime(2026, 11, 1))))
         return out
 
+    def subjects_in_scope(self, categories, tags):
+        scope = LLMScope.of(categories, tags)
+        return {i for i, _, _ in self.subjects.values() if scope.includes(*self.labels.get(i, ("OTHER", ())))}
+
     def subject_neighbours(self, subject_ids, limit, min_similarity):
         self.neighbour_lookups.append(sorted(subject_ids))
         return {i: ns for i, ns in self.neighbours.items() if i in subject_ids}
@@ -63,15 +73,13 @@ class FakeDB:
     def get_active_listings_for_securities(self, security_ids):
         return [(sid, sid, 1, f"m{sid}") for sid in security_ids]
 
-    def propositions_extracted_under(self, subject_id):
-        key = self._id(subject_id)
-        return [(c.security_id, subject_id, key, c.proposition.to_fields(), "LLM", "p6", "h")
-                for c in self.subjects[key][1]]
+    def get_subject_key_aliases(self, subject_id):
+        return list(self.key_aliases.get(subject_id, ()))
 
 
 class FakeRegistry:
     def __init__(self, decided=(), unmerged=()):
-        self.merges, self.queued, self.upserted = [], [], []
+        self.merges, self.queued, self.aliases = [], [], []
         self.decided = decided
         self.unmerged = unmerged
 
@@ -86,9 +94,11 @@ class FakeRegistry:
 
     def merge_proposition_subjects(self, *, from_subject_id, into_subject_id, actor):
         self.merges.append((from_subject_id, into_subject_id, actor))
+        return {"alias_subject_id": from_subject_id, "canonical_subject_id": into_subject_id, "merge_log_id": 900 + len(self.merges)}
 
-    def upsert_contract_propositions(self, rows):
-        self.upserted.extend(rows)
+    def change_subject_key_aliases(self, *, subject_id, actor, set=None, remove=None):
+        self.aliases.append((subject_id, actor, set or [], remove or []))
+        return []
 
 
 class FakeJudge:
@@ -104,7 +114,11 @@ class FakeJudge:
 class Memory:
     def __init__(self):
         self.rows = {}
-        self.sweep = None
+        self.sweeps = {}
+
+    @property
+    def sweep(self):
+        return self.sweeps.get("*")
 
     def recall(self, pairs):
         return {p: self.rows[p] for p in pairs if p in self.rows}
@@ -112,11 +126,11 @@ class Memory:
     def remember(self, pair, remembered):
         self.rows[pair] = remembered
 
-    def last_sweep(self):
-        return self.sweep
+    def last_sweep(self, scope):
+        return self.sweeps.get(scope)
 
-    def set_last_sweep(self, at):
-        self.sweep = at
+    def set_last_sweep(self, at, scope):
+        self.sweeps[scope] = at
 
 
 GA = "georgia-governor-2026"
@@ -131,19 +145,28 @@ def governor_db(volume=50_000.0):
     })
 
 
-def run(db, registry, judge, memory=None, auto_merge=True, quotes=lambda refs: {}, judge_limit=100):
+def run(db, registry, judge, memory=None, auto_merge=True, quotes=lambda refs: {}, judge_limit=100,
+        scope=LLMScope()):
     return run_merge_pass(db=db, registry=registry, judge=judge, memory=memory or Memory(), auto_merge=auto_merge,
-                          min_volume=10_000, judge_limit=judge_limit, max_price_gap=0.15, quotes=quotes)
+                          min_volume=10_000, judge_limit=judge_limit, max_price_gap=0.15, quotes=quotes, scope=scope)
 
 
 class TestMergePass:
-    def test_merges_into_the_bigger_subject_and_aligns_its_keys(self):
+    def test_merges_into_the_bigger_subject_and_stores_the_judges_keys_as_its_aliases(self):
         registry = FakeRegistry()
         result = run(governor_db(), registry, FakeJudge({(GA_SHORT, GA): SAME}))
         assert registry.merges == [(2, 1, MERGE_ACTOR)]
-        assert [(r["security_id"], r["fields"]["entity"], r["extracted_subject_id"]) for r in registry.upserted] == [
-            (21, "republican", 2)]
-        assert (result.merged, result.relationships_added, result.keys_aligned) == (1, 1, 1)
+        assert registry.aliases == [(1, MERGE_ACTOR, [
+            {"kind": "ENTITY", "key": "rep", "canonical_key": "republican", "flags": [], "origin": "MERGE",
+             "merge_log_id": 901, "reason": "same election"}], [])]
+        assert (result.merged, result.relationships_added, result.keys_aliased) == (1, 1, 1)
+
+    def test_a_merges_alias_points_at_what_the_kept_subjects_key_already_stands_for(self):
+        db, registry = governor_db(), FakeRegistry()
+        db.key_aliases[1] = [StoredAlias("ENTITY", "republican", "gop")]
+        db.subjects[GA][1][0] = winner(11, GA, "gop", "KALSHI", 10)
+        run(db, registry, FakeJudge({(GA_SHORT, GA): SAME}))
+        assert [(a["key"], a["canonical_key"]) for a in registry.aliases[0][2]] == [("rep", "gop")]
 
     def test_only_logs_while_auto_merge_is_off(self):
         registry = FakeRegistry()
@@ -272,6 +295,28 @@ class TestMergePass:
         judge = FakeJudge({})
         run(governor_db(), FakeRegistry(decided=[(2, 1)]), judge)
         assert judge.asked == []
+
+    def test_judges_a_pair_with_one_subject_in_scope(self):
+        db, judge = governor_db(), FakeJudge({(GA_SHORT, GA): SAME})
+        db.labels = {1: ("POLITICS", ("elections",))}
+        result = run(db, FakeRegistry(), judge, auto_merge=False, scope=LLMScope.of(["politics"]))
+        assert judge.asked == [(GA_SHORT, GA)] and result.outside_scope == 1
+        assert db.neighbour_lookups == [[1]]
+
+    def test_leaves_pairs_outside_the_scope_unjudged(self):
+        db, judge, memory = governor_db(), FakeJudge({}), Memory()
+        result = run(db, FakeRegistry(), judge, memory, scope=LLMScope.of(tags=["nfl"]))
+        assert judge.asked == [] and result.outside_scope == 2 and db.neighbour_lookups == [[]]
+        assert memory.sweeps == {LLMScope.of(tags=["nfl"]).fingerprint(): db.clock}
+
+    def test_a_new_scope_sweeps_its_subjects_again(self):
+        db, memory = governor_db(), Memory()
+        db.labels = {1: ("POLITICS", ()), 2: ("POLITICS", ())}
+        judge = FakeJudge({(GA_SHORT, GA): SAME})
+        run(db, FakeRegistry(), judge, memory, auto_merge=False, scope=LLMScope.of(tags=["nfl"]))
+        db.clock += timedelta(hours=3)
+        run(db, FakeRegistry(), judge, memory, auto_merge=False, scope=LLMScope.of(["POLITICS"]))
+        assert db.neighbour_lookups[-1] == [1, 2] and judge.asked == [(GA_SHORT, GA)]
 
     def test_quiet_subjects_are_left_alone(self):
         judge = FakeJudge({})

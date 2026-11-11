@@ -14,6 +14,7 @@ from classifier.propositions.attempts import (
     RedisAttemptStore,
     wait_seconds,
 )
+from classifier.propositions.scope import LLMScope
 from classifier.propositions.types import EXTRACTOR_VERSION, Kind, Proposition
 from classifier.stages import propositions as stage
 from classifier.stages.propositions import read_backlog, read_propositions
@@ -52,6 +53,11 @@ def load_multi(stub_registry, stub_db, event) -> dict[str, int]:
     create_entities(stub_registry, None, contracts, db=stub_db)
     by_ticker = {src["source"]["market"]["ticker"]: sid for sid, src in stub_registry._contract_sources.items()}
     return {c.exchange_security_id: by_ticker[c.exchange_security_id] for c in contracts}
+
+
+def label(stub_registry, category, tags=()):
+    for event in stub_registry._events:
+        event.category, event.tags = category, list(tags)
 
 
 def reread(stub_registry, sid, **changes):
@@ -105,9 +111,9 @@ class TestBackoff:
     def setup_method(self):
         self.store = InMemoryAttemptStore()
 
-    def read(self, stub_registry, stub_db, sids, extractor):
+    def read(self, stub_registry, stub_db, sids, extractor, scope=LLMScope()):
         return read_propositions(sids, db=stub_db, registry=stub_registry, extractor=extractor, embed=embed,
-                                 attempts=self.store)
+                                 attempts=self.store, scope=scope)
 
     def test_a_failed_read_waits_longer_each_time_then_weekly(self, stub_registry, stub_db):
         sids = sorted(load_multi(stub_registry, stub_db, mention_event(("AI",))).values())
@@ -171,6 +177,45 @@ class TestBackoff:
         monkeypatch.setattr(stage, "READERS_VERSION", "changed")
         result = self.read(stub_registry, stub_db, sids, None)
         assert (result.backing_off, result.parked) == (0, 1)
+
+    def test_securities_outside_the_scope_wait_without_asking_the_llm(self, stub_registry, stub_db):
+        sids = sorted(load_multi(stub_registry, stub_db, mention_event(("AI",))).values())
+        label(stub_registry, "POLITICS", ("trump",))
+        llm, sports = AnswersEverything(), LLMScope.of(["SPORTS"], ["nfl"])
+        assert self.read(stub_registry, stub_db, sids, llm, sports).parked == 1
+        assert self.read(stub_registry, stub_db, sids, llm, sports).backing_off == 1
+        assert llm.asked == []
+
+    def test_a_tag_brings_an_event_into_scope_whatever_its_category(self, stub_registry, stub_db):
+        sids = sorted(load_multi(stub_registry, stub_db, mention_event(("AI",))).values())
+        label(stub_registry, "POLITICS", ("trump",))
+        assert self.read(stub_registry, stub_db, sids, AnswersEverything(), LLMScope.of(["SPORTS"], ["Trump"])).read == 1
+
+    def test_parked_securities_are_read_when_the_scope_takes_them_in(self, stub_registry, stub_db):
+        sids = sorted(load_multi(stub_registry, stub_db, mention_event(("AI",))).values())
+        label(stub_registry, "POLITICS")
+        self.read(stub_registry, stub_db, sids, AnswersEverything(), LLMScope.of(["SPORTS"]))
+        result, _ = read_backlog(db=stub_db, registry=stub_registry, extractor=AnswersEverything(), embed=embed,
+                                 limit=10, attempts=self.store, scope=LLMScope.of(["SPORTS", "POLITICS"]))
+        assert result.read == 1 and self.store.get_many(sids) == {}
+
+    def test_securities_parked_while_the_llm_was_off_are_read_in_scope(self, stub_registry, stub_db):
+        sids = sorted(load_multi(stub_registry, stub_db, mention_event(("AI",))).values())
+        label(stub_registry, "POLITICS")
+        self.read(stub_registry, stub_db, sids, None)
+        llm = AnswersEverything()
+        assert self.read(stub_registry, stub_db, sids, llm, LLMScope.of(["SPORTS"])).parked == 1
+        assert llm.asked == []
+        assert self.read(stub_registry, stub_db, sids, llm, LLMScope.of(["POLITICS"])).read == 1
+
+    def test_a_reader_that_falls_back_outside_the_scope_records_nothing(self, stub_registry, stub_db):
+        event = btc_ladder((70000,))
+        event["markets"][0]["rules_primary"] = "Reworded: the market resolves to Yes on a BRTI above 69,999.99."
+        sids = sorted(load(stub_registry, stub_db, event).values())
+        llm = AnswersEverything()
+        result = self.read(stub_registry, stub_db, sids, llm, LLMScope.of(["SPORTS"]))
+        assert (result.read, result.parked, llm.asked) == (0, 0, [])
+        assert self.store.get_many(sids) == {}
 
 
 @pytest.mark.skipif(not os.environ.get("REDIS_TEST_URL"), reason="needs REDIS_TEST_URL (a throwaway Redis)")

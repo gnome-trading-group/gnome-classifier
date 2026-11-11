@@ -16,6 +16,7 @@ from classifier.propositions.derive import (
 )
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
 from classifier.propositions.venue import claims, correct_venue, extract_venue
+from classifier.propositions.venue.common import names_team
 
 # Sources as the Polymarket adapters build them, from the live venues (2026-10-29).
 SOURCES = json.loads((Path(__file__).parent / "fixtures/relationships/polymarket_crypto_sources.json").read_text())
@@ -442,6 +443,91 @@ class TestPolymarketIntlSpreads:
     def test_other_markets_are_left_alone(self):
         source = {**self.source("Rams"), "market": {**self.source("Rams")["market"], "sportsMarketType": "moneyline"}}
         assert correct_venue(source, self.winner("rams")) == self.winner("rams")
+
+
+class TestTeamNames:
+    def test_an_accented_letter_does_not_split_a_word(self):
+        # "Varaždin" once read as the words `vara` and `din`, so `din` named Varaždin surely.
+        assert names_team("NK Varaždin", None, "din") == 0
+        assert names_team("NK Varaždin", None, "varazdin") == 2
+
+    def test_the_start_of_a_later_word(self):
+        assert names_team("GNK Dinamo Zagreb", None, "din") == 2
+        assert names_team("IF Elfsborg", None, "elf") == 2
+        assert names_team("Carlos Alcaraz", None, "alc") == 2
+
+    def test_two_letters_of_a_later_word_are_not_enough(self):
+        assert names_team("GNK Dinamo Zagreb", None, "za") == 0
+
+    def test_accents_in_the_name_and_the_key(self):
+        assert names_team("QUINTESSÊNCIA", None, "quintessencia") == 2
+        assert names_team("Bodø/Glimt", None, "bodo") == 2
+
+
+class TestPolymarketIntlSpreadsByName:
+    RULES = ('This market will resolve to "GNK Dinamo Zagreb" if GNK Dinamo Zagreb win the game by 2 or more goals. '
+             'Otherwise, this market will resolve to "NK Varaždin".')
+
+    def correct(self, outcome, reading):
+        source = {"venue": "POLYMARKET_INTL", "outcome": outcome, "event": {},
+                  "market": {"question": "Spread: GNK Dinamo Zagreb (-1.5)", "sportsMarketType": "spreads",
+                             "outcomes": '["GNK Dinamo Zagreb", "NK Varaždin"]', "description": self.RULES}}
+        return correct_venue(source, reading)
+
+    def margin(self, comparator, value):
+        return Proposition(subject="game:hnl:2026-11-08:vardin", kind=Kind.THRESHOLD, measure="margin:din",
+                           comparator=comparator, value=value, unit="goals", observation=Observation.CUMULATIVE,
+                           scope="regulation")
+
+    def test_a_key_starting_a_later_word_puts_a_wrong_side_right(self):
+        # The model read Dinamo covering as `din` losing by 2 or more: in the rules' form for the other team, but `din`
+        # is Dinamo.
+        fixed = self.correct("GNK Dinamo Zagreb", self.margin(Comparator.LTE, -2))
+        assert (fixed.measure, fixed.comparator, fixed.value) == ("margin:din", Comparator.GTE, 2)
+        fixed = self.correct("NK Varaždin", self.margin(Comparator.GT, -2))
+        assert (fixed.measure, fixed.comparator, fixed.value) == ("margin:din", Comparator.LT, 2)
+
+
+class TestPolymarketIntlPartSpreads:
+    """`1H Spread: Lions (-2.5)` resolves to the Lions if they outscore the Dolphins by 3 or more points in the first
+    half, otherwise to the Dolphins."""
+
+    def source(self, outcome, family="first_half_spreads", part="first half", short="1H"):
+        rules = (f'This market will resolve to "Lions" if the Lions outscore the Dolphins by 3 or more points in the '
+                 f'{part}. Otherwise, this market will resolve to "Dolphins".')
+        return {"venue": "POLYMARKET_INTL", "outcome": outcome, "event": {},
+                "market": {"question": f"{short} Spread: Lions (-2.5)", "sportsMarketType": family,
+                           "outcomes": '["Lions", "Dolphins"]', "description": rules}}
+
+    def reading(self, **fields):
+        base = dict(subject="game:nfl:2026-11-08:detmia", kind=Kind.THRESHOLD, unit="points",
+                    observation=Observation.CUMULATIVE, scope="first_half")
+        return Proposition(**{**base, **fields})
+
+    def test_the_models_measure_becomes_the_margin_scoped_to_the_half(self):
+        fixed = correct_venue(self.source("Lions"), self.reading(measure="margin_1h:det", comparator=Comparator.GTE,
+                                                                 value=3))
+        assert (fixed.measure, fixed.comparator, fixed.value, fixed.scope) == (
+            "margin:det", Comparator.GTE, 3, "first_half")
+
+    def test_the_other_outcome(self):
+        fixed = correct_venue(self.source("Dolphins"), self.reading(measure="margin_1h:det", comparator=Comparator.LT,
+                                                                    value=3))
+        assert (fixed.measure, fixed.comparator, fixed.value) == ("margin:det", Comparator.LT, 3)
+
+    def test_quarters_and_the_second_half(self):
+        for family, part, short, scope in (("q1_spreads", "first quarter", "1Q", "first_quarter"),
+                                           ("second_half_spreads", "second half", "2H", "second_half"),
+                                           ("q4_spreads", "fourth quarter", "4Q", "fourth_quarter")):
+            fixed = correct_venue(self.source("Lions", family, part, short),
+                                  self.reading(measure="margin:lions", comparator=Comparator.GTE, value=3, scope=None))
+            assert (fixed.measure, fixed.scope) == ("margin:lions", scope)
+
+    def test_a_spread_misread_as_the_halfs_winner_the_name_does_not_place_is_left_unknown(self):
+        # "Lions" doesn't name `det`, so it can't be put on a side; as the half's winner it would equal Kalshi's.
+        fixed = correct_venue(self.source("Lions"), self.reading(kind=Kind.WINNER, measure="winner", entity="det",
+                                                                 unit=None, observation=None))
+        assert "measure" in fixed.unknown
 
 
 class TestPolymarketIntlMapWinners:

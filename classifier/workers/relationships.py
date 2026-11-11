@@ -10,8 +10,10 @@ from classifier.client.claude import ClaudeAsker
 from classifier.constants import DEFAULT_VOYAGE_EMBEDDING_MODEL
 from classifier.propositions.attempts import RedisAttemptStore
 from classifier.propositions.llm import PropositionExtractor
+from classifier.propositions.key_reconcile import KeyJudge
 from classifier.propositions.merges import SubjectMergeJudge
 from classifier.propositions.quotes import hyperliquid_mids
+from classifier.propositions.scope import LLMScope
 from classifier.propositions.venue import READERS_VERSION
 from classifier.stages.propositions import (
     READERS_VERSION_KEY,
@@ -23,6 +25,7 @@ from classifier.stages.propositions import (
     rederive_on_new_version,
     run_drift_check,
 )
+from classifier.stages.key_reconcile import RedisSlotMemory, run_key_reconcile
 from classifier.stages.subject_merges import RedisMergeMemory, run_merge_pass
 from classifier.workers.base import BaseWorker, message_body, parse_security_messages
 from classifier.workers.config import WorkerConfig, claude_client, init_db, init_registry, init_runtime_config, init_voyage
@@ -56,6 +59,7 @@ class RelationshipsWorker(BaseWorker):
         self._last_drift_check = 0.0
         self._last_merge_pass = 0.0
         self._merge_memory = None
+        self._slot_memory = None
         self._backlog_after = 0
         self._markers = None
         # Where the walk re-checking the code readers' reads is, or None when this READERS_VERSION already walked.
@@ -71,6 +75,7 @@ class RelationshipsWorker(BaseWorker):
         self._sns = boto3.client("sns")
         self._attempts = RedisAttemptStore(os.environ["REDIS_ENDPOINT"])
         self._merge_memory = RedisMergeMemory(os.environ["REDIS_ENDPOINT"])
+        self._slot_memory = RedisSlotMemory(os.environ["REDIS_ENDPOINT"])
         self._markers = redis_lib.Redis.from_url(os.environ["REDIS_ENDPOINT"], decode_responses=True)
         rederive_on_new_version(self._db, self._markers)
         if self._markers.get(READERS_VERSION_KEY) != READERS_VERSION:
@@ -87,6 +92,10 @@ class RelationshipsWorker(BaseWorker):
             return None
         return PropositionExtractor(self._client_for, cfg.models.providers(), cfg.models.proposition_models)
 
+    def _scope(self) -> LLMScope:
+        scope = self._runtime_config.config.relationship_scope
+        return LLMScope.of(scope.categories, scope.tags)
+
     def _current_prices(self) -> dict[str, float]:
         """Hyperliquid's perp mids for the touch reader, read at most every PRICES_MAX_AGE_SECONDS: a touch's
         direction only needs which side of the target the price is on."""
@@ -99,7 +108,7 @@ class RelationshipsWorker(BaseWorker):
         result, self._backlog_after = read_backlog(
             db=self._db, registry=self._registry, extractor=self._extractor(), embed=self._embed,
             limit=self._runtime_config.config.processing.relationships_backlog_limit, after=self._backlog_after,
-            attempts=self._attempts, prices=prices,
+            attempts=self._attempts, prices=prices, scope=self._scope(),
         )
         return result
 
@@ -134,7 +143,7 @@ class RelationshipsWorker(BaseWorker):
             prices = self._current_prices()
             result = read_propositions(security_ids, db=self._db, registry=self._registry,
                                        extractor=self._extractor(), embed=self._embed, attempts=self._attempts,
-                                       prices=prices)
+                                       prices=prices, scope=self._scope())
             result.add(self._read_backlog(prices))
             result.add(self._recheck_readers(prices))
             derive_due_subjects(db=self._db, registry=self._registry,
@@ -173,23 +182,33 @@ class RelationshipsWorker(BaseWorker):
         self._maybe_merge_subjects()
 
     def _maybe_merge_subjects(self) -> None:
-        """The subject merge pass, at most every `subject_merge_interval_seconds` and only while idle: it judges up to
-        `subject_merge_judge_limit` pairs, minutes of model calls a message batch shouldn't wait behind."""
+        """The subject merge pass, then the key reconcile pass (keys one subject spells two ways, the merges included),
+        at most every `subject_merge_interval_seconds` and only while idle: each judges up to its judge limit, minutes of
+        model calls a message batch shouldn't wait behind."""
         cfg = self._runtime_config.config
-        if not cfg.feature_flags.subject_merge_enabled:
+        flags = cfg.feature_flags
+        if not flags.subject_merge_enabled and not flags.key_reconcile_enabled:
             return
         now = time.monotonic()
         if self._last_merge_pass and now - self._last_merge_pass < cfg.worker_params.subject_merge_interval_seconds:
             return
         self._last_merge_pass = now
-        judge = SubjectMergeJudge(ClaudeAsker(self._client_for, cfg.models.providers(), cfg.models.subject_merge_models))
-        result = run_merge_pass(
-            db=self._db, registry=self._registry, judge=judge, memory=self._merge_memory,
-            auto_merge=cfg.feature_flags.subject_auto_merge_enabled,
-            min_volume=cfg.processing.subject_merge_min_volume, judge_limit=cfg.processing.subject_merge_judge_limit,
-            max_price_gap=cfg.processing.subject_merge_max_price_gap,
-        )
-        logger.info("Subject merge pass: %s", result)
+        asker = ClaudeAsker(self._client_for, cfg.models.providers(), cfg.models.subject_merge_models)
+        if flags.subject_merge_enabled:
+            result = run_merge_pass(
+                db=self._db, registry=self._registry, judge=SubjectMergeJudge(asker), memory=self._merge_memory,
+                auto_merge=flags.subject_auto_merge_enabled,
+                min_volume=cfg.processing.subject_merge_min_volume, judge_limit=cfg.processing.subject_merge_judge_limit,
+                max_price_gap=cfg.processing.subject_merge_max_price_gap, scope=self._scope(),
+            )
+            logger.info("Subject merge pass: %s", result)
+        if flags.key_reconcile_enabled:
+            reconciled = run_key_reconcile(
+                db=self._db, registry=self._registry, judge=KeyJudge(asker), memory=self._slot_memory,
+                judge_limit=cfg.processing.key_reconcile_judge_limit,
+                max_price_gap=cfg.processing.subject_merge_max_price_gap, scope=self._scope(),
+            )
+            logger.info("Key reconcile pass: %s", reconciled)
 
     def _maybe_check_drift(self) -> None:
         cfg = self._runtime_config.config

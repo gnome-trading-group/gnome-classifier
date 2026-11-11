@@ -18,18 +18,26 @@ import dataclasses
 import logging
 import math
 import re
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from itertools import combinations
 
 from gnomepy.registry.relations import Edge, close, reduce
 
-from classifier.propositions.canonical import GAME_SUBJECT_PREFIX, NOT_TEAMS, canonical_readings, round_scope
+from classifier.propositions.canonical import (
+    GAME_SUBJECT_PREFIX,
+    NOT_TEAMS,
+    StoredAlias,
+    apply_stored,
+    canonical_readings,
+    round_scope,
+)
 from classifier.propositions.fixtures import split_fixtures
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
 
 logger = logging.getLogger(__name__)
 
-DERIVATION_VERSION = "d12"
+DERIVATION_VERSION = "d13"
 
 EQUIVALENT = "EQUIVALENT"
 IMPLIES = "IMPLIES"
@@ -103,6 +111,10 @@ class Contract:
     start: datetime | None = None
     # The outcome's name as the venue lists it ("Missouri"), which ties a team's keys together across venues.
     label: str | None = None
+    # How many contracts its event lists, read or not: whether every outcome of the event is in hand.
+    event_size: int | None = None
+    # Flags of the subject's stored key aliases its reading went through (PARTY_NOMINEE), carried onto its relationships.
+    alias_flags: tuple[str, ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -387,7 +399,8 @@ def _contest_deadline_flags(a: Proposition, b: Proposition) -> list[str]:
     return []
 
 
-def _winners(a: Proposition, b: Proposition, rivals: frozenset[frozenset[str]]) -> tuple[str, str, list[str]] | None:
+def _winners(a: Proposition, b: Proposition, rivals: frozenset[frozenset[str]],
+             two_team: frozenset[tuple[frozenset[str], str]] = frozenset()) -> tuple[str, str, list[str]] | None:
     if a.measure != b.measure or not _scope_matches(a, b):
         return None
     timing = _winner_timing(a, b)
@@ -409,6 +422,9 @@ def _winners(a: Proposition, b: Proposition, rivals: frozenset[frozenset[str]]) 
     # itself.
     if how != "same" or a.observation == Observation.ANY_TIME:
         return None
+    # Where one of two teams must win, one not winning is the other winning.
+    if a.negated != b.negated and (frozenset((a.entity, b.entity)), a.scope) in two_team:
+        return "y", "y", flags
     if not _EXCLUSIVE_WINNER_MEASURE.match(a.measure) or frozenset((a.entity, b.entity)) not in rivals:
         return None
     if not a.negated and b.negated:
@@ -468,7 +484,8 @@ def _team_total_implies_total(team: Proposition, total: Proposition) -> bool:
 
 
 def _relate(a: Proposition, b: Proposition, rivals: frozenset[frozenset[str]] = frozenset(),
-            same_venue: bool = False) -> tuple[str, str, list[str], str] | None:
+            same_venue: bool = False, two_team: frozenset[tuple[frozenset[str], str]] = frozenset(),
+            ) -> tuple[str, str, list[str], str] | None:
     """(a ⇒ b, b ⇒ a, flags, rule) or None when the rules say nothing."""
     if a.kind in (Kind.THRESHOLD, Kind.RANGE) and b.kind in (Kind.THRESHOLD, Kind.RANGE):
         found = _values(a, b)
@@ -486,7 +503,7 @@ def _relate(a: Proposition, b: Proposition, rivals: frozenset[frozenset[str]] = 
         found = _deadlines(a, b, same_venue)
         return None if found is None else (*found, "deadlines")
     if a.kind == b.kind == Kind.WINNER:
-        found = _winners(a, b, rivals)
+        found = _winners(a, b, rivals, two_team)
         return None if found is None else (*found, "winners")
     if a.kind == Kind.SCORE or b.kind == Kind.SCORE:
         found = _scores(a, b) if a.kind == Kind.SCORE else _flipped(_scores(b, a))
@@ -621,12 +638,14 @@ def _evidence(rule: str, a: Proposition, b: Proposition) -> dict:
     return {"rule": rule, "version": DERIVATION_VERSION, "a": pick(a), "b": pick(b)}
 
 
-def _relate_pair(a: Contract, b: Contract, rivals: frozenset[frozenset[str]]) -> Derived | None:
-    found = _relate(a.proposition, b.proposition, rivals, same_venue=a.venue == b.venue)
+def _relate_pair(a: Contract, b: Contract, rivals: frozenset[frozenset[str]],
+                 two_team: frozenset[tuple[frozenset[str], str]] = frozenset()) -> Derived | None:
+    found = _relate(a.proposition, b.proposition, rivals, same_venue=a.venue == b.venue, two_team=two_team)
     if found is None:
         return None
     forward, backward, flags, rule = found
-    all_flags = tuple(sorted(set(flags + _source_flags(a, b) + _void_flags(a, b))))
+    all_flags = tuple(sorted(
+        set(flags + _source_flags(a, b) + _void_flags(a, b)) | set(a.alias_flags) | set(b.alias_flags)))
     if forward == backward == "y":
         return Derived(a.security_id, b.security_id, EQUIVALENT, all_flags, _evidence(rule, a.proposition, b.proposition))
     if forward == "y":
@@ -695,21 +714,25 @@ class Unit:
     groups: tuple[tuple[Contract, ...], ...]
 
 
-def derivation_units(contracts: list[Contract]) -> list[Unit]:
-    """One subject's derivation units; in a game subject, units never span two fixtures."""
+def derivation_units(contracts: list[Contract], aliases: Iterable[StoredAlias] = ()) -> list[Unit]:
+    """One subject's derivation units, read with its stored key aliases; in a game subject, units never span two
+    fixtures."""
+    aliases = tuple(aliases)
     if not contracts or not contracts[0].proposition.subject.startswith(GAME_SUBJECT_PREFIX):
-        return sorted(_fixture_units(contracts), key=lambda u: u.contracts[0].security_id)
+        return sorted(_fixture_units(contracts, aliases), key=lambda u: u.contracts[0].security_id)
     fixtures, left_out = split_fixtures(contracts)
     if left_out:
         logger.info("contracts left out of fixtures: subject=%s securities=%s",
                     contracts[0].proposition.subject, sorted(c.security_id for c in left_out))
-    units = [u for fixture in fixtures for u in _fixture_units(fixture)]
+    units = [u for fixture in fixtures for u in _fixture_units(fixture, aliases)]
     return sorted(units, key=lambda u: u.contracts[0].security_id)
 
 
-def _fixture_units(contracts: list[Contract]) -> list[Unit]:
-    readings = canonical_readings([(c.event_id, c.proposition, c.label) for c in contracts])
-    contracts = [c if p is c.proposition else dataclasses.replace(c, proposition=p) for c, p in zip(contracts, readings)]
+def _fixture_units(contracts: list[Contract], aliases: tuple[StoredAlias, ...] = ()) -> list[Unit]:
+    stored, alias_flags = apply_stored([(c.event_id, c.proposition, c.label) for c in contracts], aliases)
+    readings = canonical_readings(stored)
+    contracts = [c if p is c.proposition and not flags else dataclasses.replace(c, proposition=p, alias_flags=flags)
+                 for c, p, flags in zip(contracts, readings, alias_flags)]
     usable_contracts = [c for c in contracts if usable(c.proposition)]
     groups = _candidate_groups(usable_contracts)
     parent = list(range(len(groups)))
@@ -778,16 +801,37 @@ def _rivals(unit: Unit) -> frozenset[frozenset[str]]:
     return frozenset(frozenset(pair) for entities in by_event.values() for pair in combinations(sorted(entities), 2))
 
 
+def _two_team_contests(unit: Unit) -> frozenset[tuple[frozenset[str], str]]:
+    """(the two teams, scope) of each game event whose only outcomes are two teams winning at one scope (a CS2 map
+    winner, listed "Low Cortisol" and "BORRACHEIROS"): its venue lists no draw, so one of the two wins there. An event
+    with an outcome not in the unit (a Draw market not read yet) says nothing."""
+    by_event: dict[int, list[Contract]] = {}
+    for c in unit.contracts:
+        if c.event_id is not None and c.proposition.subject.startswith(GAME_SUBJECT_PREFIX):
+            by_event.setdefault(c.event_id, []).append(c)
+    out = set()
+    for members in by_event.values():
+        readings = [c.proposition for c in members]
+        if len(members) != 2 or any(c.event_size != 2 for c in members) or any(
+                p.kind != Kind.WINNER or p.measure != "winner" or p.negated for p in readings):
+            continue
+        teams, scopes = {p.entity for p in readings}, {p.scope for p in readings}
+        if len(teams) == 2 and len(scopes) == 1 and all(_team(t) for t in teams):
+            out.add((frozenset(teams), scopes.pop()))
+    return frozenset(out)
+
+
 def _derive_pairs(unit: Unit, left_out: set[int]) -> list[Derived]:
     out = []
     rivals = _rivals(unit)
+    two_team = _two_team_contests(unit)
     seen: set[tuple[int, int]] = set()
     for group in unit.groups:
         for a, b in combinations([c for c in group if c.security_id not in left_out], 2):
             if (a.security_id, b.security_id) in seen:
                 continue
             seen.add((a.security_id, b.security_id))
-            derived = _relate_pair(a, b, rivals)
+            derived = _relate_pair(a, b, rivals, two_team)
             if derived is not None:
                 out.append(derived)
     return out
@@ -833,12 +877,13 @@ def derive(contracts: list[Contract]) -> list[Derived]:
     return [d for unit in derivation_units(contracts) for d in derive_unit(unit)]
 
 
-def preview(contracts: list[Contract]) -> tuple[list[Derived], dict[int, set[int]]]:
-    """What deriving one subject's contracts would give, and the collisions it would leave out, without logging them:
-    for weighing a change (a subject merge) before making it, so a rejected one doesn't count as a collision."""
+def preview(contracts: list[Contract], aliases: Iterable[StoredAlias] = ()) -> tuple[list[Derived], dict[int, set[int]]]:
+    """What deriving one subject's contracts with these key aliases would give, and the collisions it would leave out,
+    without logging them: for weighing a change (a subject merge, a key alias) before making it, so a rejected one
+    doesn't count as a collision."""
     derived: list[Derived] = []
     collided: dict[int, set[int]] = {}
-    for unit in derivation_units(contracts):
+    for unit in derivation_units(contracts, aliases):
         unit_derived, unit_collided = _settled(unit)
         derived.extend(unit_derived)
         for event_id, ids in unit_collided.items():

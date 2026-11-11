@@ -1,11 +1,12 @@
 """Parsing helpers the venue readers share."""
 import dataclasses
 import re
+import unicodedata
 from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 from classifier.propositions.canonical import GAME_SUBJECT_PREFIX, ROUND_WORDS, round_scope
-from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
+from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability, subject_key
 
 EASTERN = ZoneInfo("America/New_York")
 CMP_WORDS = {"above": Comparator.GT, "below": Comparator.LT, "at or above": Comparator.GTE, "at or below": Comparator.LTE}
@@ -126,8 +127,19 @@ def as_party_winner(proposition: Proposition, party: str | None) -> Proposition:
     return dataclasses.replace(proposition, entity=party, unknown=proposition.unknown - {"entity"})
 
 
+# Letters NFKD doesn't split into a base letter and an accent.
+_UNACCENTED = str.maketrans({"ø": "o", "æ": "ae", "ß": "ss", "đ": "d", "ł": "l", "ı": "i", "þ": "th", "œ": "oe"})
+
+
+def _plain(text: str) -> str:
+    """Lower case without accents: the model keys "Varaždin" as `varazdin`, and an accented letter mustn't split a
+    word in two."""
+    text = unicodedata.normalize("NFKD", text.lower().translate(_UNACCENTED))
+    return "".join(ch for ch in text if not unicodedata.combining(ch))
+
+
 def _flat(text: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", text.lower())
+    return re.sub(r"[^a-z0-9]", "", _plain(text))
 
 
 def _abbreviates(key: str, name: str) -> bool:
@@ -142,14 +154,15 @@ def _abbreviates(key: str, name: str) -> bool:
 
 def names_team(team: str, code: str | None, key: str) -> int:
     """How surely an entity key the model chose stands for a team: 2 for the start of its venue code (`gt`, `gtech`)
-    or of its name, its initials (`gt`, Georgia Tech) or one of its words (`lakers`, LA Lakers); 1 for an
-    abbreviation of it; 0 for neither."""
+    or of its name, its initials (`gt`, Georgia Tech), one of its words (`lakers`, LA Lakers) or the start of one, three
+    letters or more (`din`, GNK Dinamo Zagreb); 1 for an abbreviation of it; 0 for neither."""
     flat, name = _flat(key), _flat(team)
-    words = re.findall(r"[a-z0-9]+", team.lower())
+    words = re.findall(r"[a-z0-9]+", _plain(team))
     if len(flat) < 2 or not name:
         return 0
     if (code and (code.startswith(flat) or flat.startswith(code)) or name.startswith(flat) or flat.startswith(name)
-            or flat == "".join(w[0] for w in words) or flat in words):
+            or flat == "".join(w[0] for w in words) or flat in words
+            or len(flat) >= 3 and any(w.startswith(flat) for w in words)):
         return 2
     return 1 if _abbreviates(flat, name) else 0
 
@@ -233,3 +246,38 @@ def with_named_part(source: dict, proposition: Proposition) -> Proposition:
     if proposition.scope == part:
         return proposition
     return dataclasses.replace(proposition, scope=part, unknown=proposition.unknown - {"scope"})
+
+
+# A Polymarket esports game's event slug: `cs2-isg-reda-2026-11-10`, `-dh2` for a doubleheader's second match.
+_ESPORTS_GAME_SLUG = re.compile(
+    r"^(?P<tag>[a-z0-9]+)-(?P<teams>[a-z0-9]+(?:-[a-z0-9]+)+?)-(?P<date>\d{4}-\d{2}-\d{2})(?:-(?P<dh>dh\d+))?$"
+)
+
+
+def team_key(name: str) -> str:
+    """A team's entity key from its full name as the venue lists it ("RED Canids Academy" -> `red-canids-academy`),
+    every word kept; only case, accents and punctuation are folded."""
+    return re.sub(r"[^a-z0-9]+", "-", _plain(name)).strip("-")
+
+
+def esports_game_subject(tag: str, event_slug: str) -> str | None:
+    """`game:<tag>:<date>:<teams>[-dh<n>]` for a Polymarket esports game, from its event slug as the venue gave it. The
+    slug's date is when the game was listed, often weeks before it is played, but the slug never changes when the match
+    is moved, so the game's readings stay on one subject; which day it is played is the event's start time, and other
+    venues' subjects for it are joined by the subject merge. None for a slug of another form."""
+    m = _ESPORTS_GAME_SLUG.match(event_slug or "")
+    if m is None or m.group("tag") != tag:
+        return None
+    return subject_key("game", tag, m.group("date"), "-".join(filter(None, (m.group("teams"), m.group("dh")))))
+
+
+def squash(text: str | None) -> str:
+    """Whitespace collapsed and trimmed: venues list " Phantom Academy" and "vs  Phantom Academy"."""
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+def esports_winner(subject: str, team: str, scope: str, start: datetime, resolution_source: str | None) -> Proposition:
+    """One team winning an esports match or one of its maps, keyed by the team's full name."""
+    return Proposition(subject=subject, kind=Kind.WINNER, measure="winner", entity=team_key(team), scope=scope,
+                       window_start=start, stability=Stability.LIVE, resolution_source=resolution_source,
+                       unknown=frozenset({"window_end"}))

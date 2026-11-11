@@ -37,6 +37,8 @@ def extract_venue(source: dict, prices: Mapping[str, float] | None = None) -> Pr
         return None
     if reader.is_no_side(source):
         proposition = proposition.negate()
+    if getattr(reader, "scoped_by_rules", lambda _: False)(source):
+        return proposition
     return with_named_part(source, with_named_round(source, proposition))
 
 

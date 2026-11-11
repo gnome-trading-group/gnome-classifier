@@ -11,6 +11,7 @@ from pgvector.psycopg2 import register_vector
 from gnomepy.registry.types import ContractType, Currency, Event, EventContract, Listing, Security
 
 from classifier.adapters.types import polymarket_game
+from classifier.propositions.canonical import StoredAlias
 from classifier.propositions.derive import Contract
 from classifier.propositions.inputs import ExtractionInput
 from classifier.propositions.subjects import KnownSubject
@@ -546,7 +547,7 @@ class ClassifierDB:
     # Column order is what _input reads.
     _INPUT_COLUMNS = (
         "SELECT cs.security_id, x.exchange_code, ec.event_id, s.contract_type, e.title, ec.outcome_label,"
-        " e.description, e.expiry, cs.source, cs.source_hash"
+        " e.description, e.expiry, cs.source, cs.source_hash, e.category, e.tags"
         " FROM sm.contract_source cs"
         " JOIN sm.exchange x ON x.exchange_id = cs.exchange_id"
         " JOIN sm.security s ON s.security_id = cs.security_id"
@@ -559,7 +560,7 @@ class ClassifierDB:
         return ExtractionInput(
             security_id=row[0], exchange=row[1], event_id=row[2], contract_type=ContractType(row[3]), event_title=row[4],
             outcome_label=row[5], description=row[6], expiry=row[7].isoformat() if row[7] else None, source=row[8],
-            source_hash=row[9],
+            source_hash=row[9], category=row[10], tags=tuple(row[11] or ()),
         )
 
     def get_extraction_inputs(self, security_ids: list[int]) -> list[ExtractionInput]:
@@ -687,7 +688,8 @@ class ClassifierDB:
                     # event slug (cut to its game below).
                     " CASE WHEN x.exchange_code = 'KALSHI'"
                     "  THEN nullif(split_part(cs.source->'event'->>'event_ticker', '-', 2), '')"
-                    "  ELSE cs.source->'event'->>'slug' END"
+                    "  ELSE cs.source->'event'->>'slug' END,"
+                    " (SELECT count(*) FROM sm.event_contract n WHERE n.event_id = ec.event_id)"
                     " FROM sm.contract_proposition p"
                     " JOIN sm.security sec ON sec.security_id = p.security_id"
                     " JOIN sm.proposition_subject s ON s.subject_id = p.subject_id"
@@ -700,9 +702,37 @@ class ClassifierDB:
                 )
                 rows = cur.fetchall()
                 contracts = [Contract(row[0], row[1], Proposition.from_fields(row[2], row[3]), row[5], row[6],
-                                      game=_game_id(row[1], row[9]), start=row[7], label=row[8])
+                                      game=_game_id(row[1], row[9]), start=row[7], label=row[8], event_size=row[10])
                              for row in rows]
                 return contracts, {row[0] for row in rows if row[4]}, read_at
+
+    def get_subject_key_aliases(self, subject_id: int) -> list[StoredAlias]:
+        """The subject's stored key aliases, across the subjects merged into it."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "WITH RECURSIVE tree(subject_id) AS ("
+                    "  SELECT %s::int"
+                    "  UNION SELECT a.alias_subject_id FROM sm.proposition_subject_alias a"
+                    "  JOIN tree t ON a.canonical_subject_id = t.subject_id)"
+                    " SELECT k.kind, k.key, k.canonical_key, k.flags FROM sm.subject_key_alias k"
+                    " WHERE k.subject_id IN (SELECT subject_id FROM tree) ORDER BY k.kind, k.key",
+                    (subject_id,),
+                )
+                return [StoredAlias(kind, key, canonical, tuple(flags or ())) for kind, key, canonical, flags in cur.fetchall()]
+
+    def event_titles(self, security_ids: list[int]) -> dict[int, str]:
+        """{security id: its event's title}, for showing a contract to a judge."""
+        if not security_ids:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT ec.security_id, e.title FROM sm.event_contract ec JOIN sm.event e ON e.event_id = ec.event_id"
+                    " WHERE ec.security_id = ANY(%s)",
+                    (security_ids,),
+                )
+                return {sid: title for sid, title in cur.fetchall() if title}
 
     def nearest_subjects(self, embedding: list[float], limit: int) -> list[KnownSubject]:
         """The canonical (unmerged) subjects nearest an embedding, with the entities and measures their stored
@@ -770,6 +800,17 @@ class ClassifierDB:
                 return [(r[0], r[1], r[2] or "", list(r[3]), list(r[4]), list(r[5]), list(r[6]), r[7], float(r[8]), r[9])
                         for r in cur.fetchall()]
 
+    def subjects_in_scope(self, categories: list[str], tags: list[str]) -> set[int]:
+        """Canonical subjects with an open contract whose event is in any of `categories` or carries any of `tags`."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT DISTINCT o.subject_id FROM (" + self._OPEN_PROPOSITIONS +
+                    " WHERE upper(e.category) = ANY(%s) OR e.tags && %s::text[]) o",
+                    (list(categories), list(tags)),
+                )
+                return {row[0] for row in cur.fetchall()}
+
     def subject_samples(self, subject_ids: list[int], per_venue: int = 10) -> dict[int, list[tuple]]:
         """{subject_id: [(venue, event title, event description, outcome label, key, fields)]}, a few open contracts of
         each venue per subject, for showing the subject to the merge judge."""
@@ -814,25 +855,6 @@ class ClassifierDB:
                 for subject_id, neighbour in cur.fetchall():
                     out.setdefault(subject_id, []).append(neighbour)
                 return out
-
-    def propositions_extracted_under(self, subject_id: int) -> list[tuple[int, int, str, dict, str, str, str]]:
-        """[(security_id, extracted_subject_id, extracted key, fields, method, extractor_version, source_hash)] of every
-        proposition read onto the subject or a subject merged into it."""
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "WITH RECURSIVE tree(subject_id) AS ("
-                    "  SELECT %s::int"
-                    "  UNION SELECT a.alias_subject_id FROM sm.proposition_subject_alias a"
-                    "  JOIN tree t ON a.canonical_subject_id = t.subject_id)"
-                    " SELECT p.security_id, p.extracted_subject_id, s.key, p.fields, p.method, p.extractor_version,"
-                    " p.source_hash"
-                    " FROM sm.contract_proposition p"
-                    " JOIN sm.proposition_subject s ON s.subject_id = p.extracted_subject_id"
-                    " WHERE p.extracted_subject_id IN (SELECT subject_id FROM tree)",
-                    (subject_id,),
-                )
-                return [tuple(row) for row in cur.fetchall()]
 
     def subjects_without_embeddings(self, limit: int = 1000) -> list[KnownSubject]:
         with self._conn() as conn:

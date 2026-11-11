@@ -9,8 +9,10 @@ the event's first team covers it ("Will the California cover 10.5 vs the NC Stat
 them on the wrong side.
 """
 import dataclasses
+import json
 import re
 from collections.abc import Mapping
+from datetime import datetime, timezone
 
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
 from classifier.propositions.venue.common import (
@@ -18,9 +20,12 @@ from classifier.propositions.venue.common import (
     CMP_WORDS,
     cf_index_asset,
     eastern,
+    esports_game_subject,
+    esports_winner,
     names_team,
     number,
     price_rise,
+    squash,
 )
 
 _FAMILY_SLUG = re.compile(
@@ -61,20 +66,99 @@ _SPREAD_QUESTION = re.compile(
 _SPREAD_SLUG = re.compile(r"^[a-z]+-[a-z0-9]+-(?P<first>[a-z0-9]+)-(?P<second>[a-z0-9]+)-\d{4}-")
 
 
+# Esports series whose match and map winners are read here, and the game tag their subjects take.
+_ESPORTS_SERIES = {"cs2": ("CS2", "cs2")}
+_ESPORTS_MATCH = "esports_match_winner"
+_ESPORTS_MAP = re.compile(r"^esports_map_winner_(?P<map>\d+)$")
+_SOURCED_FROM = re.compile(r"\bOutcome sourced from (?P<source>[A-Za-z]+)\.")
+
+
 def _slug(source: dict) -> str:
     return (source.get("market") or {}).get("slug") or ""
 
 
+def _esports_family(source: dict) -> tuple[str, str] | None:
+    """(the rules' game name, the subject tag) for an esports match or map winner market."""
+    series = _ESPORTS_SERIES.get((source.get("event") or {}).get("seriesSlug") or "")
+    family = (source.get("market") or {}).get("sportsMarketType") or ""
+    if series is None or not (family == _ESPORTS_MATCH or _ESPORTS_MAP.match(family)):
+        return None
+    return series
+
+
 def claims(source: dict) -> bool:
     family = _FAMILY_SLUG.match(_slug(source))
-    return bool(family and family.group("asset").upper() in CF_INDICES)
+    return bool(family and family.group("asset").upper() in CF_INDICES) or _esports_family(source) is not None
 
 
 def is_no_side(source: dict) -> bool:
-    return source.get("leg") == "short"
+    # A match winner's two legs are its two teams, each read as its own team winning.
+    return source.get("leg") == "short" and (source.get("market") or {}).get("sportsMarketType") != _ESPORTS_MATCH
+
+
+def scoped_by_rules(source: dict) -> bool:
+    """Whether the reader's scope comes from the rules, which name the match or the map exactly; an event title naming a
+    map ("WRAITH PCIFIC vs. Morrow Esports  Map 2" over a match winner) then doesn't re-scope it."""
+    return _esports_family(source) is not None
+
+
+def _esports_winner(source: dict) -> Proposition | None:
+    """A match winner ("Isurus vs RED Canids Academy", one leg per team) or a map winner ("PsychoFace wins map 1", Yes
+    on the long leg), each only when the rules name the same match ("the winner of [Map 1 in] the A vs B CS2 match")
+    and the outcomes or the title name one of its two teams. Anything else is left to the LLM."""
+    game, tag = _esports_family(source)
+    market = source.get("market") or {}
+    rules = squash(market.get("description"))
+    family = market.get("sportsMarketType")
+    title = squash(market.get("title"))
+    if family == _ESPORTS_MATCH:
+        sides = source.get("sides") or []
+        names = [squash(s.get("description")) for s in sides]
+        try:
+            outcomes = [squash(o) for o in json.loads(market.get("outcomes") or "[]")]
+        except (TypeError, ValueError, AttributeError):
+            return None
+        long = [squash(s.get("description")) for s in sides if s.get("long") is True]
+        if len(sides) != 2 or names != outcomes or names[0] == names[1] or len(long) != 1 \
+                or title != f"{names[0]} vs {names[1]}":
+            return None
+        first, second = names
+        if not rules.startswith(f"This market will settle to the winner of the {first} vs {second} {game} match "):
+            return None
+        team = long[0] if source.get("leg") == "long" else next(n for n in names if n != long[0])
+        scope = "match"
+    else:
+        map_number = _ESPORTS_MAP.match(family).group("map")
+        lead = re.match(rf"^This market will settle to the winner of Map {map_number} in the (?P<first>.+?) vs "
+                        rf"(?P<second>.+?) {re.escape(game)} match scheduled for ", rules)
+        if lead is None:
+            return None
+        teams = (lead.group("first"), lead.group("second"))
+        team = next((t for t in teams if title == f"{t} wins map {map_number}"), None)
+        if team is None or teams[0] == teams[1]:
+            return None
+        scope = f"map:{map_number}"
+    slug = (source.get("event") or {}).get("slug") or ""
+    start = _utc(market.get("gameStartTime"))
+    subject = esports_game_subject(tag, slug)
+    if subject is None or start is None:
+        return None
+    sourced = _SOURCED_FROM.search(rules)
+    return esports_winner(subject, team, scope, start, sourced.group("source").lower() if sourced else None)
+
+
+def _utc(text: str | None) -> datetime | None:
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except ValueError:
+        return None
 
 
 def read(source: dict, prices: Mapping[str, float]) -> Proposition | None:
+    if _esports_family(source):
+        return _esports_winner(source)
     family = _FAMILY_SLUG.match(_slug(source))
     market = source.get("market") or {}
     rules = re.sub(r"\s+", " ", market.get("description") or "")

@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from classifier.adapters.types import polymarket_game
 from classifier.propositions.inputs import ExtractionInput, is_primary_side
 from classifier.propositions.llm import PropositionExtractor
+from classifier.propositions.scope import EVERYTHING, LLMScope
 from classifier.propositions.subjects import DEFAULT_CANDIDATES, KnownSubject, SubjectIndex, add_known, candidates_for, merge_candidates
 from classifier.propositions.types import Extraction, Method, Proposition
 from classifier.propositions.venue import claims, correct_venue, extract_venue
@@ -27,6 +28,8 @@ class ExtractionReport:
     # and those whose request no provider could take.
     needs_llm: list[int] = dataclasses.field(default_factory=list)
     unavailable: list[int] = dataclasses.field(default_factory=list)
+    # Of `failed`: those the LLM would read but whose events are outside its scope.
+    out_of_scope: list[int] = dataclasses.field(default_factory=list)
 
     def log(self):
         for (family, method), n in sorted(self.by_family.items()):
@@ -34,6 +37,8 @@ class ExtractionReport:
             logger.info("propositions read: family=%s method=%s count=%d", family, method, n)
         if self.failed:
             logger.warning("propositions not read this pass: %d securities", len(self.failed))
+        if self.out_of_scope:
+            logger.info("propositions left to the LLM outside its scope: %d securities", len(self.out_of_scope))
 
 
 def family(item: ExtractionInput) -> str:
@@ -104,11 +109,13 @@ def extract_propositions(
     index: SubjectIndex | None = None,
     partners: Mapping[int, tuple[Proposition, Method]] | None = None,
     prices: Mapping[str, float] | None = None,
+    scope: LLMScope = EVERYTHING,
 ) -> tuple[dict[int, Extraction], ExtractionReport]:
     """{security_id: Extraction} for every security that could be read, and a report of how. `known` holds subjects
     already stored; with those read by the venue readers in this pass they are the LLM's candidate subjects.
     `partners` gives, for a second side whose first side isn't among `items`, the first side's stored proposition and
-    how it was read; the second side is its negation. `prices` ({coin: mid}) are for the readers that need them."""
+    how it was read; the second side is its negation. `prices` ({coin: mid}) are for the readers that need them. Only
+request groups with an event in `scope` go to the LLM; the rest are left unread as if it were off."""
     partners = partners or {}
     report = ExtractionReport(known=dict(known or {}))
     results: dict[int, Extraction] = {}
@@ -131,6 +138,16 @@ def extract_propositions(
                 report.fell_back.append(item.security_id)
             llm_events.setdefault(request_group(item), (item.event_title, []))[1].append(item)
 
+    unread: list[int] = []
+    if extractor is not None:
+        # A whole group is read or left, so one game's events, which the venues tag unevenly, share a subject.
+        outside = {group for group, (_, chunk) in llm_events.items()
+                   if not any(scope.includes(i.category, i.tags) for i in chunk)}
+        for group in outside:
+            out = [i.security_id for i in llm_events.pop(group)[1]]
+            unread.extend(out)
+            report.out_of_scope.extend(out)
+
     if llm_events and extractor is not None:
         if index is not None:
             index.add(list(report.known.values()))
@@ -148,10 +165,10 @@ def extract_propositions(
             if index is not None:
                 index.add([report.known[k] for k in report.known if k not in before])
     else:
-        unread = [i.security_id for _, chunk in llm_events.values() for i in chunk]
-        report.failed.extend(unread)
-        fell_back = set(report.fell_back)
-        report.needs_llm.extend(sid for sid in unread if sid not in fell_back)
+        unread.extend(i.security_id for _, chunk in llm_events.values() for i in chunk)
+    report.failed.extend(unread)
+    fell_back = set(report.fell_back)
+    report.needs_llm.extend(sid for sid in unread if sid not in fell_back)
 
     for item in items:
         if is_primary_side(item):
@@ -172,6 +189,8 @@ def extract_propositions(
                 report.unavailable.append(item.security_id)
             if partner is not None and partner.security_id in report.fell_back:
                 report.fell_back.append(item.security_id)
+            if partner is not None and partner.security_id in report.out_of_scope:
+                report.out_of_scope.append(item.security_id)
             continue
         results[item.security_id] = Extraction(read.proposition.negate(), read.method, item.source_hash)
     return results, report

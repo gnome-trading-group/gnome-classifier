@@ -21,6 +21,7 @@ from datetime import date, timedelta
 from enum import StrEnum
 
 from classifier.client.claude import ClaudeAsker, is_unavailable
+from classifier.propositions.canonical import ENTITY_ALIAS, MEASURE_ALIAS, StoredAlias
 from classifier.propositions.derive import Contract, Derived, preview
 from classifier.propositions.subjects import entity_of
 from classifier.propositions.types import Kind, Proposition
@@ -423,15 +424,28 @@ def key_maps(judgment: Judgment | None) -> tuple[dict[str, str], dict[str, str]]
     return {b: a for a, b in judgment.entity_map}, {b: a for a, b in judgment.measure_map}
 
 
-def align(p: Proposition, entities: dict[str, str], measures: dict[str, str]) -> Proposition:
-    """The proposition with its entity and measure keys renamed to the subject it joins, including the entity a
-    per-entity measure names (`margin:ggo` to `margin:goias`) and a score's sides."""
-    measure = measures.get(p.measure, p.measure)
-    if measure and ":" in measure:
-        head, tail = measure.split(":", 1)
-        measure = f"{head}:{entities.get(tail, tail)}"
-    scores = tuple((entities.get(entity, entity), value) for entity, value in p.scores)
-    return dataclasses.replace(p, entity=entities.get(p.entity, p.entity), measure=measure, scores=scores)
+def _joined_outcomes(contracts: list[Contract], aliases: tuple[StoredAlias, ...]) -> dict[int, set[int]]:
+    """{event: its securities} for each event listing both keys of an entity alias as outcomes."""
+    out: dict[int, set[int]] = {}
+    for a in aliases:
+        if a.kind != ENTITY_ALIAS:
+            continue
+        by_event: dict[int, dict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
+        for c in contracts:
+            if c.event_id is not None and not c.proposition.negated and c.proposition.entity in (a.key, a.canonical_key):
+                by_event[c.event_id][c.proposition.entity].add(c.security_id)
+        for event_id, keys in by_event.items():
+            if len(keys) == 2:
+                out.setdefault(event_id, set()).update(*keys.values())
+    return out
+
+
+def merge_aliases(judgment: Judgment | None) -> tuple[StoredAlias, ...]:
+    """The key aliases a merge stores: subject b's keys read as the ones subject a uses for the same entity or
+    quantity, as the judge mapped them."""
+    entities, measures = key_maps(judgment)
+    return (tuple(StoredAlias(ENTITY_ALIAS, b, a) for b, a in sorted(entities.items()))
+            + tuple(StoredAlias(MEASURE_ALIAS, b, a) for b, a in sorted(measures.items())))
 
 
 def with_samples(p: SubjectProfile, contracts: list[SubjectContract], samples: int = SAMPLES_PER_SUBJECT) -> SubjectProfile:
@@ -439,19 +453,22 @@ def with_samples(p: SubjectProfile, contracts: list[SubjectContract], samples: i
     return dataclasses.replace(p, samples=tuple(_sample(c) for c in _spread(contracts, samples)))
 
 
-def check_merge(a: list[Contract], b: list[Contract], judgment: Judgment | None = None) -> MergeCheck:
-    """Derives subject b's contracts together with subject a's, b's entity and measure keys renamed to a's where the
-    judge mapped them (as the re-read after a merge would align them), and keeps what neither subject derives alone."""
+def check_merge(a: list[Contract], b: list[Contract], judgment: Judgment | None = None,
+                a_aliases: Iterable[StoredAlias] = (), b_aliases: Iterable[StoredAlias] = ()) -> MergeCheck:
+    """Derives subject b's contracts together with subject a's, b's entity and measure keys read as a's where the judge
+    mapped them (the aliases the merge stores), each subject's own key aliases applied too, and keeps what neither
+    subject derives alone."""
     subject = a[0].proposition.subject
-    entities, measures = key_maps(judgment)
-    merged = list(a) + [
-        dataclasses.replace(c, proposition=dataclasses.replace(align(c.proposition, entities, measures), subject=subject))
-        for c in b
-    ]
-    derived, collided = preview(merged)
+    a_aliases, b_aliases = tuple(a_aliases), tuple(b_aliases)
+    merged = list(a) + [dataclasses.replace(c, proposition=dataclasses.replace(c.proposition, subject=subject)) for c in b]
+    mapped = merge_aliases(judgment)
+    derived, collided = preview(merged, a_aliases + b_aliases + mapped)
+    # Derivation leaves out an alias between two outcomes of one event; a judge mapping one is wrong about the merge.
+    for event_id, ids in _joined_outcomes(merged, mapped).items():
+        collided.setdefault(event_id, set()).update(ids)
     before: set[int] = set()
-    for side in (a, b):
-        for ids in preview(list(side))[1].values():
+    for side, aliases in ((a, a_aliases), (b, b_aliases)):
+        for ids in preview(list(side), aliases)[1].values():
             before |= ids
 
     a_ids = {c.security_id for c in a}

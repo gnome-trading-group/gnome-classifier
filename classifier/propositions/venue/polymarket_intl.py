@@ -20,7 +20,9 @@ candidate the outcome is labelled with ("Pete Sessions (R)"): `correct` keys the
 
 Game spreads ("Spread: Rams (-16.5)") resolve to the favoured team "if the Rams win the game by 17 or more points",
 otherwise to the other. The model now and then reads one as the moneyline, which makes it equivalent to every spread on
-the game; `correct` puts the rules' margin on whichever team the model keyed, the way it reads the rest. A map's rounds
+the game; `correct` puts the rules' margin on whichever team the model keyed, the way it reads the rest. A half's or a
+quarter's spread ("1H Spread: 49ers (-6.5)") is put right the same way, scoped to that part, as the other venues
+read theirs (the model names its measure `margin_1h:x`, `first_quarter_margin:x`). A map's rounds
 handicap ("Map 3 Rounds Handicap: Liquid (-3.5) vs BetBoom Team (+3.5)") is put right the same way, on that map, and
 a series' maps handicap ("Map Handicap: SAW.Y (-1.5) vs Four Magic (+1.5)") on the match.
 
@@ -39,10 +41,13 @@ from classifier.propositions.venue.common import (
     PARTY_LETTERS,
     RATE_BANKS,
     as_party_winner,
+    esports_game_subject,
+    esports_winner,
     names_team,
     number,
     price_rise,
     rate_decision,
+    squash,
 )
 
 _ASSETS = {"bitcoin": "BTC", "btc": "BTC", "ethereum": "ETH", "eth": "ETH", "solana": "SOL", "sol": "SOL",
@@ -105,12 +110,23 @@ _ROUND_HANDICAP_RULE = re.compile(
     r'resolve to "(?P<team>[^"]+)" if .+? wins? Map (?P<map>\d+) by (?P<n>\d+) or more (?P<unit>rounds)\b'
 )
 _ROUND_HANDICAP_TYPE = re.compile(r"^round_handicap_game_\d+$")
+# A half's or quarter's spread: 'resolve to "49ers" if the 49ers outscore the Raiders by 7 or more points in the first
+# half'.
+_PART_SPREAD_RULE = re.compile(
+    r'resolve to "(?P<team>[^"]+)" if .+? outscores? .+? by (?P<n>\d+) or more (?P<unit>[a-z]+) in the '
+    r'(?P<nth>first|second|third|fourth) (?P<part>half|quarter)\b'
+)
+_PART_SPREAD_TYPE = re.compile(r"^(?:first_half|second_half|q[1-4])_spreads$")
 # A series' maps handicap: 'resolve to "SAW Youngsters" if SAW Youngsters wins 2 or more maps than Four Magic in this
 # match'.
 _MAP_HANDICAP_RULE = re.compile(
     r'resolve to "(?P<team>[^"]+)" if .+? wins (?P<n>\d+) or more (?P<unit>maps|games) than .+? in this match'
 )
 _MAP_WINNER = re.compile(r" - Map (?P<map>\d+) Winner$")
+# Esports series whose match and map winners are read here, and the game tag their subjects take (Kalshi's KXCS2GAME).
+_ESPORTS_SERIES = {"counter-strike": ("Counter-Strike", "cs2")}
+_ESPORTS_WINNER_TYPES = ("moneyline", "child_moneyline")
+_BEST_OF = re.compile(r" \(BO\d+\) - .+$")
 
 
 def _slug(source: dict) -> str:
@@ -128,8 +144,64 @@ def _rate_series(source: dict) -> str | None:
     return _RATE_SERIES.get((source.get("event") or {}).get("seriesSlug") or "")
 
 
+def _esports_family(source: dict) -> tuple[str, str] | None:
+    """(the title's game name, the subject tag) for an esports match or map winner market."""
+    series = _ESPORTS_SERIES.get((source.get("event") or {}).get("seriesSlug") or "")
+    if series is None or (source.get("market") or {}).get("sportsMarketType") not in _ESPORTS_WINNER_TYPES:
+        return None
+    return series
+
+
 def claims(source: dict) -> bool:
-    return _family(_slug(source)) is not None or _rate_series(source) is not None
+    return (_family(_slug(source)) is not None or _rate_series(source) is not None
+            or _esports_family(source) is not None)
+
+
+def scoped_by_rules(source: dict) -> bool:
+    """Whether the reader's scope comes from the rules, which name the match or the map exactly; an event title naming a
+    map then doesn't re-scope it."""
+    return _esports_family(source) is not None
+
+
+def _won_against(rules: str, team: str, other: str, what: str) -> bool:
+    return re.search(rf'resolve to "{re.escape(team)}" if {re.escape(team)} win {re.escape(what)} against ?'
+                     rf"{re.escape(other)}\.", rules) is not None
+
+
+def _esports_winner(source: dict) -> Proposition | None:
+    """A match or map winner ("Counter-Strike: Isurus vs RED Canids Academy (BO3) - CCT South America", "... - Map 2
+    Winner"): the title must name exactly the two outcomes, in order, and the rules must say each outcome wins when that
+    team wins the match or the map against the other. Anything else is left to the LLM."""
+    game, tag = _esports_family(source)
+    market = source.get("market") or {}
+    try:
+        outcomes = [squash(o) for o in json.loads(market.get("outcomes") or "[]")]
+    except (TypeError, ValueError, AttributeError):
+        return None
+    outcome = squash(source.get("outcome"))
+    if len(outcomes) != 2 or outcome not in outcomes or outcomes[0] == outcomes[1]:
+        return None
+    first, second = outcomes
+    question = squash(market.get("question"))
+    head = f"{game}: {first} vs {second}"
+    if market.get("sportsMarketType") == "moneyline":
+        if not question.startswith(head) or _BEST_OF.fullmatch(question[len(head):]) is None:
+            return None
+        scope, what = "match", "the match"
+    else:
+        tail = _MAP_WINNER.fullmatch(question[len(head):]) if question.startswith(head) else None
+        if tail is None:
+            return None
+        scope, what = f"map:{tail.group('map')}", f"Map {tail.group('map')}"
+    rules = squash(market.get("description")).replace('resolve to " ', 'resolve to "')
+    if not (_won_against(rules, first, second, what) and _won_against(rules, second, first, what)):
+        return None
+    start = _utc(market.get("eventStartTime") or market.get("gameStartTime"))
+    subject = esports_game_subject(tag, _slug(source))
+    if subject is None or start is None:
+        return None
+    host = re.match(r"^https?://(?:www\.)?(?P<name>[a-z0-9-]+)\.", market.get("resolutionSource") or "")
+    return esports_winner(subject, outcome, scope, start, host.group("name") if host else None)
 
 
 def is_no_side(source: dict) -> bool:
@@ -217,6 +289,8 @@ def _rate_decision(bank: str, source: dict) -> Proposition | None:
 def read(source: dict, prices: Mapping[str, float]) -> Proposition | None:
     if bank := _rate_series(source):
         return _rate_decision(bank, source)
+    if _esports_family(source):
+        return _esports_winner(source)
     found = _family(_slug(source))
     if found is None:
         return None
@@ -306,17 +380,20 @@ def _spread_sides(proposition: Proposition, points: int, covers: bool) -> tuple[
 
 
 def _spread(source: dict, proposition: Proposition) -> Proposition:
-    """A game spread or a map's rounds handicap as its rules ask it, keyed by the team the model chose: the favoured
-    team's margin at least the rules' points when the outcome is the favoured team, under them when it's the other.
-    Which team a key stands for is matched by name; the slug's team codes aren't used, since a slug can list the teams
-    in the other order from the title. Unless the name settles it surely, a margin already read in one of the rules'
-    forms is taken as keyed the way it reads: an abbreviation alone can point at the wrong team (`ceu` reads as CD
-    Tenerife)."""
+    """A game's, half's or quarter's spread or a map's rounds handicap as its rules ask it, keyed by the team the model
+    chose: the favoured team's margin at least the rules' points when the outcome is the favoured team, under them when
+    it's the other. Which team a key stands for is matched by name; the slug's team codes aren't used, since a slug can
+    list the teams in the other order from the title. Unless the name settles it surely, a margin already read in one of
+    the rules' forms is taken as keyed the way it reads: an abbreviation alone can point at the wrong team (`ceu` reads
+    as CD Tenerife)."""
     market = source.get("market") or {}
     description, family = market.get("description") or "", market.get("sportsMarketType") or ""
     if family == "spreads":
         rule = _SPREAD_RULE.search(description)
         scope = proposition.scope
+    elif _PART_SPREAD_TYPE.match(family):
+        rule = _PART_SPREAD_RULE.search(description)
+        scope = f"{rule.group('nth')}_{rule.group('part')}" if rule else None
     elif _ROUND_HANDICAP_TYPE.match(family):
         rule = _ROUND_HANDICAP_RULE.search(description)
         scope = f"map:{rule.group('map')}" if rule else None

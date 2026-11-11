@@ -1,0 +1,376 @@
+{
+ "pmi-match-isurus": {
+  "event": {
+   "slug": "cs2-isg-reda-2026-11-10",
+   "title": "Counter-Strike: Isurus vs RED Canids Academy (BO3) - CCT South America Group Stage",
+   "endDate": "2026-11-11T01:20:00Z",
+   "negRisk": false,
+   "startDate": "2026-11-09T06:25:30Z",
+   "seriesSlug": "counter-strike",
+   "description": "This market refers to the Counter-Strike Round 4 match between Isurus and RED Canids Academy in the CCT South America Group Stage, initially scheduled for November 10, 2026 at 2:00 PM ET.\n\nThis market will resolve to \"Isurus\" if Isurus win the match against RED Canids Academy.\n\nThis market will resolve to \"RED Canids Academy\" if RED Canids Academy win the match against Isurus.\n\nIf the match is canceled (not played at all) or ends in a tie, this market will resolve to 50-50.\n\nIf the match is postponed, it must be rescheduled to a start time on or before November 24, 2026 at 11:59 PM ET (14 calendar days after the originally scheduled start of November 10, 2026 at 2:00 PM ET). If, by that deadline, the most recently announced rescheduled start time is on or before the deadline, this market resolves based on the result of the match as played. Otherwise, this market resolves 50-50, regardless of whether the match is subsequently played.\n\nIf the match begins but is not completed, and one team wins due to the opponent's forfeiture, disqualification, or walkover, this market will resolve to the team who wins. \n\nIf the match ends in a forfeit, disqualification, or walkover (team withdraws before the start and the other wins automatically), this market will resolve to 50-50. \n\nThe resolution source for this market will be official information from https://hltv.org. However, if https://hltv.org has not published final results within 2 hours after the event’s conclusion, a consensus of credible reporting may be used instead including video evidence.\n\nIn cases where a team’s listed name includes minor discrepancies from the resolution source, this market will resolve based on the underlying real-world match rather than exact name matching. Recognizable abbreviations, alternate or erroneous spellings, sponsor tags, affiliate or academy designations, regional identifiers, and minor formatting differences will be treated as referring to the same team, provided the intended team can be clearly and uniquely identified within the relevant competition. If a listed team name has no reasonable connection to any participating team, or if it matches or could reasonably refer to another team in the same competition such that the intended team cannot be unambiguously determined, this market will resolve 50-50.",
+   "enableNegRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://kick.com/cct_cs3"
+  },
+  "venue": "POLYMARKET_INTL",
+  "market": {
+   "slug": "cs2-isg-reda-2026-11-10",
+   "endDate": "2026-11-11T01:20:00Z",
+   "negRisk": false,
+   "outcomes": "[\"Isurus\", \"RED Canids Academy\"]",
+   "question": "Counter-Strike: Isurus vs RED Canids Academy (BO3) - CCT South America Group Stage",
+   "startDate": "2026-11-09T06:25:31Z",
+   "conditionId": "0xe71f6c128abd8a2b11572e8109506dc94e80115d3b89cb05bdb92b6d1123f1ad",
+   "description": "This market refers to the Counter-Strike Round 4 match between Isurus and RED Canids Academy in the CCT South America Group Stage, initially scheduled for November 10, 2026 at 2:00 PM ET.\n\nThis market will resolve to \"Isurus\" if Isurus win the match against RED Canids Academy.\n\nThis market will resolve to \"RED Canids Academy\" if RED Canids Academy win the match against Isurus.\n\nIf the match is canceled (not played at all) or ends in a tie, this market will resolve to 50-50.\n\nIf the match is postponed, it must be rescheduled to a start time on or before November 24, 2026 at 11:59 PM ET (14 calendar days after the originally scheduled start of November 10, 2026 at 2:00 PM ET). If, by that deadline, the most recently announced rescheduled start time is on or before the deadline, this market resolves based on the result of the match as played. Otherwise, this market resolves 50-50, regardless of whether the match is subsequently played.\n\nIf the match begins but is not completed, and one team wins due to the opponent's forfeiture, disqualification, or walkover, this market will resolve to the team who wins. \n\nIf the match ends in a forfeit, disqualification, or walkover (team withdraws before the start and the other wins automatically), this market will resolve to 50-50. \n\nThe resolution source for this market will be official information from https://hltv.org. However, if https://hltv.org has not published final results within 2 hours after the event’s conclusion, a consensus of credible reporting may be used instead including video evidence.\n\nIn cases where a team’s listed name includes minor discrepancies from the resolution source, this market will resolve based on the underlying real-world match rather than exact name matching. Recognizable abbreviations, alternate or erroneous spellings, sponsor tags, affiliate or academy designations, regional identifiers, and minor formatting differences will be treated as referring to the same team, provided the intended team can be clearly and uniquely identified within the relevant competition. If a listed team name has no reasonable connection to any participating team, or if it matches or could reasonably refer to another team in the same competition such that the intended team cannot be unambiguously determined, this market will resolve 50-50.",
+   "gameStartTime": "2026-11-10 19:20:00+00",
+   "eventStartTime": "2026-11-10T19:20:00Z",
+   "groupItemTitle": "Match Winner",
+   "resolutionSource": "https://hltv.org",
+   "sportsMarketType": "moneyline"
+  },
+  "outcome": "Isurus",
+  "token_id": "13146382948700700554007426564778354844669377245831235957190072343641353016093"
+ },
+ "pmi-match-red-canids": {
+  "event": {
+   "slug": "cs2-isg-reda-2026-11-10",
+   "title": "Counter-Strike: Isurus vs RED Canids Academy (BO3) - CCT South America Group Stage",
+   "endDate": "2026-11-11T01:20:00Z",
+   "negRisk": false,
+   "startDate": "2026-11-09T06:25:30Z",
+   "seriesSlug": "counter-strike",
+   "description": "This market refers to the Counter-Strike Round 4 match between Isurus and RED Canids Academy in the CCT South America Group Stage, initially scheduled for November 10, 2026 at 2:00 PM ET.\n\nThis market will resolve to \"Isurus\" if Isurus win the match against RED Canids Academy.\n\nThis market will resolve to \"RED Canids Academy\" if RED Canids Academy win the match against Isurus.\n\nIf the match is canceled (not played at all) or ends in a tie, this market will resolve to 50-50.\n\nIf the match is postponed, it must be rescheduled to a start time on or before November 24, 2026 at 11:59 PM ET (14 calendar days after the originally scheduled start of November 10, 2026 at 2:00 PM ET). If, by that deadline, the most recently announced rescheduled start time is on or before the deadline, this market resolves based on the result of the match as played. Otherwise, this market resolves 50-50, regardless of whether the match is subsequently played.\n\nIf the match begins but is not completed, and one team wins due to the opponent's forfeiture, disqualification, or walkover, this market will resolve to the team who wins. \n\nIf the match ends in a forfeit, disqualification, or walkover (team withdraws before the start and the other wins automatically), this market will resolve to 50-50. \n\nThe resolution source for this market will be official information from https://hltv.org. However, if https://hltv.org has not published final results within 2 hours after the event’s conclusion, a consensus of credible reporting may be used instead including video evidence.\n\nIn cases where a team’s listed name includes minor discrepancies from the resolution source, this market will resolve based on the underlying real-world match rather than exact name matching. Recognizable abbreviations, alternate or erroneous spellings, sponsor tags, affiliate or academy designations, regional identifiers, and minor formatting differences will be treated as referring to the same team, provided the intended team can be clearly and uniquely identified within the relevant competition. If a listed team name has no reasonable connection to any participating team, or if it matches or could reasonably refer to another team in the same competition such that the intended team cannot be unambiguously determined, this market will resolve 50-50.",
+   "enableNegRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://kick.com/cct_cs3"
+  },
+  "venue": "POLYMARKET_INTL",
+  "market": {
+   "slug": "cs2-isg-reda-2026-11-10",
+   "endDate": "2026-11-11T01:20:00Z",
+   "negRisk": false,
+   "outcomes": "[\"Isurus\", \"RED Canids Academy\"]",
+   "question": "Counter-Strike: Isurus vs RED Canids Academy (BO3) - CCT South America Group Stage",
+   "startDate": "2026-11-09T06:25:31Z",
+   "conditionId": "0xe71f6c128abd8a2b11572e8109506dc94e80115d3b89cb05bdb92b6d1123f1ad",
+   "description": "This market refers to the Counter-Strike Round 4 match between Isurus and RED Canids Academy in the CCT South America Group Stage, initially scheduled for November 10, 2026 at 2:00 PM ET.\n\nThis market will resolve to \"Isurus\" if Isurus win the match against RED Canids Academy.\n\nThis market will resolve to \"RED Canids Academy\" if RED Canids Academy win the match against Isurus.\n\nIf the match is canceled (not played at all) or ends in a tie, this market will resolve to 50-50.\n\nIf the match is postponed, it must be rescheduled to a start time on or before November 24, 2026 at 11:59 PM ET (14 calendar days after the originally scheduled start of November 10, 2026 at 2:00 PM ET). If, by that deadline, the most recently announced rescheduled start time is on or before the deadline, this market resolves based on the result of the match as played. Otherwise, this market resolves 50-50, regardless of whether the match is subsequently played.\n\nIf the match begins but is not completed, and one team wins due to the opponent's forfeiture, disqualification, or walkover, this market will resolve to the team who wins. \n\nIf the match ends in a forfeit, disqualification, or walkover (team withdraws before the start and the other wins automatically), this market will resolve to 50-50. \n\nThe resolution source for this market will be official information from https://hltv.org. However, if https://hltv.org has not published final results within 2 hours after the event’s conclusion, a consensus of credible reporting may be used instead including video evidence.\n\nIn cases where a team’s listed name includes minor discrepancies from the resolution source, this market will resolve based on the underlying real-world match rather than exact name matching. Recognizable abbreviations, alternate or erroneous spellings, sponsor tags, affiliate or academy designations, regional identifiers, and minor formatting differences will be treated as referring to the same team, provided the intended team can be clearly and uniquely identified within the relevant competition. If a listed team name has no reasonable connection to any participating team, or if it matches or could reasonably refer to another team in the same competition such that the intended team cannot be unambiguously determined, this market will resolve 50-50.",
+   "gameStartTime": "2026-11-10 19:20:00+00",
+   "eventStartTime": "2026-11-10T19:20:00Z",
+   "groupItemTitle": "Match Winner",
+   "resolutionSource": "https://hltv.org",
+   "sportsMarketType": "moneyline"
+  },
+  "outcome": "RED Canids Academy",
+  "token_id": "40083803843988847488040930749330075494039918703937367985297983601877394270977"
+ },
+ "pmi-map2": {
+  "event": {
+   "slug": "cs2-isg-reda-2026-11-10",
+   "title": "Counter-Strike: Isurus vs RED Canids Academy (BO3) - CCT South America Group Stage",
+   "endDate": "2026-11-11T01:20:00Z",
+   "negRisk": false,
+   "startDate": "2026-11-09T06:25:30Z",
+   "seriesSlug": "counter-strike",
+   "description": "This market refers to the Counter-Strike Round 4 match between Isurus and RED Canids Academy in the CCT South America Group Stage, initially scheduled for November 10, 2026 at 2:00 PM ET.\n\nThis market will resolve to \"Isurus\" if Isurus win the match against RED Canids Academy.\n\nThis market will resolve to \"RED Canids Academy\" if RED Canids Academy win the match against Isurus.\n\nIf the match is canceled (not played at all) or ends in a tie, this market will resolve to 50-50.\n\nIf the match is postponed, it must be rescheduled to a start time on or before November 24, 2026 at 11:59 PM ET (14 calendar days after the originally scheduled start of November 10, 2026 at 2:00 PM ET). If, by that deadline, the most recently announced rescheduled start time is on or before the deadline, this market resolves based on the result of the match as played. Otherwise, this market resolves 50-50, regardless of whether the match is subsequently played.\n\nIf the match begins but is not completed, and one team wins due to the opponent's forfeiture, disqualification, or walkover, this market will resolve to the team who wins. \n\nIf the match ends in a forfeit, disqualification, or walkover (team withdraws before the start and the other wins automatically), this market will resolve to 50-50. \n\nThe resolution source for this market will be official information from https://hltv.org. However, if https://hltv.org has not published final results within 2 hours after the event’s conclusion, a consensus of credible reporting may be used instead including video evidence.\n\nIn cases where a team’s listed name includes minor discrepancies from the resolution source, this market will resolve based on the underlying real-world match rather than exact name matching. Recognizable abbreviations, alternate or erroneous spellings, sponsor tags, affiliate or academy designations, regional identifiers, and minor formatting differences will be treated as referring to the same team, provided the intended team can be clearly and uniquely identified within the relevant competition. If a listed team name has no reasonable connection to any participating team, or if it matches or could reasonably refer to another team in the same competition such that the intended team cannot be unambiguously determined, this market will resolve 50-50.",
+   "enableNegRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://kick.com/cct_cs3"
+  },
+  "venue": "POLYMARKET_INTL",
+  "market": {
+   "slug": "cs2-isg-reda-2026-11-10-game2",
+   "endDate": "2026-11-11T01:20:00Z",
+   "negRisk": false,
+   "outcomes": "[\"Isurus\", \"RED Canids Academy\"]",
+   "question": "Counter-Strike: Isurus vs RED Canids Academy - Map 2 Winner",
+   "startDate": "2026-11-09T06:25:30Z",
+   "conditionId": "0x7a42e5012e63029215cc1b7c2d5e19c0765d24bc4c683396331ce9537a4bf87f",
+   "description": "This market refers to the Counter-Strike Round 4 match between Isurus and RED Canids Academy in the CCT South America Group Stage, initially scheduled for November 10, 2026 at 2:00 PM ET.\n\nThis market will resolve to \"Isurus\" if Isurus win Map 2 against RED Canids Academy.\n\nThis market will resolve to \"RED Canids Academy\" if RED Canids Academy win Map 2 against Isurus.\n\nIf the match begins but is not completed, and Map 2 is concluded with a winner determined, this market will resolve based on the completed Map 2. \n\nIf Map 2 is not completed for any reason, this market will resolve 50-50. \n\nIf the match is canceled (not played at all), this market will resolve 50-50.\n\nIf the match is postponed, it must be rescheduled to a start time on or before November 24, 2026 at 11:59 PM ET (14 calendar days after the originally scheduled start of November 10, 2026 at 2:00 PM ET). If, by that deadline, the most recently announced rescheduled start time is on or before the deadline, this market resolves based on the result of the match as played. Otherwise, this market resolves 50-50, regardless of whether the match is subsequently played.\n\nThe resolution source for this market will be official information from https://hltv.org. However, if https://hltv.org has not published final results within 2 hours after the event’s conclusion, a consensus of credible reporting may be used instead including video evidence.",
+   "gameStartTime": "2026-11-10 19:20:00+00",
+   "eventStartTime": "2026-11-10T19:20:00Z",
+   "groupItemTitle": "Map 2 Winner",
+   "resolutionSource": "https://hltv.org",
+   "sportsMarketType": "child_moneyline"
+  },
+  "outcome": "RED Canids Academy",
+  "token_id": "46375810590871031046282348191985449475360952508161413478401502772937454996858"
+ },
+ "pmi-spaced-outcome": {
+  "event": {
+   "slug": "cs2-ssins-phanto-2026-11-06",
+   "title": "Counter-Strike: Saint Sinners vs  Phantom Academy (BO3) - CCT Europe Closed Qualifier: Series Group D",
+   "endDate": "2026-11-07T01:00:00Z",
+   "negRisk": false,
+   "startDate": "2026-11-03T08:36:16Z",
+   "seriesSlug": "counter-strike",
+   "description": "This market refers to the Counter-Strike match between Saint Sinners and  Phantom Academy in the CCT Europe Closed Qualifier: Series Group D, initially scheduled for November 6, 2026 at 1:00 PM ET.\n\nThis market will resolve to \"Saint Sinners\" if Saint Sinners win the match against  Phantom Academy.\n\nThis market will resolve to \" Phantom Academy\" if  Phantom Academy win the match against Saint Sinners.\n\nIf the match is canceled (not played at all) or ends in a tie, this market will resolve to 50-50.\n\nIf the match is postponed, it must be rescheduled to a start time on or before November 20, 2026 at 11:59 PM ET (14 calendar days after the originally scheduled start of November 6, 2026 at 1:00 PM ET). If, by that deadline, the most recently announced rescheduled start time is on or before the deadline, this market resolves based on the result of the match as played. Otherwise, this market resolves 50-50, regardless of whether the match is subsequently played.\n\nIf the match begins but is not completed, and one team wins due to the opponent's forfeiture, disqualification, or walkover, this market will resolve to the team who wins. \n\nIf the match ends in a forfeit, disqualification, or walkover (team withdraws before the start and the other wins automatically), this market will resolve to 50-50. \n\nThe resolution source for this market will be official information from https://hltv.org. However, if https://hltv.org has not published final results within 2 hours after the event’s conclusion, a consensus of credible reporting may be used instead including video evidence.\n\nIn cases where a team’s listed name includes minor discrepancies from the resolution source, this market will resolve based on the underlying real-world match rather than exact name matching. Recognizable abbreviations, alternate or erroneous spellings, sponsor tags, affiliate or academy designations, regional identifiers, and minor formatting differences will be treated as referring to the same team, provided the intended team can be clearly and uniquely identified within the relevant competition. If a listed team name has no reasonable connection to any participating team, or if it matches or could reasonably refer to another team in the same competition such that the intended team cannot be unambiguously determined, this market will resolve 50-50.",
+   "enableNegRisk": false,
+   "negRiskAugmented": false,
+   "resolutionSource": "https://kick.com/cct_cs2"
+  },
+  "venue": "POLYMARKET_INTL",
+  "market": {
+   "slug": "cs2-ssins-phanto-2026-11-06-game1",
+   "endDate": "2026-11-07T01:00:00Z",
+   "negRisk": false,
+   "outcomes": "[\"Saint Sinners\", \" Phantom Academy\"]",
+   "question": "Counter-Strike: Saint Sinners vs  Phantom Academy - Map 1 Winner",
+   "startDate": "2026-11-03T08:36:16Z",
+   "conditionId": "0x03c0ec85869e218c5496f30b3fa6b897fdb2e53b6c1997c5a552db016d49593a",
+   "description": "This market refers to the Counter-Strike match between Saint Sinners and  Phantom Academy in the CCT Europe Closed Qualifier: Series Group D, initially scheduled for November 6, 2026 at 1:00 PM ET.\n\nThis market will resolve to \"Saint Sinners\" if Saint Sinners win Map 1 against  Phantom Academy.\n\nThis market will resolve to \" Phantom Academy\" if  Phantom Academy win Map 1 against Saint Sinners.\n\nIf the match begins but is not completed, and Map 1 is concluded with a winner determined, this market will resolve based on the completed Map 1. \n\nIf Map 1 is not completed for any reason, this market will resolve 50-50. \n\nIf the match is canceled (not played at all), this market will resolve 50-50.\n\nIf the match is postponed, it must be rescheduled to a start time on or before November 20, 2026 at 11:59 PM ET (14 calendar days after the originally scheduled start of November 6, 2026 at 1:00 PM ET). If, by that deadline, the most recently announced rescheduled start time is on or before the deadline, this market resolves based on the result of the match as played. Otherwise, this market resolves 50-50, regardless of whether the match is subsequently played.\n\nThe resolution source for this market will be official information from https://hltv.org. However, if https://hltv.org has not published final results within 2 hours after the event’s conclusion, a consensus of credible reporting may be used instead including video evidence.",
+   "gameStartTime": "2026-11-06 19:00:00+00",
+   "eventStartTime": "2026-11-06T19:00:00Z",
+   "groupItemTitle": "Map 1 Winner",
+   "resolutionSource": "https://hltv.org",
+   "sportsMarketType": "child_moneyline"
+  },
+  "outcome": "Saint Sinners",
+  "token_id": "48287955818202510455879132050694632064816426366156884651794341928672027967762"
+ },
+ "pmus-match-long": {
+  "leg": "long",
+  "event": {
+   "slug": "cs2-isg-reda-2026-11-10",
+   "title": "Isurus vs. RED Canids Academy",
+   "ticker": "cs2-isg-reda-2026-11-10",
+   "endDate": "2026-11-11T04:59:00Z",
+   "category": "sports",
+   "startDate": "2026-11-10T19:20:00Z",
+   "seriesSlug": "cs2",
+   "description": "Isurus vs. RED Canids Academy"
+  },
+  "sides": [
+   {
+    "long": true,
+    "identifier": "aec-cs2-isg-reda-2026-11-10",
+    "description": "Isurus",
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "long": false,
+    "identifier": "aec-cs2-isg-reda-2026-11-10",
+    "description": "RED Canids Academy",
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US",
+  "market": {
+   "slug": "aec-cs2-isg-reda-2026-11-10",
+   "title": "Isurus vs RED Canids Academy",
+   "endDate": "2026-11-25T00:00:00Z",
+   "outcomes": "[\"Isurus\",\"RED Canids Academy\"]",
+   "question": "Who will win in the upcoming esports event Isurus vs RED Canids Academy scheduled for November 10, 2026 at 7:00 PM UTC?",
+   "startDate": "2026-11-09T05:00:21Z",
+   "marketType": "moneyline",
+   "description": "This market will settle to the winner of the Isurus vs RED Canids Academy CS2 match scheduled for November 10, 2026 at 2:00PM ET (as of the listing of the event's first instrument). If the match ends in a tie, the market will settle to $0.50. If the match does not begin due to a forfeit or disqualification, the market will settle to the last fair market price. If the match is delayed, postponed, suspended or otherwise rescheduled to a date and time not within two days of the originally scheduled date and time, the market will settle to the last fair market price. Outcome sourced from Valve.",
+   "gameStartTime": "2026-11-10T19:20:00Z",
+   "sportsMarketType": "esports_match_winner",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_MONEYLINE"
+  }
+ },
+ "pmus-match-short": {
+  "leg": "short",
+  "event": {
+   "slug": "cs2-isg-reda-2026-11-10",
+   "title": "Isurus vs. RED Canids Academy",
+   "ticker": "cs2-isg-reda-2026-11-10",
+   "endDate": "2026-11-11T04:59:00Z",
+   "category": "sports",
+   "startDate": "2026-11-10T19:20:00Z",
+   "seriesSlug": "cs2",
+   "description": "Isurus vs. RED Canids Academy"
+  },
+  "sides": [
+   {
+    "long": true,
+    "identifier": "aec-cs2-isg-reda-2026-11-10",
+    "description": "Isurus",
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "long": false,
+    "identifier": "aec-cs2-isg-reda-2026-11-10",
+    "description": "RED Canids Academy",
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US",
+  "market": {
+   "slug": "aec-cs2-isg-reda-2026-11-10",
+   "title": "Isurus vs RED Canids Academy",
+   "endDate": "2026-11-25T00:00:00Z",
+   "outcomes": "[\"Isurus\",\"RED Canids Academy\"]",
+   "question": "Who will win in the upcoming esports event Isurus vs RED Canids Academy scheduled for November 10, 2026 at 7:00 PM UTC?",
+   "startDate": "2026-11-09T05:00:21Z",
+   "marketType": "moneyline",
+   "description": "This market will settle to the winner of the Isurus vs RED Canids Academy CS2 match scheduled for November 10, 2026 at 2:00PM ET (as of the listing of the event's first instrument). If the match ends in a tie, the market will settle to $0.50. If the match does not begin due to a forfeit or disqualification, the market will settle to the last fair market price. If the match is delayed, postponed, suspended or otherwise rescheduled to a date and time not within two days of the originally scheduled date and time, the market will settle to the last fair market price. Outcome sourced from Valve.",
+   "gameStartTime": "2026-11-10T19:20:00Z",
+   "sportsMarketType": "esports_match_winner",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_MONEYLINE"
+  }
+ },
+ "pmus-match-event-titled-map": {
+  "leg": "long",
+  "event": {
+   "slug": "cs2-pcific-mor-2026-11-08",
+   "title": "WRAITH PCIFIC vs. Morrow Esports  Map 2",
+   "ticker": "cs2-pcific-mor-2026-11-08",
+   "endDate": "2026-11-09T04:59:00Z",
+   "category": "sports",
+   "startDate": "2026-11-08T12:00:00Z",
+   "seriesSlug": "cs2",
+   "description": "WRAITH PCIFIC vs. Morrow Esports  Map 2"
+  },
+  "sides": [
+   {
+    "long": true,
+    "identifier": "aec-cs2-pcific-mor-2026-11-08",
+    "description": "WRAITH PCIFIC",
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "long": false,
+    "identifier": "aec-cs2-pcific-mor-2026-11-08",
+    "description": "MORROW",
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US",
+  "market": {
+   "slug": "aec-cs2-pcific-mor-2026-11-08",
+   "title": "WRAITH PCIFIC vs MORROW",
+   "endDate": "2026-11-22T16:30:00Z",
+   "outcomes": "[\"WRAITH PCIFIC\",\"MORROW\"]",
+   "question": "Who will win in the upcoming esports event WRAITH PCIFIC vs MORROW scheduled for November 8, 2026 at 11:30 AM UTC?",
+   "startDate": "2026-11-05T12:32:54Z",
+   "marketType": "moneyline",
+   "description": "This market will settle to the winner of the WRAITH PCIFIC vs MORROW CS2 match scheduled for November 8, 2026 at 6:30AM ET (as of the listing of the event's first instrument). If the match ends in a tie, the market will settle to $0.50. If the match does not begin due to a forfeit or disqualification, the market will settle to the last fair market price. If the match is delayed, postponed, suspended or otherwise rescheduled to a date and time not within two days of the originally scheduled date and time, the market will settle to the last fair market price. Outcome sourced from Valve.",
+   "gameStartTime": "2026-11-08T12:00:00Z",
+   "sportsMarketType": "esports_match_winner",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_MONEYLINE"
+  }
+ },
+ "pmus-map-long": {
+  "leg": "long",
+  "event": {
+   "slug": "cs2-pf-dnt-2026-10-31",
+   "title": "PsychoFace vs. Donstu Esports",
+   "ticker": "cs2-pf-dnt-2026-10-31",
+   "endDate": "2026-11-01T03:59:00Z",
+   "category": "sports",
+   "startDate": "2026-10-31T09:00:00Z",
+   "seriesSlug": "cs2",
+   "description": "PsychoFace vs. Donstu Esports"
+  },
+  "sides": [
+   {
+    "long": true,
+    "identifier": "astatc-cs2-pf-dnt-2026-10-31-map1",
+    "description": "Yes",
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "long": false,
+    "identifier": "astatc-cs2-pf-dnt-2026-10-31-map1",
+    "description": "No",
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US",
+  "market": {
+   "slug": "astatc-cs2-pf-dnt-2026-10-31-map1",
+   "title": "PsychoFace wins map 1",
+   "endDate": "2026-11-14T14:00:00Z",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "Will PsychoFace win Map 1 vs Donstu Esports?",
+   "startDate": "2026-10-28T16:35:24Z",
+   "marketType": "props",
+   "description": "This market will settle to the winner of Map 1 in the PsychoFace vs Donstu Esports CS2 match scheduled for October 31, 2026 at 5:00AM ET (as of the listing of the event's first instrument). If the match does not begin due to a forfeit or disqualification, the market will settle to the last fair market price. If a team forfeits, concedes, or is disqualified during the match, and the market can be unconditionally settled based on play already completed, the market will settle accordingly; otherwise the market will settle to the last fair market price. If the match is delayed, postponed, suspended or otherwise rescheduled to a date and time not within two days of the originally scheduled date and time, the market will settle to the last fair market price. Outcome sourced from Valve.",
+   "gameStartTime": "2026-10-31T09:00:00Z",
+   "sportsMarketType": "esports_map_winner_1",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_PROP"
+  }
+ },
+ "pmus-map-short": {
+  "leg": "short",
+  "event": {
+   "slug": "cs2-pf-dnt-2026-10-31",
+   "title": "PsychoFace vs. Donstu Esports",
+   "ticker": "cs2-pf-dnt-2026-10-31",
+   "endDate": "2026-11-01T03:59:00Z",
+   "category": "sports",
+   "startDate": "2026-10-31T09:00:00Z",
+   "seriesSlug": "cs2",
+   "description": "PsychoFace vs. Donstu Esports"
+  },
+  "sides": [
+   {
+    "long": true,
+    "identifier": "astatc-cs2-pf-dnt-2026-10-31-map1",
+    "description": "Yes",
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "long": false,
+    "identifier": "astatc-cs2-pf-dnt-2026-10-31-map1",
+    "description": "No",
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US",
+  "market": {
+   "slug": "astatc-cs2-pf-dnt-2026-10-31-map1",
+   "title": "PsychoFace wins map 1",
+   "endDate": "2026-11-14T14:00:00Z",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "Will PsychoFace win Map 1 vs Donstu Esports?",
+   "startDate": "2026-10-28T16:35:24Z",
+   "marketType": "props",
+   "description": "This market will settle to the winner of Map 1 in the PsychoFace vs Donstu Esports CS2 match scheduled for October 31, 2026 at 5:00AM ET (as of the listing of the event's first instrument). If the match does not begin due to a forfeit or disqualification, the market will settle to the last fair market price. If a team forfeits, concedes, or is disqualified during the match, and the market can be unconditionally settled based on play already completed, the market will settle accordingly; otherwise the market will settle to the last fair market price. If the match is delayed, postponed, suspended or otherwise rescheduled to a date and time not within two days of the originally scheduled date and time, the market will settle to the last fair market price. Outcome sourced from Valve.",
+   "gameStartTime": "2026-10-31T09:00:00Z",
+   "sportsMarketType": "esports_map_winner_1",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_PROP"
+  }
+ },
+ "pmus-doubleheader": {
+  "leg": "long",
+  "event": {
+   "slug": "cs2-falf-maybe-2026-11-03-dh2",
+   "title": "Falcons Force vs. maybe",
+   "ticker": "cs2-falf-maybe-2026-11-03-dh2",
+   "endDate": "2026-11-04T04:59:00Z",
+   "category": "sports",
+   "startDate": "2026-11-03T18:00:00Z",
+   "seriesSlug": "cs2",
+   "description": "Falcons Force vs. maybe"
+  },
+  "sides": [
+   {
+    "long": true,
+    "identifier": "astatc-cs2-falf-maybe-2026-11-03-dh2-map1",
+    "description": "Yes",
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   },
+   {
+    "long": false,
+    "identifier": "astatc-cs2-falf-maybe-2026-11-03-dh2-map1",
+    "description": "No",
+    "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+   }
+  ],
+  "venue": "POLYMARKET_US",
+  "market": {
+   "slug": "astatc-cs2-falf-maybe-2026-11-03-dh2-map1",
+   "title": "Falcons Force wins map 1",
+   "endDate": "2026-11-17T23:00:00Z",
+   "outcomes": "[\"Yes\",\"No\"]",
+   "question": "Will Falcons Force win Map 1 vs maybe?",
+   "startDate": "2026-11-03T15:05:15Z",
+   "marketType": "props",
+   "description": "This market will settle to the winner of Map 1 in the Falcons Force vs maybe CS2 match scheduled for November 3, 2026 at 1:00PM ET (as of the listing of the event's first instrument). If the match does not begin due to a forfeit or disqualification, the market will settle to the last fair market price. If a team forfeits, concedes, or is disqualified during the match, and the market can be unconditionally settled based on play already completed, the market will settle accordingly; otherwise the market will settle to the last fair market price. If the match is delayed, postponed, suspended or otherwise rescheduled to a date and time not within two days of the originally scheduled date and time, the market will settle to the last fair market price. Outcome sourced from Valve.",
+   "gameStartTime": "2026-11-03T18:00:00Z",
+   "sportsMarketType": "esports_map_winner_1",
+   "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_PROP"
+  }
+ }
+}

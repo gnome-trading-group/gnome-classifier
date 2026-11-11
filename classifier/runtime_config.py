@@ -44,6 +44,7 @@ from classifier.constants import (
     DEFAULT_SUBJECT_MERGE_INTERVAL_SECONDS,
     DEFAULT_SUBJECT_MERGE_JUDGE_LIMIT,
     DEFAULT_SUBJECT_MERGE_MAX_PRICE_GAP,
+    DEFAULT_KEY_RECONCILE_JUDGE_LIMIT,
     DEFAULT_SUBJECT_MERGE_MIN_VOLUME,
     DEFAULT_SUBJECT_MERGE_MODELS,
     DEFAULT_VOYAGE_EMBEDDING_MODEL,
@@ -69,6 +70,9 @@ class FeatureFlags:
     # subject_auto_merge_enabled it also makes the ones that pass every check, otherwise it only logs them.
     subject_merge_enabled: bool = False
     subject_auto_merge_enabled: bool = False
+    # The key reconcile pass, after the merge pass while idle: Claude judges which keys on a subject name one entity
+    # (paid) and the joins that pass the merge pass's checks are stored as the subject's key aliases.
+    key_reconcile_enabled: bool = False
     stale_cleanup_enabled: bool = False
     settlement_enabled: bool = False
     reactivation_enabled: bool = False
@@ -121,6 +125,7 @@ class Processing:
     subject_merge_judge_limit: int = DEFAULT_SUBJECT_MERGE_JUDGE_LIMIT
     subject_merge_min_volume: float = DEFAULT_SUBJECT_MERGE_MIN_VOLUME
     subject_merge_max_price_gap: float = DEFAULT_SUBJECT_MERGE_MAX_PRICE_GAP
+    key_reconcile_judge_limit: int = DEFAULT_KEY_RECONCILE_JUDGE_LIMIT
     drift_sample_size: int = DEFAULT_DRIFT_SAMPLE_SIZE
     stale_miss_threshold: int = DEFAULT_STALE_MISS_THRESHOLD
     stale_min_feed_ratio: float = DEFAULT_STALE_MIN_FEED_RATIO
@@ -151,12 +156,21 @@ class WorkerParams:
 
 
 @dataclasses.dataclass
+class RelationshipScope:
+    # The events Claude reads propositions for and the merge judge looks at: any listed category or tag. Both empty is
+    # every event. Code readers and derivation always cover every event (they cost nothing).
+    categories: list[str] = dataclasses.field(default_factory=list)
+    tags: list[str] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
 class ClassifierConfig:
     feature_flags: FeatureFlags = dataclasses.field(default_factory=FeatureFlags)
     models: Models = dataclasses.field(default_factory=Models)
     thresholds: Thresholds = dataclasses.field(default_factory=Thresholds)
     processing: Processing = dataclasses.field(default_factory=Processing)
     worker_params: WorkerParams = dataclasses.field(default_factory=WorkerParams)
+    relationship_scope: RelationshipScope = dataclasses.field(default_factory=RelationshipScope)
 
 
 def _from_dict(cls, data: dict):

@@ -20,6 +20,9 @@ Python 3.13, Poetry, from the repo root:
 - `poetry run eval-subject-merges` - score the subject merge judge against the 182 golden subject pairs
   (`tests/fixtures/subjects/pairs.jsonl`; paid model calls; `--save F` / `--judgments F` to re-score free); fails
   under 99% SAME precision
+- `poetry run eval-key-reconcile` - score the key judge against the hand-labelled slots in
+  `tests/fixtures/keys/slots.jsonl` (paid, about 3.5¢ a run; `--save F` / `--judgments F` to re-score free); fails under
+  99% join precision or with a slot unanswered
 - `poetry run dry-run <fetch|canonicalize|entities> ...` - run stages locally against in-memory
   stubs; real Postgres/Redis only when `DATABASE_URL`/`REDIS_URL` are set. Flags in the `scripts/dry_run.py` docstring.
 - `poetry run bootstrap ...` - one-time full load into the real registry (writes for real; see script header)
@@ -46,7 +49,8 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
 - `classifier/workers/` - `runner.py` (Click entrypoint, the Docker `ENTRYPOINT`), `fetch.py` (`FetchRunner`, the
   timed loop), `base.py` (SQS batch loop for the other three), `config.py` (env vars, client init)
 - `classifier/stages/` - the logic per step: `fetch` (diff + volume gate), `entities`, `canonicalize`,
-  `propositions` (the relationships pass), `subject_merges` (the merge pass), `resolve`, `stale`, `settle`, `reactivate`, `fees`, `volume` (events' 24h
+  `propositions` (the relationships pass), `subject_merges` (the merge pass), `key_reconcile` (the key reconcile pass),
+  `resolve`, `stale`, `settle`, `reactivate`, `fees`, `volume` (events' 24h
   volume to the registry)
 - `classifier/adapters/` - one per venue (`kalshi`, `polymarket_intl`, `polymarket_us`, `hyperliquid`), registered in
   `ADAPTERS`; `types.py` (`AdapterContract`, `MarketState`), `settlement.py`
@@ -54,7 +58,8 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   per venue: `kalshi`, `polymarket_us`, `polymarket_intl`, `hyperliquid`; shared parsing in `common`), `llm` (Claude
   extractor), `claude` (structured Claude requests with the provider fallback), `extract` (venue first, LLM for the
   rest, binary second sides negated), `subjects` (candidate subjects, embedding indexes), `merges` (duplicate subjects
-  across venues: candidates, the Claude judge, the consequence check), `quotes` (top of book for the merge price
+  across venues: candidates, the Claude judge, the consequence check), `key_reconcile` (one entity spelled two ways on a
+  subject: unmatched slots, the Claude key judge, aliases), `key_evaluation`, `quotes` (top of book for the merge price
   check), `derive` (pure derivation), `drift`, `evaluation`,
   `merge_evaluation`; `classifier/relationships/evaluation.py` -
   scores relationships against `tests/fixtures/relationships/pairs.jsonl`
@@ -84,8 +89,10 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   the model sometimes keys the winner as their own opponent; Polymarket US game spreads, whose title names the team
   the line favours while the market asks whether the event's first team covers it, so a margin keyed to neither team is left unknown; Polymarket Intl game spreads,
   set from the rules' "win the game by N or more" on the team the model keyed, which the model sometimes reads as the
-  moneyline, and their map rounds handicaps likewise from "wins Map N by M or more rounds" (`margin:<team>`, scope
-  `map:N`, however the model spelled the margin) and series map handicaps from "wins N or more maps than"; Polymarket
+  moneyline, their half and quarter spreads from "outscore … by N or more points in the first half" (scoped
+  `first_half`, `first_quarter`), and their map rounds handicaps likewise from "wins Map N by M or more rounds" (`margin:<team>`, scope
+  `map:N`, however the model spelled the margin) and series map handicaps from "wins N or more maps than" (which team a
+  model's key stands for is matched by name, accents folded, a key starting any word of the name counting); Polymarket
   Intl map winners ("- Map 2 Winner"), scoped `map:2` whatever the model scoped them; Kalshi round-of-finish rungs ("Fight ends before round 4?"), read as
   `end_round` under the title's number so the rungs form a ladder; and on every venue, a title naming the round a market counts, "First Round" or "(1st Round)", scopes the
   reading to `first_round`, so it never meets a reading naming no round: topping a first round is not winning, and a
@@ -101,7 +108,10 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   nearest start time (`sm.event.start_time`) only when some venue lists two; contracts no start time places are left
   out. A game's totals and margins compare whatever window start the readings carry, and one team's margin compares
   with its opponent's mirrored ("A by more than 7.5" is "B by less than -7.5"; `opposite_margins`), a margin all below
-  zero implying the opponent wins, for two teams some event lists as each other's opponents (never a Draw). A contest result (`margin`, `seats`,
+  zero implying the opponent wins, for two teams some event lists as each other's opponents (never a Draw). Where a
+  game event's only two outcomes are two teams winning at one scope (`Contract.event_size` says none is unread), one
+  team not winning is the other winning: Polymarket US's one-team map markets' No side meets Kalshi's other team. A
+  re-derivation never deletes a row to a settled contract (the registry's reconcile keeps it). A contest result (`margin`, `seats`,
   `vote_share`, `governors`, ...; not Senate seats, where "held" and "won" differ) is one reading whatever its
   observation, and different deadlines compare flagged `DEADLINE_DIFFERS`. Deadlines within 12 hours on two venues
   are one deadline flagged `DEADLINE_TIMEZONE_DIFFERS`; one venue's are a ladder. Margins and totals counted in
@@ -113,6 +123,15 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   builder exchanges included): an open touch is still on the side it started from. Only `EQUIVALENT` and `IMPLIES`
   exist; exclusion and complements come from `contract_type` and event membership. A field the extractor couldn't
   determine is in `unknown` and blocks every rule that needs it.
+- Key aliases: one entity or quantity a subject spells two ways (`phi` and `philadelphia`) is joined by the subject's
+  stored key aliases (registry `sm.subject_key_alias`, `GET /proposition-subjects?subjectIds=&keyAliases=true`, `PATCH
+  /proposition-subjects`), which derivation applies before canonicalization (`canonical.apply_stored`): chains read
+  through, and an alias between two outcomes of one event is left out. Readings are never rewritten (a re-read by code
+  would undo it). The merge pass stores its judge's key maps as MERGE aliases tied to the merge (an unmerge removes
+  them); the key reconcile stores RECONCILE ones; a person may set MANUAL ones. A party joined to its nominee (once the
+  venues' labels show the nomination) is keyed by the party and flagged `PARTY_NOMINEE`, a flag every relationship
+  resting on it carries. An alias change marks the subject's propositions changed, so the subject re-derives whole.
+  Applying 066 in the registry comes before a classifier that reads the table.
 - An adapter must never move a security to another event; `entities.py` refuses and logs `already in event`
   (`IdentityRegressions`). Changing how an adapter derives `exchange_event_native_id` or `exchange_security_id` splits
   or orphans markets that collectors and sessions already reference.
@@ -143,7 +162,16 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   pass in Relationships, every 15 minutes while idle: Claude judges duplicate subjects, held-back merges go to the
   registry's `proposition-subjects/merge-candidates` queue; paid, about $0.0005 a pair), `subject_auto_merge_enabled`
   (that pass also makes the merges that pass every check, as `classifier:subject-merger`; off, it only logs them),
-  `debug`. `RuntimeConfig` polls `/config/classifier` at most every 30s and keeps the last good config on failure. Code defaults only apply to keys the controller lacks.
+  `key_reconcile_enabled` (the key reconcile pass, after the merge pass in the same idle slot: Claude judges which keys
+  on a subject name one entity, up to `processing.key_reconcile_judge_limit` slots a pass, and the joins that pass the
+  merge pass's collision and price checks are stored as `classifier:key-reconcile`; paid, about $0.0003 a slot),
+  `debug`. `relationship_scope` (`categories`, `tags`; both empty, the default, is every event) limits the paid
+  relationship work to events in any listed category or carrying any listed tag (`propositions/scope.py`): Claude
+  reads a request group's propositions only if one of its events is in scope, the merge judge only sees pairs
+  with a subject in scope, and the key judge only subjects in scope. Code readers and derivation still cover every event. Contracts left out are parked like
+  they are while the LLM is off, with the scope's fingerprint, so changing the scope makes them due again. Each
+  scope has its own merge sweep marker, so a new scope looks up neighbours for all its subjects once.
+  `RuntimeConfig` polls `/config/classifier` at most every 30s and keeps the last good config on failure. Code defaults only apply to keys the controller lacks.
 - LLMs: every Claude call (proposition extraction in Relationships, canonicalization in Normalize, the subject merge
   judge) goes through `classifier/client/claude.py` with one provider, `models.provider` (`anthropic` API key, or
   `bedrock` via Bedrock's Messages endpoint, IAM `bedrock-mantle:*`), and `models.fallback_provider` on an outage.
@@ -155,7 +183,9 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   `fetch:stale_tracker`, `fetch:stale_feed_counts` (each venue's event count on its last fetch that counted misses),
   `exchange_events`, `canon:*`, `prop:attempt:*` (proposition read backoff), `merge:judged:*`
   (what the merge pass made of each subject pair: judgment, what it rested on, outcome) and
-  `merge:last-sweep:<MERGE_RULES_VERSION>` (30 days each; losing them costs one full re-judging sweep, about $5–8).
+  `merge:last-sweep:<MERGE_RULES_VERSION>[:<scope hash>]` (30 days each; losing them costs one full re-judging sweep, about $5–8),
+  `keys:judged:<RECONCILE_RULES_VERSION>:<slot fingerprint>` (what the key reconcile made of a slot) and
+  `keys:last-sweep:<RECONCILE_RULES_VERSION>:<scope hash>` (30 days each; losing them re-judges every slot once, cents).
   Every key expires, since the node's `volatile-lru` only evicts keys that do. No bastion, SSM or ECS Exec reaches it, and
   `poetry run tunnel` is broken. TODO(verify): current access path; previously a temporary EC2 in the worker subnet/SG
   running a script from user-data.

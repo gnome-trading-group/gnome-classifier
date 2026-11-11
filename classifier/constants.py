@@ -49,6 +49,8 @@ DEFAULT_SUBJECT_MERGE_INTERVAL_SECONDS = 900
 DEFAULT_SUBJECT_MERGE_JUDGE_LIMIT = 1000
 DEFAULT_SUBJECT_MERGE_MIN_VOLUME = 0.0
 DEFAULT_SUBJECT_MERGE_MAX_PRICE_GAP = 0.20
+# Unmatched key slots the key reconcile judges per pass (about $0.0003 a slot with Haiku; busiest subjects first).
+DEFAULT_KEY_RECONCILE_JUDGE_LIMIT = 200
 DEFAULT_VOYAGE_EMBEDDING_MODEL = "voyage-3"
 
 # Subjects due a derivation that one relationships pass derives; the rest wait for the next pass.

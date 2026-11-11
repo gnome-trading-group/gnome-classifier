@@ -17,6 +17,8 @@ class ExtractionInput:
     expiry: str | None
     source: dict
     source_hash: str
+    category: str | None = None
+    tags: tuple[str, ...] = ()
 
 
 def _outcomes(market: dict) -> list:

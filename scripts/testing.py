@@ -10,6 +10,7 @@ from classifier.cache.base import ClassifierCache
 from classifier.client.claude import Answer, ClaudeAsker
 from classifier.db import EventLink
 from classifier.propositions.attempts import Attempt
+from classifier.propositions.canonical import StoredAlias
 from classifier.propositions.derive import Contract
 from classifier.propositions.inputs import ExtractionInput
 from classifier.propositions.subjects import KnownSubject
@@ -460,6 +461,8 @@ class StubDB:
 
     def __init__(self, registry: StubRegistry):
         self._r = registry
+        # {subject id: its stored key aliases}, set by tests.
+        self.key_aliases: dict[int, list[StoredAlias]] = {}
 
     def get_exchange_event(self, exchange_id: int, native_id: str) -> int | None:
         for ev in self._r._events:
@@ -693,7 +696,8 @@ class StubDB:
                 security_id=sid, exchange=self._exchange_code(stored["exchange_id"]), event_id=event.event_id,
                 contract_type=ContractType(security.contract_type), event_title=event.title,
                 outcome_label=ec.outcome_label, description=event.description, expiry=event.expiry,
-                source=stored["source"], source_hash=stored["source_hash"],
+                source=stored["source"], source_hash=stored["source_hash"], category=event.category,
+                tags=tuple(event.tags or ()),
             ))
         return out
 
@@ -744,6 +748,9 @@ class StubDB:
         if len(siblings) != 2 or not set(siblings) <= binary:
             return None
         return next(sid for sid in siblings if sid != security_id)
+
+    def get_subject_key_aliases(self, subject_id: int) -> list[StoredAlias]:
+        return list(self.key_aliases.get(subject_id, ()))
 
     def get_subject_contracts(self, subject_id: int) -> tuple[list[Contract], set[int], datetime]:
         subject = self._r._subject_by_id(subject_id)

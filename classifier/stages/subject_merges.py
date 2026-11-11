@@ -18,8 +18,8 @@ Each pass:
      near 0.50 whatever it is worth. The price check is a second opinion, not a gate: a relationship missing the bid
      or ask it needs (a venue that couldn't be read, an empty side, Hyperliquid) isn't checked, and a merge with none
      priced goes ahead.
-4. After a merge, renames the merged subject's entity and measure keys to the ones the kept subject uses, as the judge
-   mapped them, so its propositions compare with the kept subject's (`ggo` and `goias`).
+4. After a merge, stores the judge's key mapping as the kept subject's key aliases (`ggo` read as `goias`), tied to the
+   merge so an unmerge removes them. Readings are never rewritten: a re-read by code would undo it.
 
 What each pair came to is remembered in Redis with what it rested on. A pair is judged again when either subject's
 venues, entities or measures change; a pair that gained nothing is checked again when either subject's contracts
@@ -44,6 +44,7 @@ from gnomepy.registry import RegistryClient
 
 from classifier.db import ClassifierDB
 from classifier.propositions.derive import EQUIVALENT, Contract, Derived
+from classifier.propositions.key_reconcile import resolved
 from classifier.propositions.merges import (
     Judgment,
     MergeCheck,
@@ -51,13 +52,13 @@ from classifier.propositions.merges import (
     SubjectMergeJudge,
     SubjectProfile,
     Verdict,
-    align,
     candidate_pairs,
     check_merge,
-    key_maps,
+    merge_aliases,
     with_samples,
 )
 from classifier.propositions.quotes import ListingRef, Quote, read_quotes
+from classifier.propositions.scope import EVERYTHING, LLMScope
 from classifier.propositions.subjects import entity_of
 from classifier.propositions.types import Proposition
 
@@ -76,6 +77,13 @@ SWEEP_OVERLAP = timedelta(hours=1)
 _SEASON_KEY = re.compile(r"^[a-z0-9.-]+:[a-z0-9]+-\d{4}(-\d{2})?$")
 _PAIR_KEY = "merge:judged:{}|{}"
 _SWEEP_KEY = f"merge:last-sweep:{MERGE_RULES_VERSION}"
+
+
+def _sweep_key(scope: str) -> str:
+    """One sweep per scope, so subjects a new scope takes in get their neighbours looked up."""
+    if scope == EVERYTHING.fingerprint():
+        return _SWEEP_KEY
+    return f"{_SWEEP_KEY}:{hashlib.sha256(scope.encode()).hexdigest()[:16]}"
 
 QuoteReader = Callable[[list[ListingRef]], dict[int, Quote]]
 
@@ -119,10 +127,11 @@ class MergeMemory(Protocol):
     def remember(self, pair: tuple[str, str], remembered: Remembered) -> None:
         """Keeps what a pair came to (expiring, as every Redis key here must)."""
 
-    def last_sweep(self) -> datetime | None:
-        """When the last complete sweep started, in the database's `subject_clock` terms."""
+    def last_sweep(self, scope: str) -> datetime | None:
+        """When the last complete sweep under this scope (its fingerprint) started, in the database's `subject_clock`
+        terms."""
 
-    def set_last_sweep(self, at: datetime) -> None:
+    def set_last_sweep(self, at: datetime, scope: str) -> None:
         ...
 
 
@@ -139,12 +148,12 @@ class RedisMergeMemory:
     def remember(self, pair: tuple[str, str], remembered: Remembered) -> None:
         self._redis.set(_PAIR_KEY.format(*pair), json.dumps(remembered.to_json()), ex=MEMORY_TTL_SECONDS)
 
-    def last_sweep(self) -> datetime | None:
-        value = self._redis.get(_SWEEP_KEY)
+    def last_sweep(self, scope: str) -> datetime | None:
+        value = self._redis.get(_sweep_key(scope))
         return datetime.fromisoformat(value) if value else None
 
-    def set_last_sweep(self, at: datetime) -> None:
-        self._redis.set(_SWEEP_KEY, at.isoformat(), ex=MEMORY_TTL_SECONDS)
+    def set_last_sweep(self, at: datetime, scope: str) -> None:
+        self._redis.set(_sweep_key(scope), at.isoformat(), ex=MEMORY_TTL_SECONDS)
 
 
 @dataclasses.dataclass
@@ -163,7 +172,8 @@ class MergePassResult:
     no_gain: int = 0
     season_key: int = 0
     relationships_added: int = 0
-    keys_aligned: int = 0
+    keys_aliased: int = 0
+    outside_scope: int = 0
 
 
 def fingerprint(a: SubjectProfile, b: SubjectProfile) -> str:
@@ -255,7 +265,7 @@ def _contradiction(quotes: dict[int, Quote], antecedent: int, consequent: int) -
     return qa.bid, qb.ask
 
 
-def _price_flags(check: MergeCheck, quotes: dict[int, Quote], max_gap: float) -> list[PriceFlag]:
+def price_flags(check: MergeCheck, quotes: dict[int, Quote], max_gap: float) -> list[PriceFlag]:
     """New relationships the books contradict by more than `max_gap`: an implication whose antecedent bids above its
     consequent's ask (an equivalence is two implications)."""
     flags = []
@@ -271,7 +281,7 @@ def _price_flags(check: MergeCheck, quotes: dict[int, Quote], max_gap: float) ->
     return flags
 
 
-def _listing_refs(db: ClassifierDB, contracts: list[Contract], security_ids: set[int]) -> list[ListingRef]:
+def listing_refs(db: ClassifierDB, contracts: list[Contract], security_ids: set[int]) -> list[ListingRef]:
     venue = {c.security_id: c.venue for c in contracts}
     refs, seen = [], set()
     for _, security_id, _, exchange_security_id in db.get_active_listings_for_securities(sorted(security_ids)):
@@ -281,22 +291,14 @@ def _listing_refs(db: ClassifierDB, contracts: list[Contract], security_ids: set
     return refs
 
 
-def _align_keys(db: ClassifierDB, registry: RegistryClient, alias_id: int, judgment: Judgment) -> int:
-    """Renames the merged subject's entity and measure keys to the kept subject's, as the judge mapped them; returns
-    how many propositions changed. The rows keep the subject they were read onto, so an unmerge still moves them back."""
-    entities, measures = key_maps(judgment)
-    if not entities and not measures:
+def _store_merge_aliases(ctx: "_Context", keep_id: int, merge_log_id: int | None, judgment: Judgment) -> int:
+    aliases = resolved(merge_aliases(judgment), ctx.db.get_subject_key_aliases(keep_id))
+    if not aliases or merge_log_id is None:
         return 0
-    rows = []
-    for security_id, extracted_id, key, fields, method, version, source_hash in db.propositions_extracted_under(alias_id):
-        proposition = Proposition.from_fields(key, fields)
-        aligned = align(proposition, entities, measures)
-        if aligned != proposition:
-            rows.append(dict(security_id=security_id, extracted_subject_id=extracted_id, fields=aligned.to_fields(),
-                             method=method, extractor_version=version, source_hash=source_hash))
-    if rows:
-        registry.upsert_contract_propositions(rows)
-    return len(rows)
+    ctx.registry.change_subject_key_aliases(subject_id=keep_id, actor=MERGE_ACTOR, set=[
+        dict(kind=a.kind, key=a.key, canonical_key=a.canonical_key, flags=list(a.flags), origin="MERGE",
+             merge_log_id=merge_log_id, reason=judgment.reason) for a in aliases])
+    return len(aliases)
 
 
 @dataclasses.dataclass
@@ -322,7 +324,8 @@ def _handle(ctx: _Context, s: _Subjects, a: str, b: str, judgment: Judgment) -> 
     alias_contracts, _, _ = ctx.db.get_subject_contracts(s.ids[alias])
     if not keep_contracts or not alias_contracts:
         return None
-    check = check_merge(keep_contracts, alias_contracts, judgment)
+    check = check_merge(keep_contracts, alias_contracts, judgment, ctx.db.get_subject_key_aliases(s.ids[keep]),
+                        ctx.db.get_subject_key_aliases(s.ids[alias]))
     base = dict(alias_subject_id=s.ids[alias], canonical_subject_id=s.ids[keep], reason=judgment.reason, gain=check.gain)
     entity_map = [list(m) for m in judgment.entity_map]
     if check.new_collisions:
@@ -335,7 +338,7 @@ def _handle(ctx: _Context, s: _Subjects, a: str, b: str, judgment: Judgment) -> 
         return Outcome.NO_GAIN
     contracts = keep_contracts + alias_contracts
     involved = {x for d in check.new_relationships for x in (d.security_id_a, d.security_id_b)}
-    flags = _price_flags(check, ctx.quotes(_listing_refs(ctx.db, contracts, involved)), ctx.max_price_gap)
+    flags = price_flags(check, ctx.quotes(listing_refs(ctx.db, contracts, involved)), ctx.max_price_gap)
     if flags:
         r.queued_price += 1
         ctx.queue.append(dict(base, hold="PRICE", details={
@@ -350,10 +353,11 @@ def _handle(ctx: _Context, s: _Subjects, a: str, b: str, judgment: Judgment) -> 
         logger.info("Subject merge (auto-merge off): %s -> %s, %d relationships: %s",
                     alias, keep, check.gain, judgment.reason)
         return Outcome.WOULD_MERGE
-    ctx.registry.merge_proposition_subjects(from_subject_id=s.ids[alias], into_subject_id=s.ids[keep], actor=MERGE_ACTOR)
+    merge = ctx.registry.merge_proposition_subjects(from_subject_id=s.ids[alias], into_subject_id=s.ids[keep],
+                                                    actor=MERGE_ACTOR)
     r.merged += 1
     r.relationships_added += check.gain
-    r.keys_aligned += _align_keys(ctx.db, ctx.registry, s.ids[alias], judgment)
+    r.keys_aliased += _store_merge_aliases(ctx, s.ids[keep], (merge or {}).get("merge_log_id"), judgment)
     logger.info("Subject merged: %s -> %s, %d relationships: %s", alias, keep, check.gain, judgment.reason)
     return Outcome.MERGED
 
@@ -369,14 +373,23 @@ def run_merge_pass(
     judge_limit: int,
     max_price_gap: float,
     quotes: QuoteReader = read_quotes,
+    scope: LLMScope = EVERYTHING,
 ) -> MergePassResult:
+    """Judges candidate pairs with at least one subject in `scope`; the other may be outside it, since a duplicate's
+    contracts can sit on a venue that categorizes or tags the event differently."""
     result = MergePassResult()
     started = db.subject_clock()
-    last_sweep = memory.last_sweep()
+    last_sweep = memory.last_sweep(scope.fingerprint())
     s = _summaries(db)
     result.subjects = len(s.profiles)
+    if scope.unlimited:
+        in_scope = set(s.profiles)
+    else:
+        ids = db.subjects_in_scope(sorted(scope.categories), sorted(scope.tags))
+        in_scope = {k for k, i in s.ids.items() if i in ids}
+    result.outside_scope = len(s.profiles) - len(in_scope)
 
-    fresh = [k for k in s.profiles if s.volume[k] >= min_volume
+    fresh = [k for k in s.profiles if k in in_scope and s.volume[k] >= min_volume
              and (last_sweep is None or s.changed_at[k] >= last_sweep - SWEEP_OVERLAP)]
     result.neighbour_lookups = len(fresh)
     by_id = {v: k for k, v in s.ids.items()}
@@ -386,7 +399,7 @@ def run_merge_pass(
                                                      MIN_NEIGHBOUR_SIMILARITY).items()}
     result.neighbour_seconds = round(time.monotonic() - timer, 1)
     pairs = [(a, b) for a, b in candidate_pairs(s.profiles.values(), neighbours)
-             if max(s.volume[a], s.volume[b]) >= min_volume]
+             if max(s.volume[a], s.volume[b]) >= min_volume and (a in in_scope or b in in_scope)]
     # A person's decision is final: a queued pair they merged or dismissed, or a merge they undid.
     decided = {frozenset((c.alias_subject_id, c.canonical_subject_id))
                for c in registry.get_subject_merge_candidates(status="ALL") if c.status != "PENDING"}
@@ -430,5 +443,5 @@ def run_merge_pass(
     if ctx.queue:
         registry.upsert_subject_merge_candidates(ctx.queue)
     if result.left_to_judge == 0:
-        memory.set_last_sweep(started)
+        memory.set_last_sweep(started, scope.fingerprint())
     return result

@@ -29,6 +29,7 @@ from classifier.propositions.attempts import AttemptStore, record, waiting
 from classifier.propositions.extract import extract_propositions
 from classifier.propositions.inputs import ExtractionInput, is_primary_side
 from classifier.propositions.llm import PropositionExtractor
+from classifier.propositions.scope import EVERYTHING, LLMScope
 from classifier.propositions.subjects import (
     CombinedSubjectIndex,
     Embed,
@@ -70,7 +71,7 @@ class PassResult:
 
 
 def _plan_reads(
-    db: ClassifierDB, security_ids: list[int], attempts: AttemptStore | None, llm_enabled: bool, result: PassResult,
+    db: ClassifierDB, security_ids: list[int], attempts: AttemptStore | None, llm_scope: str | None, result: PassResult,
     reread: Collection[int] = (),
 ) -> tuple[list[ExtractionInput], dict]:
     """The inputs to read this pass, and stored first sides for second sides read without theirs. A security is read
@@ -81,7 +82,7 @@ def _plan_reads(
     due = {sid for sid, item in inputs.items() if stored.get(sid) != (item.source_hash, EXTRACTOR_VERSION)}
     due |= set(reread) & set(inputs)
     if attempts is not None and due:
-        skip = waiting(attempts, {sid: inputs[sid].source_hash for sid in due}, EXTRACTOR_VERSION, llm_enabled,
+        skip = waiting(attempts, {sid: inputs[sid].source_hash for sid in due}, EXTRACTOR_VERSION, llm_scope,
                        READERS_VERSION)
         result.backing_off += len(skip)
         due -= skip
@@ -113,7 +114,7 @@ def _plan_reads(
         if held is not None and held[2] == siblings[first].source_hash:
             partners[second] = (held[0], Method(held[1]))
         elif attempts is None or not waiting(attempts, {first: siblings[first].source_hash}, EXTRACTOR_VERSION,
-                                             llm_enabled, READERS_VERSION):
+                                             llm_scope, READERS_VERSION):
             read.add(first)
     return [siblings.get(sid) or inputs[sid] for sid in sorted(read)], partners
 
@@ -128,20 +129,25 @@ def read_propositions(
     attempts: AttemptStore | None = None,
     reread: Collection[int] = (),
     prices: Mapping[str, float] | None = None,
+    scope: LLMScope = EVERYTHING,
 ) -> PassResult:
     result = PassResult()
-    items, partners = _plan_reads(db, security_ids, attempts, extractor is not None, result, reread)
+    llm_scope = scope.fingerprint() if extractor is not None else None
+    items, partners = _plan_reads(db, security_ids, attempts, llm_scope, result, reread)
     if not items:
         return result
     index = CombinedSubjectIndex(StoredSubjectIndex(db, embed), InMemorySubjectIndex(embed))
-    extractions, report = extract_propositions(items, extractor, index=index, partners=partners, prices=prices)
+    extractions, report = extract_propositions(items, extractor, index=index, partners=partners, prices=prices,
+                                               scope=scope)
     report.log()
     result.read, result.pending = len(extractions), len(report.failed)
     if attempts is not None:
         source_of = {i.security_id: i.source_hash for i in items}
-        # A reader that fell back with the LLM off records nothing: the contract stays due (free to retry with code
-        # readers, and the VenueReaderFallbacks alarm reports it) so a reader fix reads it on the next pass.
-        unrecorded = set(report.unavailable) | (set(report.fell_back) if extractor is None else set())
+        # A reader that fell back with the LLM off, or outside its scope, records nothing: the contract stays due (free
+        # to retry with code readers, and the VenueReaderFallbacks alarm reports it) so a reader fix reads it on the
+        # next pass.
+        unrecorded = set(report.unavailable) | (set(report.fell_back) if extractor is None
+                                                else set(report.fell_back) & set(report.out_of_scope))
         needs_llm = set(report.needs_llm)
         result.gave_up, result.parked = record(
             attempts,
@@ -150,6 +156,7 @@ def read_propositions(
             read=sorted(extractions),
             extractor_version=EXTRACTOR_VERSION,
             readers_version=READERS_VERSION,
+            llm_scope=llm_scope,
         )
 
     subjects = {e.proposition.subject for e in extractions.values()}
@@ -184,6 +191,7 @@ def read_backlog(
     after: int = 0,
     attempts: AttemptStore | None = None,
     prices: Mapping[str, float] | None = None,
+    scope: LLMScope = EVERYTHING,
 ) -> tuple[PassResult, int]:
     """Reads up to `limit` open securities after `after` that still lack a current proposition (see
     `securities_needing_propositions`). Returns the pass and where the next one starts: past this page, or back at the
@@ -194,7 +202,7 @@ def read_backlog(
     if not due:
         return PassResult(), following
     return read_propositions(due, db=db, registry=registry, extractor=extractor, embed=embed, attempts=attempts,
-                             prices=prices), following
+                             prices=prices, scope=scope), following
 
 
 def recheck_readers(
@@ -276,7 +284,7 @@ def _chunks(security_ids: list[int], rows: list[Derived]) -> list[tuple[list[int
 
 def _derive_subject(db: ClassifierDB, registry: RegistryClient, subject_id: int, result: PassResult):
     contracts, changed, read_at = db.get_subject_contracts(subject_id)
-    units = derivation_units(contracts)
+    units = derivation_units(contracts, db.get_subject_key_aliases(subject_id))
     requests: list[tuple[list[int], list[Derived]]] = []
     for unit in units:
         ids = [c.security_id for c in unit.contracts]

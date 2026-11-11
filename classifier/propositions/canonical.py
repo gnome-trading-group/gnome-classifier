@@ -14,12 +14,19 @@ different outcomes are never joined, and a key that could be either of two other
 
 In a game, a reading naming no part of the game is about the whole game (`match`): the venue readers scope the parts
 their titles name (`with_named_part`), so a reading left unscoped is not a part of the game.
+
+Spellings no rule can tell apart (`phi` and `philadelphia`, a song with and without its artists) are joined by the
+subject's stored key aliases (`StoredAlias`, judged by the key reconcile or a subject merge, or set by a person), applied
+first. One is dropped when an event lists both its keys as outcomes: those are two entities, whatever was judged.
 """
 import dataclasses
+import logging
 import re
 from collections.abc import Iterable
 
 from classifier.propositions.types import Kind, Proposition
+
+logger = logging.getLogger(__name__)
 
 GAME_SUBJECT_PREFIX = "game:"
 FULL_GAME_SCOPE = "match"
@@ -172,6 +179,71 @@ def canonical(p: Proposition, aliases: dict[str, str]) -> Proposition:
 def canonical_readings(readings: list[tuple[int | None, Proposition, str | None]]) -> list[Proposition]:
     aliases = entity_aliases(readings)
     return [canonical(p, aliases) for _, p, _ in readings]
+
+
+@dataclasses.dataclass(frozen=True)
+class StoredAlias:
+    """A subject's key alias: `key` read as `canonical_key`, an entity key or a measure's name."""
+    kind: str
+    key: str
+    canonical_key: str
+    flags: tuple[str, ...] = ()
+
+
+ENTITY_ALIAS, MEASURE_ALIAS = "ENTITY", "MEASURE"
+
+
+def apply_stored(readings: list[tuple[int | None, Proposition, str | None]],
+                 stored: Iterable[StoredAlias]) -> tuple[list[tuple[int | None, Proposition, str | None]], list[tuple[str, ...]]]:
+    """The readings with the subject's stored aliases applied, and for each reading the flags of the aliases that
+    changed it. An entity alias between two keys some event lists as outcomes is left out."""
+    stored = list(stored)
+    if not stored:
+        return readings, [() for _ in readings]
+    listed: dict[int, set[str]] = {}
+    for event_id, p, _ in readings:
+        if event_id is not None and not p.negated:
+            listed.setdefault(event_id, set()).update(_keys(p))
+    # A judge's mapping onto a key that is itself an alias (`rep` -> `republican` -> `gop`) reads through to the end.
+    entities = _through_chains({a.key: a for a in stored if a.kind == ENTITY_ALIAS})
+    measures = _through_chains({a.key: a for a in stored if a.kind == MEASURE_ALIAS})
+    for key, a in list(entities.items()):
+        if any({key, a.canonical_key} <= keys for keys in listed.values()):
+            logger.warning("stored alias joins outcomes of one event, left out: subject=%s %s -> %s",
+                           readings[0][1].subject if readings else "", key, a.canonical_key)
+            del entities[key]
+    out, flags = [], []
+    for event_id, p, label in readings:
+        used: list[StoredAlias] = []
+
+        def key(k: str | None) -> str | None:
+            if k and k in entities:
+                used.append(entities[k])
+                return entities[k].canonical_key
+            return k
+        head, sep, tail = (p.measure or "").partition(":")
+        if head in measures:
+            used.append(measures[head])
+            head = measures[head].canonical_key
+        measure = f"{head}{sep}{key(tail)}" if sep else (head or p.measure)
+        changed = dataclasses.replace(p, measure=measure, entity=key(p.entity),
+                                      scores=tuple((key(entity), value) for entity, value in p.scores))
+        out.append((event_id, changed if used else p, label))
+        flags.append(tuple(sorted({f for a in used for f in a.flags})))
+    return out, flags
+
+
+def _through_chains(aliases: dict[str, StoredAlias]) -> dict[str, StoredAlias]:
+    out = {}
+    for key, a in aliases.items():
+        target, flags, seen = a.canonical_key, set(a.flags), {key}
+        while target in aliases and target not in seen:
+            seen.add(target)
+            flags |= set(aliases[target].flags)
+            target = aliases[target].canonical_key
+        if target != key:
+            out[key] = dataclasses.replace(a, canonical_key=target, flags=tuple(sorted(flags)))
+    return out
 
 
 def round_scope(scope: str | None) -> str | None:

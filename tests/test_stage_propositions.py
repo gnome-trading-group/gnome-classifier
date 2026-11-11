@@ -235,6 +235,22 @@ def test_a_subject_that_fails_to_derive_does_not_hold_up_the_rest(stub_registry,
     assert stub_db.dirty_subjects(10) == [failing]
 
 
+def test_a_subject_is_derived_with_its_stored_key_aliases(stub_registry, stub_db):
+    sids = load(stub_registry, stub_db, btc_ladder())
+    read_propositions(sorted(sids.values()), db=stub_db, registry=stub_registry, extractor=None, embed=embed)
+    subject_id = stub_registry._subjects["btc-usd"]["subject_id"]
+    asked = []
+    get_aliases = stub_db.get_subject_key_aliases
+
+    def recording(sid):
+        asked.append(sid)
+        return get_aliases(sid)
+
+    stub_db.get_subject_key_aliases = recording
+    derive_due_subjects(db=stub_db, registry=stub_registry)
+    assert asked == [subject_id]
+
+
 class DictMarker(dict):
     """The Redis marker's get/set over a dict."""
 
