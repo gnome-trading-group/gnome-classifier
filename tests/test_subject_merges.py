@@ -31,9 +31,10 @@ ELECTION_DAY = datetime(2026, 11, 4, tzinfo=timezone.utc)
 SEASON_END = datetime(2027, 1, 11, tzinfo=timezone.utc)
 
 
-def subject(key, venues=("KALSHI",), entities=(), measures=(), deadlines=()):
+def subject(key, venues=("KALSHI",), entities=(), measures=(), deadlines=(), starts=()):
     return SubjectProfile(key=key, description="", venues=frozenset(venues), entities=frozenset(entities),
-                          measures=frozenset(measures), deadlines=frozenset(deadlines), proposition_count=1, samples=())
+                          measures=frozenset(measures), deadlines=frozenset(deadlines), proposition_count=1, samples=(),
+                          starts=frozenset(starts))
 
 
 def contract(venue, proposition, title="t", outcome="Yes"):
@@ -98,6 +99,34 @@ class TestCandidates:
         assert self.pairs(subject("game:cs2:2026-11-12:mouznnavij-0400", ["KALSHI"]),
                           subject("game:cs2:2026-11-12:mouzn-navij-0400", ["POLYMARKET_INTL"])) == [
             ("game:cs2:2026-11-12:mouzn-navij-0400", "game:cs2:2026-11-12:mouznnavij-0400")]
+
+    def test_games_scheduled_at_one_minute_on_different_venues_pair_whatever_their_keys(self):
+        at = datetime(2026, 11, 12, 13, 0)
+        assert self.pairs(subject("game:dota2:2026-11-12:aurora-gamerlegion", ["POLYMARKET_INTL"], starts=[at]),
+                          subject("game:dota2:2026-11-12:glaur-0800", ["KALSHI", "POLYMARKET_US"],
+                                  starts=[at.replace(second=30), at.replace(hour=14)])) == [
+            ("game:dota2:2026-11-12:aurora-gamerlegion", "game:dota2:2026-11-12:glaur-0800")]
+
+    def test_games_at_one_start_on_one_venue_only_are_not(self):
+        at = datetime(2026, 11, 13, 6, 0)
+        assert self.pairs(subject("game:valorant:2026-11-13:tecalg-0100", ["KALSHI"], starts=[at]),
+                          subject("game:valorant:2026-11-13:youlgd-0100", ["KALSHI"], starts=[at])) == []
+
+    def test_a_start_too_many_games_share_says_nothing(self):
+        at = datetime(2026, 11, 14, 15, 0)
+        games = [subject(f"game:epl:2026-11-14:t{i}-u{i}", ["KALSHI" if i % 2 else "POLYMARKET_INTL"], starts=[at])
+                 for i in range(7)]
+        assert self.pairs(*games) == []
+
+    def test_games_of_different_leagues_at_one_start_are_not(self):
+        at = datetime(2026, 11, 12, 13, 0)
+        assert self.pairs(subject("game:dota2:2026-11-12:aurora-gamerlegion", ["POLYMARKET_INTL"], starts=[at]),
+                          subject("game:cs2:2026-11-12:mouznnavij-0800", ["KALSHI"], starts=[at])) == []
+
+    def test_only_games_pair_by_start(self):
+        at = datetime(2026, 11, 12, 13, 0)
+        assert self.pairs(subject("fomc:2026-12", ["KALSHI"], starts=[at]),
+                          subject("ecb:2026-12", ["POLYMARKET_INTL"], starts=[at])) == []
 
     def test_games_on_different_dates_are_not(self):
         assert self.pairs(subject("game:nfl:2026-11-08:lar-was", ["POLYMARKET_INTL"]),

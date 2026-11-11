@@ -230,14 +230,15 @@ class _Subjects:
 
 def _summaries(db: ClassifierDB) -> _Subjects:
     s = _Subjects({}, {}, {}, {})
-    for subject_id, key, description, venues, winners, measures, deadlines, count, vol, changed in db.subject_summaries():
+    for subject_id, key, description, venues, winners, measures, deadlines, count, vol, changed, starts \
+            in db.subject_summaries():
         if key == "unknown":
             continue
         entities = set(winners) | {e for m in measures if (e := entity_of(m)) is not None}
         s.profiles[key] = SubjectProfile(
             key=key, description=description, venues=frozenset(venues), entities=frozenset(entities),
             measures=frozenset(measures), deadlines=frozenset(d for text in deadlines if (d := _date(text))),
-            proposition_count=count, samples=(),
+            proposition_count=count, samples=(), starts=frozenset(starts),
         )
         s.ids[key] = subject_id
         s.volume[key] = vol

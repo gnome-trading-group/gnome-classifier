@@ -772,7 +772,7 @@ class ClassifierDB:
 
     # The open, derivable propositions of canonical subjects: what derivation would compare (see get_subject_contracts).
     _OPEN_PROPOSITIONS = (
-        "SELECT p.subject_id, p.security_id, p.fields, x.exchange_code, ec.event_id, ec.outcome_label"
+        "SELECT p.subject_id, p.security_id, p.fields, x.exchange_code, ec.event_id, ec.outcome_label, e.start_time"
         " FROM sm.contract_proposition p"
         " JOIN sm.contract_source cs ON cs.security_id = p.security_id AND cs.source_hash = p.source_hash"
         " JOIN sm.exchange x ON x.exchange_id = cs.exchange_id"
@@ -788,10 +788,11 @@ class ClassifierDB:
                 return cur.fetchone()[0]
 
     def subject_summaries(self) -> list[tuple[int, str, str, list[str], list[str], list[str], list[str], int, float,
-                                              datetime]]:
+                                              datetime, list[datetime]]]:
         """For each canonical subject with open contracts: (subject_id, key, description, venues, winner entities,
-        measures, deadline dates, proposition count, its events' 24h volume, when it last changed), aggregated here so
-        a pass over every subject never holds every proposition. A subject changes when its propositions do."""
+        measures, deadline dates, proposition count, its events' 24h volume, when it last changed, its events'
+        scheduled starts), aggregated here so a pass over every subject never holds every proposition. A subject
+        changes when its propositions do."""
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -806,14 +807,15 @@ class ClassifierDB:
                     "   AND NOT (o.fields->'unknown' ? 'measure')), '{}'),"
                     " COALESCE(array_agg(DISTINCT left(o.fields->>'window_end', 10)) FILTER ("
                     "   WHERE o.fields->>'window_end' IS NOT NULL AND NOT (o.fields->'unknown' ? 'window_end')), '{}'),"
-                    " count(*), COALESCE(max(v.volume), 0), max(GREATEST(s.date_created, s.date_modified))"
+                    " count(*), COALESCE(max(v.volume), 0), max(GREATEST(s.date_created, s.date_modified)),"
+                    " COALESCE(array_agg(DISTINCT o.start_time) FILTER (WHERE o.start_time IS NOT NULL), '{}')"
                     " FROM open o"
                     " JOIN sm.proposition_subject s ON s.subject_id = o.subject_id"
                     " LEFT JOIN volume v ON v.subject_id = o.subject_id"
                     " GROUP BY o.subject_id, s.key, s.description",
                 )
-                return [(r[0], r[1], r[2] or "", list(r[3]), list(r[4]), list(r[5]), list(r[6]), r[7], float(r[8]), r[9])
-                        for r in cur.fetchall()]
+                return [(r[0], r[1], r[2] or "", list(r[3]), list(r[4]), list(r[5]), list(r[6]), r[7], float(r[8]), r[9],
+                         list(r[10])) for r in cur.fetchall()]
 
     def subjects_in_scope(self, categories: list[str], tags: list[str]) -> set[int]:
         """Canonical subjects with an open contract whose event is in any of `categories` or carries any of `tags`."""

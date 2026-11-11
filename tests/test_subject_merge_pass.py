@@ -54,7 +54,8 @@ class FakeDB:
             out.append((subject_id, key, key, sorted({c.venue for c in contracts}),
                         sorted({p.entity for p in ps if p.kind == Kind.WINNER}), sorted({p.measure for p in ps}),
                         sorted({p.window_end.date().isoformat() for p in ps}), len(ps), volume,
-                        self.changed_at.get(key, datetime(2026, 11, 1))))
+                        self.changed_at.get(key, datetime(2026, 11, 1)),
+                        sorted({c.start.replace(tzinfo=None) for c in contracts if c.start is not None})))
         return out
 
     def subjects_in_scope(self, categories, tags):

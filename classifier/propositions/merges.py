@@ -22,7 +22,7 @@ from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 from classifier.client.claude import ClaudeAsker, is_unavailable
-from classifier.propositions.canonical import ENTITY_ALIAS, MEASURE_ALIAS, StoredAlias
+from classifier.propositions.canonical import ENTITY_ALIAS, GAME_SUBJECT_PREFIX, MEASURE_ALIAS, StoredAlias
 from classifier.propositions.derive import Contract, Derived, preview
 from classifier.propositions.subjects import entity_of
 from classifier.propositions.types import Kind, Proposition
@@ -96,6 +96,8 @@ class SubjectProfile:
     deadlines: frozenset[date]
     proposition_count: int
     samples: tuple[dict, ...]
+    # Its events' scheduled starts (UTC, no zone, as the registry stores them); only candidates are found from them.
+    starts: frozenset[datetime] = frozenset()
 
     def to_json(self) -> dict:
         return {
@@ -277,13 +279,38 @@ def start_gap(a_key: str, a: list[Contract], b_key: str, b: list[Contract]) -> t
     return min(((abs(x - y), x, y) for x in starts_a for y in starts_b), key=lambda t: (t[0], t[1], t[2]))
 
 
+def _start_pairs(profiles: list[SubjectProfile], limit: int) -> set[tuple[str, str]]:
+    """Games of one league scheduled to start at the same minute, on venues that aren't all one: venues key a game's
+    teams their own way (Polymarket's `aurora-gamerlegion`, Kalshi's `glaur-0800`) and esports subjects' descriptions
+    read alike, so neither the key rules nor the embedding neighbours meet them, but one match is scheduled alike
+    everywhere. A start more than `limit` of a league's games share (a soccer Saturday's 15:00) says nothing. Within
+    a league, not across leagues: across every sport, the busy starts are too crowded to say anything, and that hid
+    most of the esports matches this finds."""
+    buckets: dict[tuple[str, datetime], set[str]] = defaultdict(set)
+    for p in profiles:
+        if p.key.startswith(GAME_SUBJECT_PREFIX):
+            league = p.key.split(":")[1]
+            for start in p.starts:
+                buckets[(league, start.replace(second=0, microsecond=0))].add(p.key)
+    venues = {p.key: p.venues for p in profiles}
+    out = set()
+    for keys in buckets.values():
+        if len(keys) > limit:
+            continue
+        ordered = sorted(keys)
+        out.update(_pair(a, b) for i, a in enumerate(ordered) for b in ordered[i + 1:]
+                   if len(venues[a] | venues[b]) > 1)
+    return out
+
+
 def candidate_pairs(profiles: Iterable[SubjectProfile], neighbours: dict[str, list[str]],
                     bucket_limit: int = SHARED_BUCKET_LIMIT) -> list[tuple[str, str]]:
     """Pairs of subject keys worth judging, (smaller key, larger key), sorted. `neighbours` are each subject's nearest
     subjects by embedding."""
     by_key = {p.key: p for p in profiles if p.key != UNKNOWN_SUBJECT}
     subjects = list(by_key.values())
-    pairs = _token_pairs(subjects) | _game_pairs(subjects) | _shared_pairs(subjects, bucket_limit)
+    pairs = (_token_pairs(subjects) | _game_pairs(subjects) | _shared_pairs(subjects, bucket_limit)
+             | _start_pairs(subjects, bucket_limit))
     pairs |= {_pair(k, n) for k, ns in neighbours.items() for n in ns if k != n}
     return sorted((a, b) for a, b in pairs if a in by_key and b in by_key and not different_start_times(a, b))
 
