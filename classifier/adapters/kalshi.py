@@ -421,6 +421,9 @@ class KalshiAdapter:
         fee_groups, fee_events = fee_scopes
         fee_group = series_ticker if series_ticker in fee_groups else None
         fee_event = event_ticker if event_ticker in fee_events else None
+        # Every market of an event trades on the event's shard.
+        exchange_index = event.get("exchange_index")
+        venue_partition = None if exchange_index is None else str(exchange_index)
         tags = (series_tags or {}).get(series_ticker, [])
         mapped_category = taxonomy.kalshi_category(event_category, tags)
         event_tags = taxonomy.kalshi_tags(series_ticker, tags)
@@ -476,6 +479,7 @@ class KalshiAdapter:
                     event_volume=event_volume,
                     fee_group=fee_group,
                     fee_event=fee_event,
+                    venue_partition=venue_partition,
                 ))
             else:
                 # Each market of an event that isn't mutually exclusive is its own yes/no question, so it is its
@@ -523,6 +527,7 @@ class KalshiAdapter:
                         event_volume=market_volume,
                         fee_group=fee_group,
                         fee_event=fee_event,
+                        venue_partition=venue_partition,
                     ))
 
         game_id, game_core = _game(series_ticker or "", event_ticker)

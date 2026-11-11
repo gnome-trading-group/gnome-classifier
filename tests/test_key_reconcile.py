@@ -1,5 +1,6 @@
 import json
 
+from classifier.propositions.canonical import StoredAlias
 from classifier.propositions.key_evaluation import KeyReport, load_golden, score
 from classifier.propositions.key_reconcile import (
     FLAG_PARTY_NOMINEE,
@@ -8,6 +9,7 @@ from classifier.propositions.key_reconcile import (
     aliases,
     held_to_slot,
     parse_answer,
+    resolved,
     unmatched_slots,
 )
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition
@@ -121,6 +123,46 @@ class TestJudgmentsHeldToTheSlot:
     def test_an_unreadable_answer_leaves_the_slot_unanswered(self):
         slot = self.slot()
         assert parse_answer("not json", [slot]) == {slot.id: None}
+
+
+def entity(key, canonical, flags=()):
+    return StoredAlias("ENTITY", key, canonical, flags)
+
+
+def pairs(aliases):
+    return [(a.key, a.canonical_key) for a in aliases]
+
+
+class TestResolved:
+    def test_a_new_alias_onto_a_stored_alias_reads_through_to_its_target(self):
+        assert pairs(resolved((entity("rep", "republican"),), [entity("republican", "gop")])) == [("rep", "gop")]
+
+    def test_a_new_alias_from_a_stored_target_is_turned_round(self):
+        # Stored rounds -> rgg; the judge maps rgg onto roundsgg. Storing rgg -> roundsgg would chain.
+        assert pairs(resolved((entity("rgg", "roundsgg"),), [entity("rounds", "rgg")])) == [("roundsgg", "rgg")]
+
+    def test_new_aliases_chaining_each_other_point_at_the_end(self):
+        assert pairs(resolved((entity("a", "b"), entity("b", "c")), [])) == [("a", "c"), ("b", "c")]
+
+    def test_an_alias_already_stored_is_left_out(self):
+        assert resolved((entity("rep", "republican"),), [entity("rep", "republican")]) == []
+        assert resolved((entity("rep", "rep"),), []) == []
+
+    def test_joining_two_stored_targets_is_left_out(self):
+        assert resolved((entity("a", "b"),), [entity("x", "a"), entity("y", "b")]) == []
+
+    def test_a_cycle_is_left_out(self):
+        assert resolved((entity("a", "b"), entity("b", "a")), []) == []
+
+    def test_flags_go_with_the_turned_round_alias(self):
+        out = resolved((entity("rgg", "roundsgg", (FLAG_PARTY_NOMINEE,)),), [entity("rounds", "rgg")])
+        assert [(a.key, a.canonical_key, a.flags) for a in out] == [("roundsgg", "rgg", (FLAG_PARTY_NOMINEE,))]
+
+    def test_entity_and_measure_keys_are_separate(self):
+        out = resolved((StoredAlias("MEASURE", "maps_played", "total_maps"), entity("total_maps", "x")),
+                       [entity("maps_played", "y")])
+        assert sorted((a.kind, a.key, a.canonical_key) for a in out) == [
+            ("ENTITY", "total_maps", "x"), ("MEASURE", "maps_played", "total_maps")]
 
 
 def test_the_golden_slots_load_and_their_labels_are_held_to_their_slots():

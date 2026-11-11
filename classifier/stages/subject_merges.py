@@ -40,6 +40,7 @@ from enum import StrEnum
 from typing import Protocol
 
 import redis as redis_lib
+import requests
 from gnomepy.registry import RegistryClient
 
 from classifier.db import ClassifierDB
@@ -173,6 +174,7 @@ class MergePassResult:
     season_key: int = 0
     relationships_added: int = 0
     keys_aliased: int = 0
+    aliases_refused: int = 0
     outside_scope: int = 0
 
 
@@ -295,9 +297,19 @@ def _store_merge_aliases(ctx: "_Context", keep_id: int, merge_log_id: int | None
     aliases = resolved(merge_aliases(judgment), ctx.db.get_subject_key_aliases(keep_id))
     if not aliases or merge_log_id is None:
         return 0
-    ctx.registry.change_subject_key_aliases(subject_id=keep_id, actor=MERGE_ACTOR, set=[
-        dict(kind=a.kind, key=a.key, canonical_key=a.canonical_key, flags=list(a.flags), origin="MERGE",
-             merge_log_id=merge_log_id, reason=judgment.reason) for a in aliases])
+    try:
+        ctx.registry.change_subject_key_aliases(subject_id=keep_id, actor=MERGE_ACTOR, set=[
+            dict(kind=a.kind, key=a.key, canonical_key=a.canonical_key, flags=list(a.flags), origin="MERGE",
+                 merge_log_id=merge_log_id, reason=judgment.reason) for a in aliases])
+    except requests.HTTPError as exc:
+        # The merge is made either way; the registry refusing its aliases (409: they would chain) must not stop the
+        # pass's other merges. The subject keeps the split, which the log line names.
+        if exc.response is None or exc.response.status_code != 409:
+            raise
+        ctx.result.aliases_refused += 1
+        logger.error("merge key aliases refused: subject=%d merge=%d %s: %s", keep_id, merge_log_id,
+                     [(a.key, a.canonical_key) for a in aliases], exc.response.text)
+        return 0
     return len(aliases)
 
 

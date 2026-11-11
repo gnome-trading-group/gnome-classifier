@@ -29,7 +29,7 @@ class GameCore:
 
 
 def contract_hash(contract: AdapterContract) -> str:
-    content = "\x00".join([
+    fields = [
         str(contract.exchange_id),
         contract.exchange_security_id,
         contract.outcome_label,
@@ -43,8 +43,11 @@ def contract_hash(contract: AdapterContract) -> str:
         contract.fee_group or "",
         contract.fee_event or "",
         proposition_source_hash(contract.proposition_source),
-    ])
-    return hashlib.sha256(content.encode()).hexdigest()[:16]
+    ]
+    # Only where the venue partitions, so other venues' hashes (and so which of their contracts resend) stay as they were.
+    if contract.venue_partition is not None:
+        fields.append(contract.venue_partition)
+    return hashlib.sha256("\x00".join(fields).encode()).hexdigest()[:16]
 
 
 def event_min_volume(

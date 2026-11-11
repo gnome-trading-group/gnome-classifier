@@ -101,6 +101,29 @@ def test_resending_known_group_creates_nothing(stub_registry, stub_db, mock_cano
     assert result.new_security_ids == []
 
 
+def test_a_new_listing_is_created_on_its_partition(stub_registry, stub_db, mock_canonicalizer):
+    contracts = [dataclasses.replace(c, venue_partition="2") for c in _binary("Will BTC hit 100k?")]
+    create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
+    listing_ids = [l.listing_id for l in stub_registry._listings]
+    assert stub_db.get_listing_partitions(listing_ids) == {lid: "2" for lid in listing_ids}
+
+
+def test_an_existing_listing_gets_its_partition_and_a_missing_reading_keeps_it(
+    stub_registry, stub_db, mock_canonicalizer,
+):
+    contracts = _binary("Will BTC hit 100k?")
+    create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
+    listing_ids = [l.listing_id for l in stub_registry._listings]
+    assert stub_db.get_listing_partitions(listing_ids) == {lid: None for lid in listing_ids}
+
+    create_entities(stub_registry, mock_canonicalizer,
+                    [dataclasses.replace(c, venue_partition="3") for c in contracts], db=stub_db)
+    assert stub_db.get_listing_partitions(listing_ids) == {lid: "3" for lid in listing_ids}
+
+    create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
+    assert stub_db.get_listing_partitions(listing_ids) == {lid: "3" for lid in listing_ids}
+
+
 def test_symbol_clash_between_different_listings_raises(stub_registry, stub_db, mock_canonicalizer):
     contracts = [
         _make_contract("Event A", "Yes", native_id="a", symbol="EX1-CLASH"),

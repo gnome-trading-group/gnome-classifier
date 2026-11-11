@@ -252,3 +252,9 @@ def test_a_merged_scores_sides_are_read_through_its_aliases():
                         unit="goals", scope="regulation")
     (read,), _ = apply_stored([(None, score, None)], merge_aliases(Judgment(Verdict.SAME, "", (("aek", "aek1"),))))
     assert read[1].scores == (("aek", 0), ("rma", 1))
+
+
+def test_a_merge_stores_no_alias_of_a_measure_on_an_entity():
+    judgment = Judgment(Verdict.SAME, "", (("nxs", "nexus"),), (("margin:nxs", "margin:nexus"), ("total_maps", "maps_played")))
+    assert [(a.kind, a.key, a.canonical_key) for a in merge_aliases(judgment)] == [
+        ("ENTITY", "nexus", "nxs"), ("MEASURE", "maps_played", "total_maps")]

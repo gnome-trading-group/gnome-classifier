@@ -53,6 +53,9 @@ class AdapterContract:
     # Set only where a schedule other than the exchange's default can apply.
     fee_group: str | None = None
     fee_event: str | None = None
+    # The venue partition whose cash backs the contract's orders (sm.listing.venue_partition), as the venue names it:
+    # a Kalshi exchange shard ("3").
+    venue_partition: str | None = None
     # The venue's own resolution-relevant fields for this contract (rules, strikes, resolution sources, times), stored
     # as sm.contract_source so propositions are read from everything the venue said. Static fields only: a price or
     # volume here would resend the contract every fetch.

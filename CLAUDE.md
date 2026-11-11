@@ -153,6 +153,11 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   with its volume (`entities._create_events` sends `volume_24h`), so it has one before the next volume pass. Needs
   registry migration 054 applied first (the patch fails on a registry without the column), and gnome-registry
   1.55+ for volume on create (older ones ignore the field).
+- Venue partition: a Kalshi listing's exchange shard (`exchange_index` on the event, shared by all its markets) is
+  stored as `sm.listing.venue_partition` (text, the venue's own name: `"3"`); its cash only backs orders on that
+  shard, and the registry's launch checks and treasury alerts read it. Set on create and patched onto existing listings, never cleared. It is in
+  `contract_hash` only where set, so adding it resent Kalshi's contracts once and no other venue's. Needs registry
+  migration 067 applied first (the listing patch fails on a registry without the column).
 - Bulk "closed" feeds only ever deactivate listings; an event resolves only when every outcome has a settlement value,
   or after a day missing from its feed (stale). Polymarket US once listed every open market as closed (2026-10-22).
 - Feature flags (`feature_flags.*` in the controller service config `classifier`, all default false): `fetch_enabled`,

@@ -2,6 +2,8 @@ import dataclasses
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import requests
+
 from classifier.propositions.canonical import StoredAlias
 from classifier.propositions.derive import Contract
 from classifier.propositions.merges import Judgment, SubjectProfile, Verdict
@@ -82,6 +84,7 @@ class FakeRegistry:
         self.merges, self.queued, self.aliases = [], [], []
         self.decided = decided
         self.unmerged = unmerged
+        self.refuse_aliases = False
 
     def get_subject_merge_log(self, action=None):
         return [SimpleNamespace(alias_subject_id=a, canonical_subject_id=c, action="UNMERGE") for a, c in self.unmerged]
@@ -97,6 +100,10 @@ class FakeRegistry:
         return {"alias_subject_id": from_subject_id, "canonical_subject_id": into_subject_id, "merge_log_id": 900 + len(self.merges)}
 
     def change_subject_key_aliases(self, *, subject_id, actor, set=None, remove=None):
+        if self.refuse_aliases:
+            response = requests.Response()
+            response.status_code, response._content = 409, b'{"error": "rgg -> roundsgg, which is itself an alias"}'
+            raise requests.HTTPError("409 Client Error: Conflict", response=response)
         self.aliases.append((subject_id, actor, set or [], remove or []))
         return []
 
@@ -167,6 +174,13 @@ class TestMergePass:
         db.subjects[GA][1][0] = winner(11, GA, "gop", "KALSHI", 10)
         run(db, registry, FakeJudge({(GA_SHORT, GA): SAME}))
         assert [(a["key"], a["canonical_key"]) for a in registry.aliases[0][2]] == [("rep", "gop")]
+
+    def test_a_merge_whose_aliases_the_registry_refuses_still_counts_and_the_pass_goes_on(self):
+        registry = FakeRegistry()
+        registry.refuse_aliases = True
+        result = run(governor_db(), registry, FakeJudge({(GA_SHORT, GA): SAME}))
+        assert registry.merges == [(2, 1, MERGE_ACTOR)]
+        assert (result.merged, result.keys_aliased, result.aliases_refused) == (1, 0, 1)
 
     def test_only_logs_while_auto_merge_is_off(self):
         registry = FakeRegistry()

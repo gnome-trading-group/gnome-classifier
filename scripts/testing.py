@@ -79,6 +79,7 @@ class StubRegistry(RegistryClient):
         self._min_size_by_spec_id: dict[int, int] = {}
         # Fee state lives beside the gnomepy dataclasses, which may predate these fields.
         self._fee_keys_by_listing: dict[int, tuple[str | None, str | None]] = {}
+        self._partition_by_listing: dict[int, str | None] = {}
         self._fee_schedules: list[dict] = []
         self._event_contracts: list[EventContract] = []
         self._contract_sources: dict[int, dict] = {}
@@ -204,6 +205,7 @@ class StubRegistry(RegistryClient):
             }
             self._listings.append(Listing(**d))
             self._fee_keys_by_listing[listing_id] = (item.get("fee_group"), item.get("fee_event"))
+            self._partition_by_listing[listing_id] = item.get("venue_partition")
             results.append(d)
         return results
 
@@ -276,6 +278,8 @@ class StubRegistry(RegistryClient):
         if "fee_group" in kwargs or "fee_event" in kwargs:
             group, event = self._fee_keys_by_listing.get(listing_id, (None, None))
             self._fee_keys_by_listing[listing_id] = (kwargs.pop("fee_group", group), kwargs.pop("fee_event", event))
+        if "venue_partition" in kwargs:
+            self._partition_by_listing[listing_id] = kwargs.pop("venue_partition")
         for i, l in enumerate(self._listings):
             if l.listing_id == listing_id:
                 updated = dataclasses.replace(l, **kwargs)
@@ -602,6 +606,10 @@ class StubDB:
         return {lid: self._r._fee_keys_by_listing.get(lid, (None, None))
                 for lid in listing_ids if any(l.listing_id == lid for l in self._r._listings)}
 
+    def get_listing_partitions(self, listing_ids: list[int]) -> dict[int, str | None]:
+        return {lid: self._r._partition_by_listing.get(lid)
+                for lid in listing_ids if any(l.listing_id == lid for l in self._r._listings)}
+
     def get_fee_source_refs(self, exchange_id: int) -> set[str]:
         return {row["source_ref"] for row in self._r._fee_schedules
                 if row.get("exchange_id") == exchange_id and row.get("source_ref")}
@@ -734,7 +742,9 @@ class StubDB:
 
     def dirty_subjects(self, limit: int) -> list[int]:
         due = [s for s in self._r._subjects.values() if s["derived_at"] is None or s["date_modified"] > s["derived_at"]]
-        return [s["subject_id"] for s in sorted(due, key=lambda s: s["date_modified"])][:limit]
+        newest = [s["subject_id"] for s in sorted(due, key=lambda s: s["date_modified"], reverse=True)][:limit - limit // 2]
+        oldest = [s["subject_id"] for s in sorted(due, key=lambda s: s["date_modified"]) if s["subject_id"] not in newest]
+        return newest + oldest[:limit - len(newest)]
 
     def _event_id(self, security_id: int) -> int | None:
         return next((c.event_id for c in self._r._event_contracts if c.security_id == security_id), None)

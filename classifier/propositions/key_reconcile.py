@@ -219,17 +219,50 @@ def aliases(slot: Slot, judgment: KeyJudgment, uses: dict[str, int] | None = Non
 
 
 def resolved(new: tuple[StoredAlias, ...], existing: list[StoredAlias]) -> list[StoredAlias]:
-    """New aliases pointed at what their target already stands for, so no alias names another as its target; one
-    already stored the same way, or that would point a key at itself, is left out."""
-    stored = {(a.kind, a.key): a for a in existing}
+    """The aliases to store so every key the new aliases join, with the stored ones, reads as one key, and no alias
+    names another alias as its target (the registry refuses a chain).
+
+    Keys joined by stored or new aliases form a group. The group keeps the key its stored aliases already point at, so
+    stored rows, which may belong to another merge, are never re-pointed: a new alias whose key is that stored target
+    is turned round (stored `rounds -> rgg` and new `rgg -> roundsgg` store `roundsgg -> rgg`). With nothing stored,
+    the group is known by the key the new aliases end at. A group whose stored aliases already point at two keys, or
+    whose new aliases end nowhere (a cycle), is left out: joining it would mean re-pointing stored rows."""
     out = []
-    for a in new:
-        target = stored.get((a.kind, a.canonical_key))
-        canonical = target.canonical_key if target else a.canonical_key
-        held = stored.get((a.kind, a.key))
-        if canonical == a.key or (held and held.canonical_key == canonical):
-            continue
-        out.append(dataclasses.replace(a, canonical_key=canonical))
+    for kind in sorted({a.kind for a in new}):
+        stored = {a.key: a.canonical_key for a in existing if a.kind == kind}
+        fresh = [a for a in new if a.kind == kind and a.key != a.canonical_key]
+        parent: dict[str, str] = {}
+
+        def find(k: str) -> str:
+            parent.setdefault(k, k)
+            while parent[k] != k:
+                parent[k] = parent[parent[k]]
+                k = parent[k]
+            return k
+
+        for key, canonical in list(stored.items()) + [(a.key, a.canonical_key) for a in fresh]:
+            parent[find(key)] = find(canonical)
+        groups: dict[str, set[str]] = defaultdict(set)
+        for k in list(parent):
+            groups[find(k)].add(k)
+        stored_targets = set(stored.values()) - set(stored)
+        new_keys = {a.key for a in fresh}
+        for members in groups.values():
+            mine = [a for a in fresh if a.key in members]
+            if not mine:
+                continue
+            kept = members & stored_targets
+            ends = {a.canonical_key for a in mine} - new_keys
+            if len(kept) > 1 or (not kept and len(ends) != 1):
+                logger.warning("key aliases left out, they would re-point stored aliases or form a cycle: %s; stored %s",
+                               [(a.key, a.canonical_key) for a in mine],
+                               sorted((k, v) for k, v in stored.items() if k in members))
+                continue
+            root = next(iter(kept or ends))
+            flags = tuple(sorted({f for a in mine for f in a.flags}))
+            for k in sorted(members - {root}):
+                if stored.get(k) != root:
+                    out.append(StoredAlias(kind, k, root, flags))
     return out
 
 

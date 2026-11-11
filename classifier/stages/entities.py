@@ -123,6 +123,7 @@ def create_entities_from_canonical(
         registry, unique_contracts, listing_id_by_key, spec_by_listing_id,
     )
     _sync_listing_fee_keys(registry, db, unique_contracts, listing_id_by_key)
+    _sync_listing_partitions(registry, db, unique_contracts, listing_id_by_key)
     _sync_contract_sources(registry, db, unique_contracts, security_id_by_key)
 
     _reconcile_stale_entities(registry, contracts, entity_ctx.event_id_by_native, db)
@@ -300,6 +301,7 @@ def _create_listings(
             exchange_security_symbol=c.exchange_security_symbol,
             fee_group=c.fee_group,
             fee_event=c.fee_event,
+            venue_partition=c.venue_partition,
         )
         for c in contracts
     ]
@@ -540,6 +542,24 @@ def _sync_listing_fee_keys(
     pending = [dict(listing_id=lid, fee_group=group, fee_event=event)
                for lid, (group, event) in wanted.items() if current.get(lid, (None, None)) != (group, event)]
     for _, chunk in bulk_create_chunked(pending, "listing fee keys"):
+        registry.bulk_patch_listings(chunk)
+    return len(pending)
+
+
+def _sync_listing_partitions(
+    registry: RegistryClient,
+    db: ClassifierDB,
+    contracts: list[AdapterContract],
+    listing_id_by_key: dict[ListingKey, int],
+) -> int:
+    """Gives existing listings the venue partition the venue now reports. A missing reading never clears one: a
+    market stays on its partition for life."""
+    wanted = {listing_id_by_key[_listing_key(c)]: c.venue_partition
+              for c in contracts if c.venue_partition is not None and _listing_key(c) in listing_id_by_key}
+    current = db.get_listing_partitions(list(wanted))
+    pending = [dict(listing_id=lid, venue_partition=partition)
+               for lid, partition in wanted.items() if current.get(lid) != partition]
+    for _, chunk in bulk_create_chunked(pending, "listing partitions"):
         registry.bulk_patch_listings(chunk)
     return len(pending)
 

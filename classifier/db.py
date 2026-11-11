@@ -320,6 +320,18 @@ class ClassifierDB:
                 )
                 return {row[0]: (row[1], row[2]) for row in cur.fetchall()}
 
+    def get_listing_partitions(self, listing_ids: list[int]) -> dict[int, str | None]:
+        """Returns mapping of listing_id -> venue_partition."""
+        if not listing_ids:
+            return {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT listing_id, venue_partition FROM sm.listing WHERE listing_id = ANY(%s)",
+                    (listing_ids,),
+                )
+                return {row[0]: row[1] for row in cur.fetchall()}
+
     def get_fee_source_refs(self, exchange_id: int) -> set[str]:
         with self._conn() as conn:
             with conn.cursor() as cur:
@@ -652,17 +664,20 @@ class ClassifierDB:
                 return {row[0]: (Proposition.from_fields(row[1], row[2]), row[3], row[4]) for row in cur.fetchall()}
 
     def dirty_subjects(self, limit: int) -> list[int]:
-        """Canonical subjects due a derivation: never derived, or changed since."""
+        """Canonical subjects due a derivation, never derived or changed since: half the most recently changed, the
+        rest the longest waiting. A full re-derivation (a new DERIVATION_VERSION) makes every subject due, and taken
+        oldest first alone, a subject a merge or a re-read just changed (today's games) would wait behind all of
+        them; taken newest first alone, steady changes could starve the oldest."""
+        due = ("SELECT s.subject_id, s.date_modified FROM sm.proposition_subject s"
+               " LEFT JOIN sm.proposition_subject_alias a ON a.alias_subject_id = s.subject_id"
+               " WHERE a.alias_subject_id IS NULL AND (s.derived_at IS NULL OR s.date_modified > s.derived_at)")
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT s.subject_id FROM sm.proposition_subject s"
-                    " LEFT JOIN sm.proposition_subject_alias a ON a.alias_subject_id = s.subject_id"
-                    " WHERE a.alias_subject_id IS NULL AND (s.derived_at IS NULL OR s.date_modified > s.derived_at)"
-                    " ORDER BY s.date_modified LIMIT %s",
-                    (limit,),
-                )
-                return [row[0] for row in cur.fetchall()]
+                cur.execute(f"{due} ORDER BY s.date_modified DESC LIMIT %s", (limit - limit // 2,))
+                newest = [row[0] for row in cur.fetchall()]
+                cur.execute(f"{due} AND NOT (s.subject_id = ANY(%s::int[])) ORDER BY s.date_modified LIMIT %s",
+                            (newest, limit - len(newest)))
+                return newest + [row[0] for row in cur.fetchall()]
 
     def get_subject_contracts(self, subject_id: int) -> tuple[list[Contract], set[int], datetime]:
         """The subject's derivable contracts, the ones whose propositions changed since its last derivation (all of them

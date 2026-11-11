@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+import requests
+
 from classifier.propositions.canonical import StoredAlias
 from classifier.propositions.derive import Contract
 from classifier.propositions.key_reconcile import FLAG_PARTY_NOMINEE, KeyJudgment
@@ -57,10 +59,15 @@ class FakeDB:
 
 
 class FakeRegistry:
-    def __init__(self):
+    def __init__(self, refuse=False):
         self.changes = []
+        self.refuse = refuse
 
     def change_subject_key_aliases(self, *, subject_id, actor, set=None, remove=None):
+        if self.refuse:
+            response = requests.Response()
+            response.status_code, response._content = 409, b"{}"
+            raise requests.HTTPError("409 Client Error: Conflict", response=response)
         self.changes.append((subject_id, actor, set or []))
         return []
 
@@ -173,3 +180,11 @@ def test_a_join_already_stored_is_not_stored_again():
     result = run(db, registry, FakeJudge([("bos", "celtics"), ("raptors", "tor")]))
     assert [[(c["key"], c["canonical_key"]) for c in changes] for _, _, changes in registry.changes] == [[("tor", "raptors")]]
     assert result.aliases_stored == 1
+
+
+def test_a_slot_whose_aliases_the_registry_refuses_is_remembered_and_the_pass_goes_on():
+    memory = Memory()
+    result = run(FakeDB({7: (GAME, game_contracts(), 1000.0)}), FakeRegistry(refuse=True),
+                 FakeJudge([("bos", "celtics")]), memory)
+    assert (result.stored, result.refused) == (0, 1)
+    assert list(memory.rows.values()) == [Outcome.REFUSED]

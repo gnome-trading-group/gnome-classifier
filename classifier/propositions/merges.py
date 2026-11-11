@@ -444,8 +444,11 @@ def merge_aliases(judgment: Judgment | None) -> tuple[StoredAlias, ...]:
     """The key aliases a merge stores: subject b's keys read as the ones subject a uses for the same entity or
     quantity, as the judge mapped them."""
     entities, measures = key_maps(judgment)
+    # A measure alias is looked up by the measure's name before any `:`; what follows (`margin:nxs`) is an entity
+    # key, joined by the entity aliases, so an alias of the whole `margin:nxs` would never apply.
     return (tuple(StoredAlias(ENTITY_ALIAS, b, a) for b, a in sorted(entities.items()))
-            + tuple(StoredAlias(MEASURE_ALIAS, b, a) for b, a in sorted(measures.items())))
+            + tuple(StoredAlias(MEASURE_ALIAS, b, a) for b, a in sorted(measures.items())
+                    if ":" not in a and ":" not in b))
 
 
 def with_samples(p: SubjectProfile, contracts: list[SubjectContract], samples: int = SAMPLES_PER_SUBJECT) -> SubjectProfile:

@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -7,6 +8,7 @@ import requests
 
 from classifier.adapters.kalshi import KalshiAdapter, _game
 from classifier.stages.entities import create_entities
+from classifier.stages.fetch import contract_hash
 from gnomepy.registry.types import ContractType
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "kalshi_events.json").read_text())
@@ -482,6 +484,18 @@ def test_fetch_joins_series_tags():
     assert contracts and all(c.event_tags == ["ipo"] for c in contracts)
 
 
+def test_every_contract_carries_its_events_shard():
+    event = {**EVENTS_BY_TICKER["KXRAMPBREX-40"], "exchange_index": 3}
+    contracts = adapter._map_event(EXCHANGE_ID, event)
+    assert contracts and all(c.venue_partition == "3" for c in contracts)
+
+
+def test_an_event_without_a_shard_leaves_it_unknown():
+    event = {k: v for k, v in EVENTS_BY_TICKER["KXRAMPBREX-40"].items() if k != "exchange_index"}
+    contracts = adapter._map_event(EXCHANGE_ID, event)
+    assert contracts and all(c.venue_partition is None for c in contracts)
+
+
 def test_fetch_sets_fee_keys_only_where_a_schedule_applies():
     session = MagicMock()
     session.get.side_effect = _fetch_pages([{"ticker": "KXRAMPBREX", "fee_type": "quadratic", "fee_multiplier": 1}], [])
@@ -560,3 +574,11 @@ def test_a_games_events_share_the_game_and_its_core_families(series, event, expe
 def test_every_contract_of_a_game_event_carries_its_game():
     contracts = _map("KXNFLGAME-26AUG06CARARI")
     assert contracts and all((c.game_id, c.game_core) == ("NFL:26AUG06CARARI", True) for c in contracts)
+
+
+def test_a_contracts_shard_resends_it_only_where_the_venue_reports_one():
+    contract = _map("KXRAMPBREX-40")[0]
+    unpartitioned = contract_hash(dataclasses.replace(contract, venue_partition=None))
+    assert contract_hash(dataclasses.replace(contract, venue_partition="0")) != unpartitioned
+    assert contract_hash(dataclasses.replace(contract, venue_partition="0")) != contract_hash(
+        dataclasses.replace(contract, venue_partition="3"))

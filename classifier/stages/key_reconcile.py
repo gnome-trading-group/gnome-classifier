@@ -18,6 +18,7 @@ from enum import StrEnum
 from typing import Protocol
 
 import redis as redis_lib
+import requests
 from gnomepy.registry import RegistryClient
 
 from classifier.db import ClassifierDB
@@ -46,6 +47,8 @@ class Outcome(StrEnum):
     NOTHING_JOINED = "NOTHING_JOINED"
     HELD_COLLISION = "HELD_COLLISION"
     HELD_PRICE = "HELD_PRICE"
+    # The registry refused the aliases (409).
+    REFUSED = "REFUSED"
 
 
 class SlotMemory(Protocol):
@@ -98,6 +101,7 @@ class KeyReconcileResult:
     nothing_joined: int = 0
     held_collision: int = 0
     held_price: int = 0
+    refused: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
 
@@ -208,9 +212,19 @@ def run_key_reconcile(
                         [(a.key, a.canonical_key) for a in new], judgment.reason)
             memory.remember(print_, held)
             continue
-        registry.change_subject_key_aliases(subject_id=subject.subject_id, actor=RECONCILE_ACTOR, set=[
-            dict(kind=a.kind, key=a.key, canonical_key=a.canonical_key, flags=list(a.flags), origin="RECONCILE",
-                 reason=judgment.reason) for a in new])
+        try:
+            registry.change_subject_key_aliases(subject_id=subject.subject_id, actor=RECONCILE_ACTOR, set=[
+                dict(kind=a.kind, key=a.key, canonical_key=a.canonical_key, flags=list(a.flags), origin="RECONCILE",
+                     reason=judgment.reason) for a in new])
+        except requests.HTTPError as exc:
+            # A 409 (the aliases would chain) holds this slot back, not the rest of the pass.
+            if exc.response is None or exc.response.status_code != 409:
+                raise
+            result.refused += 1
+            logger.error("key aliases refused: subject=%s %s: %s", subject.key, [(a.key, a.canonical_key) for a in new],
+                         exc.response.text)
+            memory.remember(print_, Outcome.REFUSED)
+            continue
         subject.stored = list(subject.stored) + new
         result.stored += 1
         result.aliases_stored += len(new)
