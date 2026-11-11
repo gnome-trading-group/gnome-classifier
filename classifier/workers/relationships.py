@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+from datetime import timedelta
 
 import boto3
 import redis as redis_lib
@@ -199,7 +200,11 @@ class RelationshipsWorker(BaseWorker):
                 db=self._db, registry=self._registry, judge=SubjectMergeJudge(asker), memory=self._merge_memory,
                 auto_merge=flags.subject_auto_merge_enabled,
                 min_volume=cfg.processing.subject_merge_min_volume, judge_limit=cfg.processing.subject_merge_judge_limit,
-                max_price_gap=cfg.processing.subject_merge_max_price_gap, scope=self._scope(),
+                max_price_gap=cfg.processing.subject_merge_max_price_gap,
+                start_tolerance=timedelta(minutes=cfg.processing.subject_merge_start_tolerance_minutes),
+                start_tolerance_by_league={league: timedelta(minutes=m) for league, m in
+                                           cfg.processing.subject_merge_start_tolerance_by_league.items()},
+                scope=self._scope(),
             )
             logger.info("Subject merge pass: %s", result)
         if flags.key_reconcile_enabled:

@@ -166,7 +166,11 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   can't read, plus the drift check; paid per contract, keep off in dev), `subject_merge_enabled` (the subject merge
   pass in Relationships, every 15 minutes while idle: Claude judges duplicate subjects, held-back merges go to the
   registry's `proposition-subjects/merge-candidates` queue; paid, about $0.0005 a pair), `subject_auto_merge_enabled`
-  (that pass also makes the merges that pass every check, as `classifier:subject-merger`; off, it only logs them),
+  (that pass also makes the merges that pass every check, as `classifier:subject-merger`; off, it only logs them;
+  two game subjects merge only if their nearest scheduled starts, event start times and a start the key names
+  (Kalshi's `-HHMM`, US Eastern), are within `processing.subject_merge_start_tolerance_minutes` (180) or the wider
+  `processing.subject_merge_start_tolerance_by_league` (`{"atp": 240}`); otherwise the merge is held START for a
+  person, since one pair of teams can play twice in a day; the registry must have migration 069 for that hold),
   `key_reconcile_enabled` (the key reconcile pass, after the merge pass in the same idle slot: Claude judges which keys
   on a subject name one entity, up to `processing.key_reconcile_judge_limit` slots a pass, and the joins that pass the
   merge pass's collision and price checks are stored as `classifier:key-reconcile`; paid, about $0.0003 a slot),

@@ -12,6 +12,12 @@ Each pass:
      subject only because that's all it holds yet, so merging would put the whole key on the other subject;
    - merging would make two outcomes of one event read alike (queued, COLLISION);
    - it adds no relationship between the two subjects' contracts (skipped: nothing to gain);
+   - the two are games not scheduled together: their nearest scheduled starts (event start times, and a start the
+     key names) further apart than `subject_merge_start_tolerance_minutes`, or the wider of the two keys' leagues'
+     `subject_merge_start_tolerance_by_league` (queued, START). A pair of teams can play
+     twice in a day, and derivation tells two matches apart only when one venue lists both, so merging two matches
+     each venue lists one of would relate them as one. Venues schedule one match alike; a delay one venue hasn't
+     caught up with holds a good merge for a person, never makes a wrong one;
    - two venues' books contradict a relationship it adds by more than `subject_merge_max_price_gap` (queued, PRICE):
      A => B is contradicted only when A's bid is above B's ask, the trade the relationship says locks in a profit.
      Mids would hold every thin market against its neighbours: a line no one quotes (0.01 bid, 0.98 ask) has a mid
@@ -43,7 +49,9 @@ import redis as redis_lib
 import requests
 from gnomepy.registry import RegistryClient
 
+from classifier.constants import DEFAULT_SUBJECT_MERGE_START_TOLERANCE_MINUTES
 from classifier.db import ClassifierDB
+from classifier.propositions.canonical import GAME_SUBJECT_PREFIX
 from classifier.propositions.derive import EQUIVALENT, Contract, Derived
 from classifier.propositions.key_reconcile import resolved
 from classifier.propositions.merges import (
@@ -56,6 +64,7 @@ from classifier.propositions.merges import (
     candidate_pairs,
     check_merge,
     merge_aliases,
+    start_gap,
     with_samples,
 )
 from classifier.propositions.quotes import ListingRef, Quote, read_quotes
@@ -95,6 +104,7 @@ class Outcome(StrEnum):
     WOULD_MERGE = "WOULD_MERGE"
     QUEUED_PRICE = "QUEUED_PRICE"
     QUEUED_COLLISION = "QUEUED_COLLISION"
+    QUEUED_START = "QUEUED_START"
     NO_GAIN = "NO_GAIN"
     SEASON_KEY = "SEASON_KEY"
 
@@ -170,6 +180,7 @@ class MergePassResult:
     would_merge: int = 0
     queued_price: int = 0
     queued_collision: int = 0
+    queued_start: int = 0
     no_gain: int = 0
     season_key: int = 0
     relationships_added: int = 0
@@ -320,8 +331,16 @@ class _Context:
     quotes: QuoteReader
     auto_merge: bool
     max_price_gap: float
+    start_tolerance: timedelta
+    start_tolerance_by_league: dict[str, timedelta]
     result: MergePassResult
     queue: list[dict]
+
+
+def _start_tolerance(ctx: "_Context", *game_keys: str) -> timedelta:
+    """The default tolerance, or the widest the keys' leagues (`game:<league>:...`) are given."""
+    leagues = {k.split(":")[1] for k in game_keys}
+    return max([ctx.start_tolerance] + [ctx.start_tolerance_by_league[g] for g in leagues if g in ctx.start_tolerance_by_league])
 
 
 def _handle(ctx: _Context, s: _Subjects, a: str, b: str, judgment: Judgment) -> Outcome | None:
@@ -348,6 +367,14 @@ def _handle(ctx: _Context, s: _Subjects, a: str, b: str, judgment: Judgment) -> 
     if check.gain == 0:
         r.no_gain += 1
         return Outcome.NO_GAIN
+    games = keep.startswith(GAME_SUBJECT_PREFIX) and alias.startswith(GAME_SUBJECT_PREFIX)
+    gap = start_gap(keep, keep_contracts, alias, alias_contracts) if games else None
+    if gap is not None and gap[0] > _start_tolerance(ctx, keep, alias):
+        r.queued_start += 1
+        ctx.queue.append(dict(base, hold="START", details={
+            "canonical_start": gap[1].isoformat(), "alias_start": gap[2].isoformat(),
+            "hours_apart": round(gap[0].total_seconds() / 3600, 1), "entity_map": entity_map}))
+        return Outcome.QUEUED_START
     contracts = keep_contracts + alias_contracts
     involved = {x for d in check.new_relationships for x in (d.security_id_a, d.security_id_b)}
     flags = price_flags(check, ctx.quotes(listing_refs(ctx.db, contracts, involved)), ctx.max_price_gap)
@@ -384,6 +411,8 @@ def run_merge_pass(
     min_volume: float,
     judge_limit: int,
     max_price_gap: float,
+    start_tolerance: timedelta = timedelta(minutes=DEFAULT_SUBJECT_MERGE_START_TOLERANCE_MINUTES),
+    start_tolerance_by_league: dict[str, timedelta] | None = None,
     quotes: QuoteReader = read_quotes,
     scope: LLMScope = EVERYTHING,
 ) -> MergePassResult:
@@ -436,7 +465,8 @@ def run_merge_pass(
     # Pairs past the limit, and any the model failed to answer, keep the sweep open so the next pass finds them again.
     result.left_to_judge = len(unjudged) - result.judged
 
-    ctx = _Context(db, registry, quotes, auto_merge, max_price_gap, result, [])
+    ctx = _Context(db, registry, quotes, auto_merge, max_price_gap, start_tolerance, start_tolerance_by_league or {},
+                   result, [])
     merged_now: set[str] = set()
     for pair in pairs:
         remembered = known.get(pair)

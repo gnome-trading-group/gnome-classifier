@@ -1,5 +1,5 @@
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -19,7 +19,9 @@ from classifier.propositions.merges import (
     key_tokens,
     merge_aliases,
     parse_answer,
+    key_start,
     profile,
+    start_gap,
 )
 from classifier.propositions.canonical import apply_stored
 from classifier.propositions.derive import Contract
@@ -80,6 +82,22 @@ class TestCandidates:
         assert self.pairs(subject("game:bun:2026-11-08:hof-s04", ["POLYMARKET_INTL"]),
                           subject("game:bundesliga:2026-11-08:hofs04", ["KALSHI"])) == [
             ("game:bun:2026-11-08:hof-s04", "game:bundesliga:2026-11-08:hofs04")]
+
+    def test_games_alike_once_one_keys_start_time_is_dropped(self):
+        assert self.pairs(subject("game:cs2:2026-11-12:mouzn-navij", ["POLYMARKET_INTL"]),
+                          subject("game:cs2:2026-11-12:mouznnavij-0400", ["KALSHI"])) == [
+            ("game:cs2:2026-11-12:mouzn-navij", "game:cs2:2026-11-12:mouznnavij-0400")]
+
+    def test_a_key_naming_no_start_is_left_apart_where_the_day_has_two_named_starts(self):
+        untimed = subject("game:cs2:2026-11-12:mouzn-navij", ["POLYMARKET_INTL"])
+        early = subject("game:cs2:2026-11-12:mouznnavij-0400", ["KALSHI"])
+        late = subject("game:cs2:2026-11-12:mouznnavij-1600", ["KALSHI"])
+        assert self.pairs(untimed, early, late) == []
+
+    def test_keys_naming_one_start_still_pair_with_each_other(self):
+        assert self.pairs(subject("game:cs2:2026-11-12:mouznnavij-0400", ["KALSHI"]),
+                          subject("game:cs2:2026-11-12:mouzn-navij-0400", ["POLYMARKET_INTL"])) == [
+            ("game:cs2:2026-11-12:mouzn-navij-0400", "game:cs2:2026-11-12:mouznnavij-0400")]
 
     def test_games_on_different_dates_are_not(self):
         assert self.pairs(subject("game:nfl:2026-11-08:lar-was", ["POLYMARKET_INTL"]),
@@ -258,3 +276,25 @@ def test_a_merge_stores_no_alias_of_a_measure_on_an_entity():
     judgment = Judgment(Verdict.SAME, "", (("nxs", "nexus"),), (("margin:nxs", "margin:nexus"), ("total_maps", "maps_played")))
     assert [(a.kind, a.key, a.canonical_key) for a in merge_aliases(judgment)] == [
         ("ENTITY", "nexus", "nxs"), ("MEASURE", "maps_played", "total_maps")]
+
+
+def test_start_gap_is_the_nearest_two_starts_across_the_subjects():
+    at = lambda h: datetime(2026, 11, 12, h, tzinfo=timezone.utc)
+    game = Proposition(subject="game:cs2:2026-11-12:mouzn-navij", kind=Kind.WINNER, measure="winner", entity="navij")
+    a = [Contract(1, "KALSHI", game, start=at(9)), Contract(2, "KALSHI", game, start=at(10)), Contract(3, "KALSHI", game)]
+    b = [Contract(4, "POLYMARKET_INTL", game, start=at(21)), Contract(5, "POLYMARKET_INTL", game, start=at(12))]
+    assert start_gap("game:cs2:2026-11-12:x", a, "game:cs2:2026-11-12:y", b) == (timedelta(hours=2), at(10), at(12))
+    assert start_gap("game:cs2:2026-11-12:x", a, "game:cs2:2026-11-12:y", [Contract(6, "POLYMARKET_INTL", game)]) is None
+
+
+def test_a_keys_start_is_us_eastern_and_counts_as_a_scheduled_start():
+    game = Proposition(subject="game:cs2:2026-11-12:mouzn-navij", kind=Kind.WINNER, measure="winner", entity="navij")
+    assert key_start("game:cs2:2026-11-12:mouznnavij-0400") == datetime(2026, 11, 12, 9, tzinfo=timezone.utc)
+    assert key_start("game:cs2:2026-11-12:mouzn-navij") is None
+    # The ticker keeps 04:00 though the match was moved to 06:00; the venue's own start for it agrees with Polymarket.
+    kalshi = [Contract(1, "KALSHI", game, start=datetime(2026, 11, 12, 11, tzinfo=timezone.utc))]
+    polymarket = [Contract(2, "POLYMARKET_INTL", game, start=datetime(2026, 11, 12, 11, tzinfo=timezone.utc))]
+    assert start_gap("game:cs2:2026-11-12:mouznnavij-0400", kalshi, "game:cs2:2026-11-12:mouzn-navij", polymarket)[0] \
+        == timedelta(0)
+    assert start_gap("game:cs2:2026-11-12:mouznnavij-0400", [], "game:cs2:2026-11-12:mouzn-navij", polymarket)[0] \
+        == timedelta(hours=2)

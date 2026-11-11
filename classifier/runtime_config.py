@@ -44,6 +44,7 @@ from classifier.constants import (
     DEFAULT_SUBJECT_MERGE_INTERVAL_SECONDS,
     DEFAULT_SUBJECT_MERGE_JUDGE_LIMIT,
     DEFAULT_SUBJECT_MERGE_MAX_PRICE_GAP,
+    DEFAULT_SUBJECT_MERGE_START_TOLERANCE_MINUTES,
     DEFAULT_KEY_RECONCILE_JUDGE_LIMIT,
     DEFAULT_SUBJECT_MERGE_MIN_VOLUME,
     DEFAULT_SUBJECT_MERGE_MODELS,
@@ -125,6 +126,10 @@ class Processing:
     subject_merge_judge_limit: int = DEFAULT_SUBJECT_MERGE_JUDGE_LIMIT
     subject_merge_min_volume: float = DEFAULT_SUBJECT_MERGE_MIN_VOLUME
     subject_merge_max_price_gap: float = DEFAULT_SUBJECT_MERGE_MAX_PRICE_GAP
+    subject_merge_start_tolerance_minutes: int = DEFAULT_SUBJECT_MERGE_START_TOLERANCE_MINUTES
+    # Wider (or narrower) tolerances by a game key's league (`atp` in `game:atp:...`): venues schedule tennis by
+    # order of play, hours apart for one match.
+    subject_merge_start_tolerance_by_league: dict[str, int] = dataclasses.field(default_factory=dict)
     key_reconcile_judge_limit: int = DEFAULT_KEY_RECONCILE_JUDGE_LIMIT
     drift_sample_size: int = DEFAULT_DRIFT_SAMPLE_SIZE
     stale_miss_threshold: int = DEFAULT_STALE_MISS_THRESHOLD

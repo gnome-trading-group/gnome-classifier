@@ -17,8 +17,9 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from enum import StrEnum
+from zoneinfo import ZoneInfo
 
 from classifier.client.claude import ClaudeAsker, is_unavailable
 from classifier.propositions.canonical import ENTITY_ALIAS, MEASURE_ALIAS, StoredAlias
@@ -61,6 +62,10 @@ _GENERIC_ENTITIES = {"yes", "no", "tie", "draw", "over", "under", "other", "fiel
 # meet twice in a day in different tournaments, and the judge, reading two near-identical match markets, calls them one.
 _GAME_START = re.compile(r"^game:[^:]+:(\d{4}-\d{2}-\d{2}):.*-([01]\d|2[0-3])([0-5]\d)$")
 _GAME_KEY = re.compile(r"^game:[^:]+:(\d{4}-\d{2}-\d{2}):(.+)$")
+# A game key's scheduled start (`mouznnavij-0400`, US Eastern, from Kalshi's event ticker), which other venues' keys
+# don't carry.
+_START_SUFFIX = re.compile(r"-([01]\d|2[0-3])[0-5]\d$")
+_EASTERN = ZoneInfo("America/New_York")
 
 
 class Verdict(StrEnum):
@@ -204,14 +209,27 @@ def _token_pairs(profiles: list[SubjectProfile]) -> set[tuple[str, str]]:
 
 
 def _game_pairs(profiles: list[SubjectProfile]) -> set[tuple[str, str]]:
-    """Games on one date whose teams read the same without hyphens, whatever the league is called: venues spell the
-    league several ways (`bun`, `bundesliga`) and the teams with or without a hyphen (`nap-laz`, `naplaz`), and the
-    token pairs never meet them."""
+    """Games on one date whose teams read the same without hyphens or a start time, whatever the league is called:
+    venues spell the league several ways (`bun`, `bundesliga`), the teams with or without a hyphen (`nap-laz`,
+    `naplaz`) and with or without the start (`mouzn-navij`, `mouznnavij-0400`), and the token pairs never meet them.
+
+    A key naming no start pairs with one naming a start only when that is the only start any key names for those teams
+    that day: where two are named (a rematch, a doubleheader, the many daily games of virtual sports), which one it is
+    can't be told from the keys. Two keys naming different starts never pair (`different_start_times`). Whatever pairs,
+    a merge of two games also needs their scheduled starts to agree (`start_gap`)."""
     by_game: dict[tuple[str, str], list[str]] = defaultdict(list)
     for p in profiles:
         if m := _GAME_KEY.match(p.key):
-            by_game[(m.group(1), m.group(2).replace("-", ""))].append(p.key)
-    return {_pair(a, b) for keys in by_game.values() for i, a in enumerate(keys) for b in keys[i + 1:]}
+            by_game[(m.group(1), _START_SUFFIX.sub("", m.group(2)).replace("-", ""))].append(p.key)
+    out = set()
+    for keys in by_game.values():
+        starts = {m.group(0) for k in keys if (m := _START_SUFFIX.search(k))}
+        for i, a in enumerate(keys):
+            for b in keys[i + 1:]:
+                if len(starts) > 1 and bool(_START_SUFFIX.search(a)) != bool(_START_SUFFIX.search(b)):
+                    continue
+                out.add(_pair(a, b))
+    return out
 
 
 def _shared_pairs(profiles: list[SubjectProfile], limit: int) -> set[tuple[str, str]]:
@@ -231,6 +249,27 @@ def _shared_pairs(profiles: list[SubjectProfile], limit: int) -> set[tuple[str, 
         ordered = sorted(near)
         out.update(_pair(a, b) for i, a in enumerate(ordered) for b in ordered[i + 1:])
     return out
+
+
+def key_start(key: str) -> datetime | None:
+    """The scheduled start a game key names (`game:cs2:2026-11-12:mouznnavij-0400` is 04:00 US Eastern), else None."""
+    m = _GAME_START.match(key)
+    if m is None:
+        return None
+    day = date.fromisoformat(m.group(1))
+    return datetime(day.year, day.month, day.day, int(m.group(2)), int(m.group(3)), tzinfo=_EASTERN)
+
+
+def start_gap(a_key: str, a: list[Contract], b_key: str, b: list[Contract]) -> tuple[timedelta, datetime, datetime] | None:
+    """How far apart two game subjects are scheduled: the nearest two of each side's starts, as (gap, a's, b's), or
+    None when either side has none. A side's starts are its contracts' event start times and the start its key names:
+    venues move a delayed match's start while Kalshi's ticker keeps the first one, and either is when that match was
+    scheduled."""
+    starts_a = {c.start for c in a if c.start is not None} | {t for t in [key_start(a_key)] if t is not None}
+    starts_b = {c.start for c in b if c.start is not None} | {t for t in [key_start(b_key)] if t is not None}
+    if not starts_a or not starts_b:
+        return None
+    return min(((abs(x - y), x, y) for x in starts_a for y in starts_b), key=lambda t: (t[0], t[1], t[2]))
 
 
 def candidate_pairs(profiles: Iterable[SubjectProfile], neighbours: dict[str, list[str]],

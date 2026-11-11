@@ -158,7 +158,61 @@ def run(db, registry, judge, memory=None, auto_merge=True, quotes=lambda refs: {
                           min_volume=10_000, judge_limit=judge_limit, max_price_gap=0.15, quotes=quotes, scope=scope)
 
 
+NAVI_TS = "game:cs2:2026-11-12:mouznnavij-0400"
+NAVI = "game:cs2:2026-11-12:mouzn-navij"
+NAVI_SAME = Judgment(Verdict.SAME, "same match", (("navij", "navi-junior"),))
+
+
+def navi_db(kalshi_hour, polymarket_hour):
+    """MOUZ NXT vs NAVI Junior keyed with Kalshi's start time and without it; each side's events start at its hour."""
+    at = lambda hour: datetime(2026, 11, 12, hour, tzinfo=timezone.utc)
+
+    def game(sid, key, entity, venue, event_id, hour):
+        p = Proposition(key, Kind.WINNER, measure="winner", entity=entity, scope="match", window_end=at(23))
+        return Contract(sid, venue, p, event_id=event_id, start=at(hour))
+
+    return FakeDB({
+        NAVI_TS: (1, [game(11, NAVI_TS, "navij", "KALSHI", 10, kalshi_hour),
+                      game(12, NAVI_TS, "mouzn", "KALSHI", 10, kalshi_hour)], 50_000.0),
+        NAVI: (2, [game(21, NAVI, "navi-junior", "POLYMARKET_INTL", 20, polymarket_hour)], 50_000.0),
+    })
+
+
 class TestMergePass:
+    def test_merges_two_keys_of_one_game_starting_together(self):
+        registry = FakeRegistry()
+        result = run(navi_db(9, 9), registry, FakeJudge({(NAVI, NAVI_TS): NAVI_SAME}))
+        assert registry.merges == [(2, 1, MERGE_ACTOR)] and result.queued_start == 0
+
+    def test_holds_a_game_merge_scheduled_just_outside_the_tolerance(self):
+        # 04:00 ET (09:00Z) on Kalshi's key, 07:30 ET on Polymarket: past the default 3 hours.
+        db = navi_db(9, 9)
+        db.subjects[NAVI] = (2, [dataclasses.replace(c, start=datetime(2026, 11, 12, 12, 30, tzinfo=timezone.utc))
+                                 for c in db.subjects[NAVI][1]], 50_000.0)
+        db.subjects[NAVI_TS] = (1, [dataclasses.replace(c, start=None) for c in db.subjects[NAVI_TS][1]], 50_000.0)
+        registry = FakeRegistry()
+        result = run(db, registry, FakeJudge({(NAVI, NAVI_TS): NAVI_SAME}))
+        assert registry.merges == [] and result.queued_start == 1
+        assert registry.queued[0]["details"]["hours_apart"] == 3.5
+
+    def test_a_leagues_tolerance_widens_the_default(self):
+        db = navi_db(9, 9)
+        db.subjects[NAVI] = (2, [dataclasses.replace(c, start=datetime(2026, 11, 12, 13, 0, tzinfo=timezone.utc))
+                                 for c in db.subjects[NAVI][1]], 50_000.0)
+        registry = FakeRegistry()
+        run_merge_pass(db=db, registry=registry, judge=FakeJudge({(NAVI, NAVI_TS): NAVI_SAME}), memory=Memory(),
+                       auto_merge=True, min_volume=10_000, judge_limit=100, max_price_gap=0.15, quotes=lambda refs: {},
+                       start_tolerance_by_league={"cs2": timedelta(hours=5)})
+        assert registry.merges == [(2, 1, MERGE_ACTOR)]
+
+    def test_holds_a_game_merge_whose_contracts_start_hours_apart(self):
+        registry = FakeRegistry()
+        result = run(navi_db(9, 21), registry, FakeJudge({(NAVI, NAVI_TS): NAVI_SAME}))
+        assert registry.merges == [] and result.queued_start == 1
+        (held,) = registry.queued
+        assert (held["hold"], held["canonical_subject_id"], held["alias_subject_id"]) == ("START", 1, 2)
+        assert held["details"]["hours_apart"] == 12.0
+
     def test_merges_into_the_bigger_subject_and_stores_the_judges_keys_as_its_aliases(self):
         registry = FakeRegistry()
         result = run(governor_db(), registry, FakeJudge({(GA_SHORT, GA): SAME}))
