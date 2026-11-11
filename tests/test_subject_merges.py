@@ -298,3 +298,13 @@ def test_a_keys_start_is_us_eastern_and_counts_as_a_scheduled_start():
         == timedelta(0)
     assert start_gap("game:cs2:2026-11-12:mouznnavij-0400", [], "game:cs2:2026-11-12:mouzn-navij", polymarket)[0] \
         == timedelta(hours=2)
+
+
+def test_start_gap_reads_a_start_without_a_zone_as_utc():
+    # The registry's event start times come back without a zone; a key's start has one.
+    game = Proposition(subject="game:cs2:2026-11-12:mouzn-navij", kind=Kind.WINNER, measure="winner", entity="navij")
+    polymarket = [Contract(1, "POLYMARKET_INTL", game, start=datetime(2026, 11, 12, 9, 30))]
+    assert start_gap("game:cs2:2026-11-12:mouznnavij-0400", [], "game:cs2:2026-11-12:mouzn-navij", polymarket)[0] \
+        == timedelta(minutes=30)
+    kalshi = [Contract(2, "KALSHI", game, start=datetime(2026, 11, 12, 9, 0, tzinfo=timezone.utc))]
+    assert start_gap("game:cs2:2026-11-12:x", kalshi, "game:cs2:2026-11-12:y", polymarket)[0] == timedelta(minutes=30)

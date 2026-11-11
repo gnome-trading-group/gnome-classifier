@@ -17,7 +17,7 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
@@ -251,6 +251,11 @@ def _shared_pairs(profiles: list[SubjectProfile], limit: int) -> set[tuple[str, 
     return out
 
 
+def _utc(t: datetime) -> datetime:
+    # Event start times come from the registry without a zone, and are UTC.
+    return t if t.tzinfo is not None else t.replace(tzinfo=timezone.utc)
+
+
 def key_start(key: str) -> datetime | None:
     """The scheduled start a game key names (`game:cs2:2026-11-12:mouznnavij-0400` is 04:00 US Eastern), else None."""
     m = _GAME_START.match(key)
@@ -265,8 +270,8 @@ def start_gap(a_key: str, a: list[Contract], b_key: str, b: list[Contract]) -> t
     None when either side has none. A side's starts are its contracts' event start times and the start its key names:
     venues move a delayed match's start while Kalshi's ticker keeps the first one, and either is when that match was
     scheduled."""
-    starts_a = {c.start for c in a if c.start is not None} | {t for t in [key_start(a_key)] if t is not None}
-    starts_b = {c.start for c in b if c.start is not None} | {t for t in [key_start(b_key)] if t is not None}
+    starts_a = {_utc(c.start) for c in a if c.start is not None} | {t for t in [key_start(a_key)] if t is not None}
+    starts_b = {_utc(c.start) for c in b if c.start is not None} | {t for t in [key_start(b_key)] if t is not None}
     if not starts_a or not starts_b:
         return None
     return min(((abs(x - y), x, y) for x in starts_a for y in starts_b), key=lambda t: (t[0], t[1], t[2]))
