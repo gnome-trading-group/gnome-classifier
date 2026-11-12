@@ -105,6 +105,13 @@ class NormalizeWorker(BaseWorker):
                     "Entities: %d new securities from %d contracts",
                     len(entity_result.new_security_ids), len(new_contracts),
                 )
+            # The registry dropped these securities' relationships with their old source; the relationships worker
+            # restores them as soon as it reads the new one, rather than when its backlog walk reaches them.
+            sent = {m["security_id"] for m in entities_queue_messages}
+            changed = [sid for sid in entity_result.changed_source_security_ids if sid not in sent]
+            entities_queue_messages.extend({"type": "source_changed", "security_id": sid} for sid in changed)
+            if changed:
+                logger.info("Entities: %d venue sources changed", len(changed))
             if entity_result.event_contracts_relabelled or entity_result.securities_renamed \
                     or entity_result.listings_renamed:
                 logger.info(

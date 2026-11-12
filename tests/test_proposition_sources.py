@@ -128,3 +128,16 @@ def test_a_security_with_several_listings_loses_a_source_stored_earlier(stub_reg
     _sync_contract_sources(stub_registry, stub_db, [one], {_listing_key(one): sid})
 
     assert sid not in stub_registry._contract_sources
+
+
+def test_entities_report_the_securities_whose_source_changed(stub_registry, stub_db):
+    contracts = _kalshi_contracts()
+    first = create_entities(stub_registry, None, contracts, db=stub_db)
+    assert sorted(first.changed_source_security_ids) == sorted(stub_registry._contract_sources)
+    assert create_entities(stub_registry, None, contracts, db=stub_db).changed_source_security_ids == []
+
+    # A venue moves the first contract's event: its source changes, the others' don't.
+    moved = [dataclasses.replace(c, proposition_source={**c.proposition_source, "moved": True}) if i == 0 else c
+             for i, c in enumerate(contracts)]
+    sid = next(s for s, src in stub_registry._contract_sources.items() if src["source"] == contracts[0].proposition_source)
+    assert create_entities(stub_registry, None, moved, db=stub_db).changed_source_security_ids == [sid]

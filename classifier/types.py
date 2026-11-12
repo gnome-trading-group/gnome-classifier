@@ -40,6 +40,8 @@ class EntityResult:
     new_security_symbols: list[str]
     created_event_ids: list[EventId]
     created_event_names: list[str]
+    # Securities whose venue source changed (the registry dropped their derived relationships): re-read at once.
+    changed_source_security_ids: list[SecurityId] = dataclasses.field(default_factory=list)
 
     @property
     def counts(self) -> dict[str, int]:

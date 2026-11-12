@@ -78,7 +78,9 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   `(exchange_id, exchange_security_id)`, never by symbol or title. A symbol clash fails on the registry's unique
   constraint by design. Cross-venue links come only from derived relationships (and manual ones).
 - Relationships are derived, never judged: a security's proposition is read once per source hash and
-  `EXTRACTOR_VERSION`, relationships are derived per subject by `propositions/derive.py` (`DERIVATION_VERSION`) and
+  `EXTRACTOR_VERSION` (the registry drops a security's derived relationships when its source changes, e.g. a venue
+  moving the start, so the Normalize worker sends a `source_changed` message beside `new_security` ones and the
+  Relationships worker reads it at once; its backlog walk is only the safety net), relationships are derived per subject by `propositions/derive.py` (`DERIVATION_VERSION`) and
   each subject's set is replaced as a whole (`contract-relationships/reconcile`); manual rows always win. Bumping
   either version re-reads or re-derives. A change to the code readers needs no bump: once per `READERS_VERSION` (a
   hash of `propositions/venue/`, marked in Redis `readers:version`) the Relationships worker walks the open

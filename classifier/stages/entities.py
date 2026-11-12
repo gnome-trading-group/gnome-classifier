@@ -124,7 +124,7 @@ def create_entities_from_canonical(
     )
     _sync_listing_fee_keys(registry, db, unique_contracts, listing_id_by_key)
     _sync_listing_partitions(registry, db, unique_contracts, listing_id_by_key)
-    _sync_contract_sources(registry, db, unique_contracts, security_id_by_key)
+    changed_sources = _sync_contract_sources(registry, db, unique_contracts, security_id_by_key)
 
     _reconcile_stale_entities(registry, contracts, entity_ctx.event_id_by_native, db)
 
@@ -154,6 +154,7 @@ def create_entities_from_canonical(
         new_security_symbols=new_security_symbols,
         created_event_ids=created_event_ids,
         created_event_names=created_event_names,
+        changed_source_security_ids=changed_sources,
     )
 
 
@@ -569,8 +570,10 @@ def _sync_contract_sources(
     db: ClassifierDB,
     contracts: list[AdapterContract],
     security_id_by_key: dict[ListingKey, SecurityId],
-) -> int:
-    """Stores each contract's venue source for proposition extraction; the registry skips unchanged ones by hash."""
+) -> list[SecurityId]:
+    """Stores each contract's venue source for proposition extraction; the registry skips unchanged ones by hash.
+    Returns the securities whose stored source changed: the registry drops a changed security's derived relationships,
+    so they are lost until its proposition is read again."""
     by_security: dict[SecurityId, list[dict]] = {}
     for c in contracts:
         if c.proposition_source and _listing_key(c) in security_id_by_key:
@@ -591,9 +594,10 @@ def _sync_contract_sources(
         logger.warning("security %s may be several markets (several open listings, or listings with different sources); "
                        "not storing a source", security_id)
         pending.append(dict(security_id=security_id, exchange_id=items[0]["exchange_id"], source=None, source_hash=None))
+    changed: list[SecurityId] = []
     for _, chunk in bulk_create_chunked(pending, "contract sources"):
-        registry.upsert_contract_sources(chunk)
-    return len(pending)
+        changed.extend(r["security_id"] for r in registry.upsert_contract_sources(chunk) or [] if r.get("changed"))
+    return changed
 
 
 def _reconcile_stale_entities(

@@ -132,6 +132,22 @@ class TestNormalizeWorker:
             assert "security_id" in msg
             assert "security_symbol" in msg
 
+    def test_a_changed_source_is_sent_on_for_reading_at_once(self, moto_env, stub_registry, stub_db, mock_canonicalizer):
+        sns_client = boto3.client("sns", region_name="us-east-1")
+        worker = NormalizeWorker(WorkerConfig())
+        _patch_normalize_setup(worker, stub_registry, stub_db, mock_canonicalizer, sns_client)
+        worker._setup()
+        contract = dataclasses.replace(_make_adapter_contract(), proposition_source={"venue": "KALSHI", "start": "15:00"})
+
+        first = worker.process_batch([_sqs_msg({"type": "new", "contracts": [dataclasses.asdict(contract)]})])
+        assert [m["type"] for m in first] == ["new_security"], "a new security is announced once, not twice"
+        sid = first[0]["security_id"]
+
+        assert worker.process_batch([_sqs_msg({"type": "new", "contracts": [dataclasses.asdict(contract)]})]) == []
+        moved = dataclasses.replace(contract, proposition_source={"venue": "KALSHI", "start": "15:30"})
+        assert worker.process_batch([_sqs_msg({"type": "new", "contracts": [dataclasses.asdict(moved)]})]) == [
+            {"type": "source_changed", "security_id": sid}]
+
     def test_new_contracts_enriches_messages_with_event_info(self, moto_env, stub_registry, stub_db, mock_canonicalizer):
         sns_client = boto3.client("sns", region_name="us-east-1")
         config = WorkerConfig()
@@ -382,6 +398,19 @@ class TestPipelineMessageCompat:
 
         payloads = [json.loads(json.loads(m["Body"])["Message"]) for m in _drain_queue(moto_env["sqs"], moto_env["slack_queue"])]
         assert any(p["type"] == "new_events" for p in payloads)
+
+def test_a_source_changed_message_is_read_like_a_new_security(moto_env, stub_registry, stub_db):
+    sns_client = boto3.client("sns", region_name="us-east-1")
+    relationships = RelationshipsWorker(WorkerConfig())
+    _patch_relationships_setup(relationships, stub_registry, stub_db, sns_client, relationships_enabled=True)
+    relationships._setup()
+    with patch("classifier.workers.relationships.read_propositions") as read, \
+            patch("classifier.workers.relationships.derive_due_subjects") as derive, \
+            patch("classifier.workers.relationships.read_backlog", return_value=(PassResult(), 0)), \
+            patch("classifier.workers.relationships.run_drift_check"):
+        relationships.process_batch([_sqs_msg({"type": "source_changed", "security_id": 42})])
+    assert read.call_args.args[0] == [42] and derive.called
+
 
 def test_large_bodies_travel_gzipped_and_read_back_whole():
     small = {"type": "new", "contracts": [{"a": 1}]}
