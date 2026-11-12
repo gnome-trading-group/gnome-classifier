@@ -29,7 +29,7 @@ class AppStage extends cdk.Stage {
       normalizeService: classifierStack.normalizeService,
       relationshipsService: classifierStack.relationshipsService,
       notifyService: classifierStack.notifyService,
-      workerStarts: classifierStack.workerStarts,
+      workerCrashes: classifierStack.workerCrashes,
       fetchCycleFailures: classifierStack.fetchCycleFailures,
       venueFeedGaps: classifierStack.venueFeedGaps,
       closureChecksSkipped: classifierStack.closureChecksSkipped,

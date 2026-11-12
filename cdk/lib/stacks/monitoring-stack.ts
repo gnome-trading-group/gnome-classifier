@@ -16,7 +16,7 @@ interface Props extends cdk.StackProps {
   normalizeService: ecs.Ec2Service;
   relationshipsService: ecs.Ec2Service;
   notifyService: ecs.Ec2Service;
-  workerStarts: Record<string, cloudwatch.Metric>;
+  workerCrashes: Record<string, cloudwatch.Metric>;
   fetchCycleFailures: cloudwatch.Metric;
   venueFeedGaps: cloudwatch.Metric;
   closureChecksSkipped: cloudwatch.Metric;
@@ -141,10 +141,13 @@ export class MonitoringStack extends cdk.Stack {
       alarmFriendlyName: 'WorkerHealth',
       metricGroups: [
         {
-          title: 'Worker starts per hour',
-          // A deploy starts each worker once; three in an hour means it keeps dying (e.g. out of memory).
-          metrics: Object.entries(props.workerStarts).map(([name, metric]) =>
-            countAlarm(metric, `${name}WorkerRestarts`, 3, `${name} worker started 3+ times in an hour`, 'Error')),
+          title: 'Worker crashes per hour',
+          // Only exits the container made on its own count, not deploys or spot drains; a second in an hour means it
+          // keeps dying (e.g. out of memory). The name predates counting crashes and is kept so the alarm updates in
+          // place rather than leaving its open alert behind.
+          metrics: Object.entries(props.workerCrashes).map(([name, metric]) =>
+            countAlarm(metric, `${name}WorkerRestarts`, 2,
+              `${name} worker crashed or was OOM-killed 2+ times in an hour`, 'Error')),
         },
         {
           title: 'Failed batches per hour',

@@ -5,12 +5,15 @@ import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elasticache from 'aws-cdk-lib/aws-elasticache';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as eventsTargets from 'aws-cdk-lib/aws-events-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as secrets from 'aws-cdk-lib/aws-secretsmanager';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as cr from 'aws-cdk-lib/custom-resources';
 import { join } from 'path';
 import { Stage } from '@gnome-trading-group/gnome-shared-cdk';
 
@@ -34,8 +37,9 @@ export class ClassifierStack extends cdk.Stack {
   public readonly normalizeService: ecs.Ec2Service;
   public readonly relationshipsService: ecs.Ec2Service;
   public readonly notifyService: ecs.Ec2Service;
-  /** Hourly count of each worker's process starting, by worker name; more than a deploy's worth means it is crashing. */
-  public readonly workerStarts: Record<string, cloudwatch.Metric> = {};
+  /** Hourly count of each worker's container exiting on its own (crash, OOM kill), by worker name. Deploys, spot drains
+   * and instance moves stop tasks too, but ECS gives those a different stop code, so they don't count. */
+  public readonly workerCrashes: Record<string, cloudwatch.Metric> = {};
   /** Hourly count of failed batches, idle passes and subject derivations, by queue worker name; the worker survives
    * them and carries on. */
   public readonly batchFailures: Record<string, cloudwatch.Metric> = {};
@@ -162,6 +166,42 @@ export class ClassifierStack extends cdk.Stack {
     });
     cluster.addAsgCapacityProvider(workerCapacity);
 
+    // Each worker is a single task, so spreading instances across zones buys no availability. On spot, launches often
+    // land unevenly when a zone has no capacity, and every rebalance then drains an instance and restarts its tasks.
+    // CloudFormation has no property for suspended processes, hence the API call.
+    new cr.AwsCustomResource(this, 'WorkerAsgSuspendAzRebalance', {
+      onUpdate: {
+        service: 'AutoScaling',
+        action: 'suspendProcesses',
+        parameters: { AutoScalingGroupName: workerAsg.autoScalingGroupName, ScalingProcesses: ['AZRebalance'] },
+        physicalResourceId: cr.PhysicalResourceId.of(workerAsg.autoScalingGroupName),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromStatements([new iam.PolicyStatement({
+        actions: ['autoscaling:SuspendProcesses'],
+        resources: [workerAsg.autoScalingGroupArn],
+      })]),
+      installLatestAwsSdk: false,
+    });
+
+    // ECS reports every stopped task; only those whose essential container exited on its own are crashes. The rule
+    // writes them to a log group so a metric filter per worker can count them.
+    const taskCrashLogGroup = new logs.LogGroup(this, 'TaskCrashLogGroup', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    new events.Rule(this, 'TaskCrashRule', {
+      eventPattern: {
+        source: ['aws.ecs'],
+        detailType: ['ECS Task State Change'],
+        detail: {
+          clusterArn: [cluster.clusterArn],
+          lastStatus: ['STOPPED'],
+          stopCode: ['EssentialContainerExited'],
+        },
+      },
+      targets: [new eventsTargets.CloudWatchLogGroup(taskCrashLogGroup)],
+    });
+
     // ── Shared environment ────────────────────────────────────────────
 
     const imageAsset = join(__dirname, '..', '..', '..');
@@ -236,15 +276,13 @@ export class ClassifierStack extends cdk.Stack {
         this, `${id}LogGroupRef`, container.logDriverConfig!.options!['awslogs-group'],
       );
       workerLogGroups[id] = logGroup;
-      // Every worker logs "<Id>Worker started" when its process starts.
-      this.workerStarts[id] = logMetric(logGroup, `${id}WorkerStarts`, logs.FilterPattern.literal(`"${id}Worker started"`));
       if (id !== 'Fetch') {
         this.batchFailures[id] = logMetric(logGroup, `${id}BatchFailures`,
           logs.FilterPattern.anyTerm('process_batch failed', 'on_idle failed', 'subject derivation failed',
             'relationship reduction mismatch'));
       }
 
-      return new ecs.Ec2Service(this, `${id}Service`, {
+      const service = new ecs.Ec2Service(this, `${id}Service`, {
         cluster,
         taskDefinition: taskDef,
         desiredCount: 1,
@@ -252,6 +290,9 @@ export class ClassifierStack extends cdk.Stack {
         maxHealthyPercent: 100,
         capacityProviderStrategies: [{ capacityProvider: workerCapacity.capacityProviderName, weight: 1 }],
       });
+      this.workerCrashes[id] = logMetric(taskCrashLogGroup, `${id}WorkerCrashes`,
+        logs.FilterPattern.stringValue('$.detail.group', '=', `service:${service.serviceName}`));
+      return service;
     };
 
     // ── FetchRunner (ECS long-running service) ────────────────────────

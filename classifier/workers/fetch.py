@@ -156,8 +156,6 @@ class FetchRunner:
         last_volume = -float("inf")
         last_schedule = -float("inf")
 
-        # The FetchWorkerStarts metric filter in cdk/lib/stacks/classifier-stack.ts counts this message to catch crash
-        # loops; keep its wording in step with the filter.
         logger.info("FetchWorker started")
         # The FetchCycleFailures metric filter counts the "... cycle failed" messages below; keep their wording.
         while self._running:

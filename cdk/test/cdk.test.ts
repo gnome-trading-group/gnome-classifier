@@ -1,5 +1,5 @@
 import * as cdk from 'aws-cdk-lib';
-import { Template } from 'aws-cdk-lib/assertions';
+import { Match, Template } from 'aws-cdk-lib/assertions';
 import { Stage } from '@gnome-trading-group/gnome-shared-cdk';
 import { ClassifierStack } from '../lib/stacks/classifier-stack';
 
@@ -27,10 +27,11 @@ test('ClassifierStack creates SQS queues, SNS topic, ECS cluster, and ElastiCach
   // Redis cache
   template.resourceCountIs('AWS::ElastiCache::CacheCluster', 1);
 
-  // Every worker, the fetch loop included, is an ECS service: the only Lambda is CDK's ASG drain hook, and nothing is
-  // scheduled outside the fetch loop.
-  template.resourceCountIs('AWS::Lambda::Function', 1);
-  template.resourceCountIs('AWS::Events::Rule', 0);
+  // Every worker, the fetch loop included, is an ECS service: the only Lambdas are CDK's ASG drain hook and the
+  // custom-resource handler, and the only rule routes task crashes to their log group; nothing is scheduled outside
+  // the fetch loop.
+  template.resourceCountIs('AWS::Lambda::Function', 2);
+  template.resourceCountIs('AWS::Events::Rule', 1);
   template.resourceCountIs('AWS::S3::Bucket', 0);
 });
 
@@ -43,4 +44,34 @@ test('Fetch task limit is 3072 MiB (2048 MiB was OOM-killed)', () => {
     r.Properties.ContainerDefinitions.some((c: any) => c.Name === 'FetchContainer'));
   expect(fetchTasks).toHaveLength(1);
   expect((fetchTasks[0] as any).Properties.ContainerDefinitions[0].Memory).toBe(3072);
+});
+
+test('Worker crashes are counted per service from ECS task stops the container caused', () => {
+  const app = new cdk.App();
+  const stack = new ClassifierStack(app, 'TestStack', { stage: Stage.PROD, slackChannel: 'test-channel', env });
+  const template = Template.fromStack(stack);
+
+  template.hasResourceProperties('AWS::Events::Rule', {
+    EventPattern: Match.objectLike({
+      source: ['aws.ecs'],
+      'detail-type': ['ECS Task State Change'],
+      detail: Match.objectLike({ lastStatus: ['STOPPED'], stopCode: ['EssentialContainerExited'] }),
+    }),
+  });
+  const crashFilters = Object.values(template.findResources('AWS::Logs::MetricFilter')).filter((r: any) =>
+    r.Properties.MetricTransformations[0].MetricName.endsWith('WorkerCrashes'));
+  expect(crashFilters.map((r: any) => r.Properties.MetricTransformations[0].MetricName).sort())
+    .toEqual(['FetchWorkerCrashes', 'NormalizeWorkerCrashes', 'NotifyWorkerCrashes', 'RelationshipsWorkerCrashes']);
+  expect(stack.workerCrashes.Relationships).toBeDefined();
+});
+
+test('The worker ASG has AZ rebalancing suspended', () => {
+  const app = new cdk.App();
+  const stack = new ClassifierStack(app, 'TestStack', { stage: Stage.PROD, slackChannel: 'test-channel', env });
+  const template = Template.fromStack(stack);
+
+  const suspends = Object.values(template.findResources('Custom::AWS')).filter((r: any) =>
+    JSON.stringify(r.Properties.Update ?? r.Properties.Create).includes('AZRebalance'));
+  expect(suspends).toHaveLength(1);
+  expect(JSON.stringify((suspends[0] as any).Properties.Update)).toContain('suspendProcesses');
 });

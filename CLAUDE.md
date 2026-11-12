@@ -208,7 +208,7 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   the DLQ after 3 receives (Slack: 5). Stages must stay idempotent on redelivery.
 - Log lines counted by metric filters (`classifier-stack.ts`) must keep their wording: `cycle failed`,
   `Failed to fetch settlements from`, `not counting misses this cycle`, `not checking them this cycle`,
-  `retired listings as open again`, `already in event`, `<Name>Worker started`, `venue reader fell back`,
+  `retired listings as open again`, `already in event`, `venue reader fell back`,
   `proposition drift`, `proposition collision`.
 - Venues rename outcomes in place (Polymarket International placeholders "Team A" become the team). The entities stage
   keeps `outcome_label`, the security symbol and the listing name in step with the adapter; ids never change. A rename
@@ -224,8 +224,8 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   `pyproject.toml` only says `>3.0.0`, so a bump is `poetry update gnomepy` plus a deploy. Registry API shape changes
   break the classifier until the matching gnomepy ships here: the exchange `schema_type` removal broke fetch cycles
   until gnomepy 3.1.0.
-- What runs: five ECS services (EC2 spot t3.medium ASG, 1-2 instances, registry VPC), one task each, all from the repo
-  Docker image. There are no Lambdas besides CDK's ASG drain hook; resolve, stale and settle are Fetch cycles.
+- What runs: five ECS services (EC2 spot t3.medium ASG, 1-2 instances, registry VPC, `AZRebalance` suspended), one task each, all from the repo
+  Docker image. The only Lambdas are CDK's: the ASG drain hook and the custom-resource handler that suspends `AZRebalance`; resolve, stale and settle are Fetch cycles.
   - Fetch (`fetch`, 3072 MiB): loop; fetch every `fetch_interval_seconds` (60) followed by closure check, recent
     settlements, reactivation; resolve every 1800s; stale every 3600s; settle sweep every 3600s; fee sync every 3600s.
     Volume write every 900s after a fetch; start times every 300s (`schedule_interval_seconds`): each event's scheduled
@@ -244,8 +244,11 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   - `Classifier--<Queue>Dlq-Queue-Message-Count-Max-Error`: any DLQ message. Find the exception in the consumer's logs,
     fix, then redrive (stale symbols survive a redrive, see above).
   - `Classifier--<Worker>Worker-Memory-Usage-Warning`: > 90% of the task limit; ECS kills at 100%. Fetch was OOM-killed at 1024 MiB.
-  - `Classifier--WorkerHealth-<Worker>WorkerRestarts-Error`: 3+ starts in an hour. Look for OOM kills (ECS stopped
-    reason) or a startup exception (missing secret, registry/controller unreachable).
+  - `Classifier--WorkerHealth-<Worker>WorkerRestarts-Error`: 2+ crashes in an hour: ECS task stops with stop code
+    `EssentialContainerExited` (the container exited on its own), written by an EventBridge rule to the stack's
+    `TaskCrashLogGroup` and counted per service. Deploys, spot drains and instance moves (`ServiceSchedulerInitiated`)
+    don't count. Look for OOM kills (exit 137, stopped reason `OutOfMemoryError`) or a startup exception (missing
+    secret, registry/controller unreachable).
   - `Classifier--WorkerHealth-FetchCycleFailures-Error`: 3+ in an hour of `... cycle failed` (fetch, closure check,
     recent settle, reactivation, resolve, stale cleanup, settle, fee sync, volume, schedule) or `Failed to fetch settlements from <venue>`.
     Read the traceback in the Fetch log group: a gnomepy/registry API mismatch (TypeError on a gnomepy model) needs a
