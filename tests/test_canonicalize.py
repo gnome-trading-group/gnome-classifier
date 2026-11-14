@@ -19,8 +19,9 @@ class ScriptedAsker(ClaudeAsker):
         self._payloads = list(payloads)
         self.requests: list[dict] = []
 
-    def ask_with_usage(self, system, prompt, schema, max_tokens, effort):
-        self.requests.append({"system": system, "prompt": prompt, "schema": schema, "effort": effort})
+    def ask_with_usage(self, system, prompt, schema, max_tokens, effort, thinking=None):
+        self.requests.append({"system": system, "prompt": prompt, "schema": schema, "effort": effort,
+                              "max_tokens": max_tokens, "thinking": thinking})
         payload = self._payloads.pop(0)
         if isinstance(payload, Exception):
             raise payload
@@ -71,6 +72,28 @@ def test_requests_use_the_schema_and_cached_instructions_at_low_effort():
     assert request["schema"] is RESPONSE_SCHEMA and request["effort"] == "low"
     assert request["system"].startswith("You are categorizing prediction market events")
     assert "Categories:" not in request["prompt"]
+
+
+def test_requests_turn_thinking_off_and_keep_a_floor_under_the_budget():
+    events = [CanonicalizeInput(f"Event {i}", None, None, 1, f"e{i}") for i in range(5)]
+    client = ScriptedAsker([
+        [entry(ev, "SPORTS", [], id_=j + 1) for j, ev in enumerate(events[:4])],
+        [entry(events[4], "SPORTS", [])],
+    ])
+
+    canonicalize_events(client, events, batch_size=4, max_workers=1)
+
+    assert [r["thinking"] for r in client.requests] == [{"type": "disabled"}] * 2
+    assert sorted(r["max_tokens"] for r in client.requests) == [1024, 1200]
+
+
+def test_a_retry_cut_off_at_max_tokens_fails_the_batch():
+    ev = CanonicalizeInput("Stanke / Van Herck vs Kaan Oktay / Schlossmann", None, "Sports", 1, "tennis")
+    truncated = RuntimeError("Claude request stopped: max_tokens (1024/1024 output tokens, no thinking block)")
+    client = ScriptedAsker([truncated, truncated])
+
+    with pytest.raises(RuntimeError, match=r"1 events failed canonicalization after individual retry: \[\(1, 'tennis'\)\]"):
+        canonicalize_events(client, [ev], max_workers=1)
 
 
 def test_unparseable_chunk_retries_every_event():

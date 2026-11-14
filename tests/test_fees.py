@@ -121,15 +121,47 @@ def test_polymarket_intl_definition_from_the_market_schedule():
         "currency": "USD",
         "components": [{"kind": "PRICE_CURVE", "taker": 0.05, "maker": 0, "exponent": 1}],
         "rounding": {"mode": "HALF_UP", "increment": 0.00001, "scope": "FILL"},
+        "makerRebate": {"share": 0.15},
     }
+    assert "makerRebate" not in polymarket_intl_definition(
+        {**market, "feeSchedule": {**market["feeSchedule"], "rebateRate": 0}})
     assert polymarket_intl_definition({**market, "feesEnabled": False}) is None
     assert polymarket_intl_definition({"feesEnabled": True, "feeSchedule": {"rate": 0, "exponent": 1}}) is None
     assert polymarket_intl_definition({"feesEnabled": False}) is None
 
 
-def _intl_definition(rate: float, exponent: int = 1) -> dict:
-    return polymarket_intl_definition(
-        {"feesEnabled": True, "feeSchedule": {"exponent": exponent, "rate": rate, "takerOnly": True}})
+def _intl_definition(rate: float, exponent: int = 1, rebate: float | None = None) -> dict:
+    schedule = {"exponent": exponent, "rate": rate, "takerOnly": True}
+    if rebate is not None:
+        schedule["rebateRate"] = rebate
+    return polymarket_intl_definition({"feesEnabled": True, "feeSchedule": schedule})
+
+
+def test_a_maker_rebate_adds_a_schedule_and_keeps_the_rollout_one():
+    now = datetime(2026, 11, 12, 12, tzinfo=timezone.utc)
+    plain = polymarket_intl_schedules(3, {"politics_fees": _intl_definition(0.04)}, now)
+    rows = polymarket_intl_schedules(3, {
+        "politics_fees": _intl_definition(0.04, rebate=0.25),
+        "sports_fees_v3": _intl_definition(0.05, rebate=0.15),
+        "economics_fees": _intl_definition(0.06, rebate=0.25),
+    }, now)
+    assert [(r["fee_group"], r["effective_from"], r["definition"].get("makerRebate")) for r in rows] == [
+        ("politics_fees", "2026-03-30T00:00:00Z", None),
+        ("politics_fees", "2026-11-12T12:00:00Z", {"share": 0.25}),
+        ("sports_fees_v3", "2026-07-11T00:00:00Z", None),
+        ("sports_fees_v3", "2026-07-11T00:00:00Z", {"share": 0.15}),
+        # Rates no rollout lists: one schedule, rebate included, from now.
+        ("economics_fees", "2026-11-12T12:00:00Z", {"share": 0.25}),
+    ]
+    # The rollout schedule is the one already recorded, so it isn't written again.
+    assert rows[0]["source_ref"] == plain[0]["source_ref"]
+    assert rows[1]["source_ref"] != plain[0]["source_ref"]
+
+
+def test_a_rebate_at_a_share_the_docs_dont_date_holds_from_now():
+    now = datetime(2026, 11, 12, 12, tzinfo=timezone.utc)
+    rows = polymarket_intl_schedules(3, {"sports_fees_v3": _intl_definition(0.05, rebate=0.2)}, now)
+    assert rows[1]["effective_from"] == "2026-11-12T12:00:00Z"
 
 
 def test_polymarket_intl_fee_types_hold_from_their_rollout_unless_their_rates_moved():
@@ -159,7 +191,9 @@ def test_polymarket_intl_markets_are_grouped_by_fee_type():
     assert adapter._fee_group({"feeType": None, "feesEnabled": False}) is None
     assert adapter._fee_group({"feeType": "zero_fees", "feesEnabled": True,
                                "feeSchedule": {**schedule, "rate": 0}}) is None
-    assert [r["fee_group"] for r in adapter.fetch_fee_schedules(3)] == ["politics_fees"]
+    # The rollout schedule, then the same fees with the maker rebate.
+    assert [(r["fee_group"], "makerRebate" in r["definition"]) for r in adapter.fetch_fee_schedules(3)] == [
+        ("politics_fees", False), ("politics_fees", True)]
 
 
 def test_polymarket_us_fee_group_is_the_sport():

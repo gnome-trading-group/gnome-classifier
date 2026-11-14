@@ -56,6 +56,13 @@ POLYMARKET_INTL_FEE_TYPES = {
     "sports_fees_v3": (datetime(2026, 7, 11, tzinfo=timezone.utc), 0.05, 1),
     "sports_fees_nfl_cfb_oct26": (datetime(2026, 8, 21, tzinfo=timezone.utc), 0.03, 1),
 }
+# Makers earn back a share of each market's taker fees, paid daily apart from the fill (Gamma's feeSchedule.rebateRate;
+# docs.polymarket.com/developers/market-makers/maker-rebates-program). The docs date only the sports cut from 25% to
+# 15% on 2026-07-10, before sports_fees_v3 began; any other type's rebate holds from the first sync to see it.
+#   type: (from, share)
+POLYMARKET_INTL_REBATES = {
+    "sports_fees_v3": (datetime(2026, 7, 11, tzinfo=timezone.utc), 0.15),
+}
 
 
 def _rate(value: float) -> float:
@@ -211,7 +218,7 @@ def polymarket_intl_definition(market: dict) -> dict | None:
     if not isinstance(rate, (int, float)) or rate == 0:
         return None
     exponent = schedule.get("exponent", 1)
-    return {
+    definition = {
         "currency": "USD",
         "components": [{
             "kind": "PRICE_CURVE",
@@ -221,25 +228,39 @@ def polymarket_intl_definition(market: dict) -> dict | None:
         }],
         "rounding": dict(_POLYMARKET_INTL_ROUNDING),
     }
+    rebate = schedule.get("rebateRate")
+    if isinstance(rebate, (int, float)) and 0 < rebate <= 1:
+        definition["makerRebate"] = {"share": _rate(rebate)}
+    return definition
 
 
 def polymarket_intl_schedules(exchange_id: int, definitions: dict[str, dict], now: datetime) -> list[dict]:
-    """One schedule per Polymarket International fee type, from the definitions its markets carry. A type at the
-    rates POLYMARKET_INTL_FEE_TYPES lists holds from its rollout; any other from `now`, the first sync to see it."""
+    """The schedules of each Polymarket International fee type, from the definition its markets carry. A type at the
+    rates POLYMARKET_INTL_FEE_TYPES lists holds from its rollout; any other from `now`, the first sync to see it. A
+    type with a maker rebate keeps its rollout schedule without one, and adds the rebate from when
+    POLYMARKET_INTL_REBATES dates it, else from `now`."""
     schedules = []
-    for fee_type, definition in definitions.items():
-        known = POLYMARKET_INTL_FEE_TYPES.get(fee_type)
-        launch = known and polymarket_intl_definition(
-            {"feesEnabled": True, "feeSchedule": {"rate": known[1], "exponent": known[2], "takerOnly": True}})
-        if launch == definition:
-            effective_from = known[0]
-        else:
-            logger.warning("Polymarket International fee type %s charges %s, which no rollout lists; holding it from "
-                           "now", fee_type, definition["components"])
-            effective_from = now
+
+    def add(fee_type: str, definition: dict, effective_from: datetime):
         digest = hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()[:12]
         schedules.append({"exchange_id": exchange_id, "fee_group": fee_type, "effective_from": _iso(effective_from),
                           "definition": definition, "source_ref": f"polymarket_intl:fee_type:{fee_type}:{digest}"})
+
+    for fee_type, definition in definitions.items():
+        fees = {k: v for k, v in definition.items() if k != "makerRebate"}
+        known = POLYMARKET_INTL_FEE_TYPES.get(fee_type)
+        launch = known and polymarket_intl_definition(
+            {"feesEnabled": True, "feeSchedule": {"rate": known[1], "exponent": known[2], "takerOnly": True}})
+        if launch != fees:
+            logger.warning("Polymarket International fee type %s charges %s, which no rollout lists; holding it from "
+                           "now", fee_type, definition["components"])
+            add(fee_type, definition, now)
+            continue
+        add(fee_type, fees, known[0])
+        if "makerRebate" in definition:
+            dated = POLYMARKET_INTL_REBATES.get(fee_type)
+            share = definition["makerRebate"]["share"]
+            add(fee_type, definition, dated[0] if dated and dated[1] == share else now)
     return schedules
 
 

@@ -187,7 +187,9 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   judge) goes through `classifier/client/claude.py` with one provider, `models.provider` (`anthropic` API key, or
   `bedrock` via Bedrock's Messages endpoint, IAM `bedrock-mantle:*`), and `models.fallback_provider` on an outage.
   Each task has its own model per provider: `models.proposition_models`, `models.canonicalize_models` (default Haiku
-  5.5 for both). Dev and prod have no Claude access on Bedrock yet (2026-10-29), so keep `anthropic` until it is
+  5.5 for both). Requests run with the model's default adaptive thinking, whose tokens count against `max_tokens`,
+  except canonicalization, which sends `thinking: disabled` (left on, Haiku thought on ~13% of one-event requests and
+  overran the 300-token budget, failing the batch). Dev and prod have no Claude access on Bedrock yet (2026-10-29), so keep `anthropic` until it is
   enabled per account. Embeddings are Voyage (proposition subjects). Model ids are cache keys: changing a model
   re-runs everything once.
 - Redis (single `cache.t3.micro`, private subnets): `fetch:known_contracts`, `fetch:sent_resolved`,

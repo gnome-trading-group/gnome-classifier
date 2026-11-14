@@ -13,7 +13,12 @@ from classifier.types import CanonicalizeInput, NativeKey
 logger = logging.getLogger(__name__)
 
 _MAX_TOKENS_PER_EVENT = 300
+# A one-event request's answer is ~50-90 tokens; the floor leaves room for an unusually long one.
+_MIN_MAX_TOKENS = 1024
 EFFORT = "low"
+# Left adaptive, the model thinks on some events (200-400 tokens, more than a one-event request's whole budget) and
+# the thinking didn't improve the tags when compared side by side.
+THINKING = {"type": "disabled"}
 MAX_WORKERS = 8
 
 # The boundaries between neighbouring categories are where models disagree, so each definition says what it excludes.
@@ -190,6 +195,10 @@ def canonicalize_events(
     return results
 
 
+def max_tokens_for(events: int) -> int:
+    return max(_MIN_MAX_TOKENS, _MAX_TOKENS_PER_EVENT * events)
+
+
 def _ask_chunks(asker: ClaudeAsker, chunks: dict[str, list[CanonicalizeInput]], max_workers: int) -> tuple[dict[str, str], int, int]:
     """{request id: answer text} for the requests that got an answer, and the tokens they used. A failed request is
     logged and left out, so its events count as missed."""
@@ -200,7 +209,7 @@ def _ask_chunks(asker: ClaudeAsker, chunks: dict[str, list[CanonicalizeInput]], 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
             pool.submit(asker.ask_with_usage, _INSTRUCTIONS, _build_prompt(chunk), RESPONSE_SCHEMA,
-                        _MAX_TOKENS_PER_EVENT * len(chunk), EFFORT): request_id
+                        max_tokens_for(len(chunk)), EFFORT, THINKING): request_id
             for request_id, chunk in chunks.items()
         }
         for future in as_completed(futures):

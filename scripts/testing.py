@@ -57,7 +57,8 @@ class FakeCanonicalizer(ClaudeAsker):
         self._tags = tags or []
         self.calls = 0
 
-    def ask_with_usage(self, system: str, prompt: str, schema: dict, max_tokens: int, effort: str) -> Answer:
+    def ask_with_usage(self, system: str, prompt: str, schema: dict, max_tokens: int, effort: str,
+                       thinking: dict | None = None) -> Answer:
         self.calls += 1
         events = [
             {"id": int(line[1:line.index("]")]), "key": line.split("(key: ", 1)[1].split(")", 1)[0],
