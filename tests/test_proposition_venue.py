@@ -90,6 +90,20 @@ class TestKalshiGames:
         assert (p.subject, p.measure, p.value, p.scope) == ("game:nba:2026-11-01:bosorl", "margin:bos", 1.5,
                                                             "first_quarter")
 
+    def test_a_half_spread_naming_the_half_before_the_margin(self):
+        rules = ("If Syracuse wins the 1st half by more than 5.5 points in the Syracuse vs St. John's men's college "
+                 "basketball game originally scheduled for Nov 15, 2026, then the market resolves to Yes.")
+        p = extract_venue(kalshi("KXNCAAMB1HSPREAD-26NOV15SYRSJU-SYR6", rules))
+        assert (p.subject, p.measure, p.value, p.scope) == ("game:ncaamb:2026-11-15:syrsju", "margin:syr", 5.5,
+                                                            "first_half")
+
+    def test_a_total_worded_collectively_score_over(self):
+        rules = ("If the Montreal Alouettes and Edmonton Elks collectively score over 69.5 points in the Montreal "
+                 "Alouettes vs Edmonton Elks professional CFL football originally scheduled for Nov 15, 2026, then the "
+                 "market resolves to Yes.")
+        p = extract_venue(kalshi("KXCFLTOTAL-26NOV15MTLEDM-70", rules))
+        assert (p.subject, p.measure, p.value, p.scope) == ("game:cfl:2026-11-15:mtledm", "total_points", 69.5, "match")
+
     def test_a_second_half_and_a_period_are_scoped_too(self):
         second_half = ("If the total goals scored by Elversberg and Mainz  is more than 1.5 goals in the 2nd Half of the "
                        "Elversberg vs Mainz professional Bundesliga soccer game originally scheduled for Oct 30, 2026, "
@@ -391,6 +405,11 @@ class TestKalshiRateDecisions:
         p = extract_venue(bank("KXCBDCOLOMBIA", "cut 1-25bps", "2026-12-18T18:59:00Z", "Banco de la República",
                                "its December Policy Rate Meeting"))
         assert p.subject == "banrep-rate:2026-12-18"
+
+    def test_the_bank_of_israel(self):
+        p = extract_venue(bank("KXCBDISRAEL", "hike more than 25bps", "2026-11-23T14:59:00Z", "Bank of Israel",
+                               "its November Monetary Committee meeting"))
+        assert (p.subject, p.comparator, p.value) == ("bank-of-israel-rate:2026-11-23", Comparator.GT, 25.0)
 
     def test_a_bank_without_a_subject_goes_to_the_llm(self):
         source = bank("KXCBDECISIONKOREA", "Cut 1-25bps", "2026-11-26T01:00:00Z", "Bank of Korea", "its meeting")

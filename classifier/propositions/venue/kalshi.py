@@ -57,7 +57,7 @@ _INDEX_INTRADAY_RULE = re.compile(
 # Kalshi's strike fields and its rules can name the same boundary from either side ("above 7574.9999" vs ">= 7575").
 _STRIKE_TOLERANCE = 0.011
 _TOTAL_RULE = re.compile(
-    r"(?:collectively score more(?: than)?|is more than|If over) (?P<v>[\d.]+) (?:total )?(?P<unit>runs|points|goals|maps)"
+    r"(?:collectively score (?:more(?: than)?|over)|is more than|If over) (?P<v>[\d.]+) (?:total )?(?P<unit>runs|points|goals|maps)"
 )
 _TENNIS_TOTAL_RULE = re.compile(r"number of completed games in the full match is above (?P<v>[\d.]+)")
 _TENNIS_SPREAD_RULE = re.compile(r"game differential in favor of .+? across the full match is above (?P<v>[\d.]+) games")
@@ -79,12 +79,17 @@ _PROP_SUFFIXES = ("RECYDS", "RSHYDS", "PASSYDS", "PASSTD", "REC", "TD", "HRR", "
                   "RBI", "SB", "TB", "3PT")
 # Tennis games markets name the tour with a trailing G (KXATPGTOTAL); their match winners don't.
 _TENNIS_GAMES = re.compile(r"^(?P<tour>ATP|WTA|ATPCHALLENGER|WTACHALLENGER)G$")
-_SPREAD_RULE = re.compile(r"wins? by (?:more than|over) (?P<v>[\d.]+) (?P<unit>runs|points|goals|maps|games)")
+# A part-of-game spread names its part before the margin: "Syracuse wins the 1st half by more than 5.5 points".
+_SPREAD_RULE = re.compile(
+    r"wins?(?: the \w+ (?:half|quarter|period))? by (?:more than|over) (?P<v>[\d.]+) (?P<unit>runs|points|goals|maps|games)"
+)
 _GAME_SEGMENT = re.compile(r"^(?P<yy>\d{2})(?P<mon>[A-Z]{3})(?P<dd>\d{2})(?P<hhmm>\d{4})?(?P<teams>[A-Z][A-Z0-9]+)$")
 _FAMILY_SUFFIXES = ("TEAMTOTAL", "1HTOTAL", "TOTAL", "SPREAD", "GAME", "MAP") + _PROP_SUFFIXES
 # A part of the game in a series name (KXNBA1QSPREAD, KXNHL1PTOTAL): the same game, scoped by its rules.
 _GAME_PART_SERIES = re.compile(r"(?:[12]H|[1-4]Q|[1-3]P)$")
-_GAME_PART_RULE = re.compile(r"\b(?:in|of) the (1st|2nd|3rd|4th|first|second|third|fourth) (half|quarter|period)\b", re.I)
+_GAME_PART_RULE = re.compile(
+    r"\b(?:in|of|wins?) the (1st|2nd|3rd|4th|first|second|third|fourth) (half|quarter|period)\b", re.I
+)
 _ORDINALS = {"1st": "first", "2nd": "second", "3rd": "third", "4th": "fourth"}
 
 _RATE_SERIES_PREFIX = "KXCBD"
@@ -102,7 +107,7 @@ _KALSHI_BANKS = {
     "Federal Reserve": "fed", "Bank of England": "boe", "European Central Bank": "ecb", "Bank of Japan": "boj",
     "Bank of Mexico": "banxico", "Bank of Canada": "boc", "Central Bank of Brazil": "bcb",
     "Reserve Bank of Australia": "rba", "Reserve Bank of New Zealand": "rbnz", "Central Bank of Chile": "bcch",
-    "Banco de la República": "banrep", "Czech National Bank": "cnb", "Narodowy Bank Polski": "nbp",
+    "Banco de la República": "banrep", "Czech National Bank": "cnb", "Narodowy Bank Polski": "nbp", "Bank of Israel": "boi",
 }
 
 _STRIKE_TYPES = {"greater": Comparator.GT, "greater_or_equal": Comparator.GTE, "less": Comparator.LT,
