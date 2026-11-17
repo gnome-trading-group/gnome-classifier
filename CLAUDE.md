@@ -96,7 +96,11 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   `map:N`, however the model spelled the margin) and series map handicaps from "wins N or more maps than" (which team a
   model's key stands for is matched by name, accents folded, a key starting any word of the name counting); Polymarket
   Intl map winners ("- Map 2 Winner"), scoped `map:2` whatever the model scoped them; Kalshi round-of-finish rungs ("Fight ends before round 4?"), read as
-  `end_round` under the title's number so the rungs form a ladder; and on every venue, a title naming the round a market counts, "First Round" or "(1st Round)", scopes the
+  `end_round` under the title's number so the rungs form a ladder; Rotten Tomatoes rungs on Kalshi (`KXRT`, `KXRTTV`:
+  "above N"), Polymarket US ("N or more", strike also in the slug) and Polymarket Intl ("at least N", label "N+"), set
+  from the rules with no window start, since the model gives the start to some rungs of a film and not others, and a
+  rung settled "the Monday after wide release" dated by the venue's Monday (Kalshi's close, the Polymarket US slug,
+  the Polymarket Intl end date); and on every venue, a title naming the round a market counts, "First Round" or "(1st Round)", scopes the
   reading to `first_round`, so it never meets a reading naming no round: topping a first round is not winning, and a
   final round is left unnamed as the deciding count; in a game, a title naming one part of it ("2nd Quarter", "1H",
   "Map 1", "Set 2") scopes the reading to it (`second_quarter`, `first_half`, `map:1`)). Exact scores are kind `SCORE`
@@ -108,7 +112,8 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   first (`propositions/fixtures.py`), since one subject can hold two matches of the same teams in a day: each venue's
   game id (Kalshi's event-ticker game segment, Polymarket's game slug) is a game, matched across venues by the
   nearest start time (`sm.event.start_time`) only when some venue lists two; contracts no start time places are left
-  out. A game's totals and margins compare whatever window start the readings carry, and one team's margin compares
+  out. A snapshot (`AT_TIME`) whose window starts at its end compares as one with no start (a
+  `change` over a window still needs the same start). A game's totals and margins compare whatever window start the readings carry, and one team's margin compares
   with its opponent's mirrored ("A by more than 7.5" is "B by less than -7.5"; `opposite_margins`), a margin all below
   zero implying the opponent wins, for two teams some event lists as each other's opponents (never a Draw). Where a
   game event's only two outcomes are two teams winning at one scope (`Contract.event_size` says none is unread), one

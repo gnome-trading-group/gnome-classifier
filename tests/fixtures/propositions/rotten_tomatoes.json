@@ -1,0 +1,512 @@
+{
+ "_note": "Stored Claude readings and their venue sources from the prod registry, 2026-11-17.",
+ "kalshi_vio_55_yes": {
+  "listing": "KXRT-VIO-55:yes",
+  "subject": "violent-night-2",
+  "fields": {
+   "low": null,
+   "high": null,
+   "kind": "THRESHOLD",
+   "unit": "percent",
+   "scope": null,
+   "value": 55,
+   "entity": null,
+   "scores": [],
+   "measure": "rt_score",
+   "negated": false,
+   "unknown": [],
+   "stability": "LIVE",
+   "comparator": "GT",
+   "window_end": "2026-12-07T15:00:00+00:00",
+   "observation": "AT_TIME",
+   "window_start": "2026-12-07T15:00:00+00:00",
+   "low_inclusive": false,
+   "high_inclusive": false,
+   "resolution_source": "rotten-tomatoes"
+  },
+  "source": {
+   "side": "yes",
+   "event": {
+    "title": "Violent Night 2 · Rotten Tomatoes score",
+    "category": "Entertainment",
+    "sub_title": "Violent Night 2",
+    "event_ticker": "KXRT-VIO",
+    "series_ticker": "KXRT",
+    "mutually_exclusive": false,
+    "settlement_sources": [
+     {
+      "url": "https://www.rottentomatoes.com/m/violent_night_2",
+      "name": "Rotten Tomatoes"
+     }
+    ]
+   },
+   "venue": "KALSHI",
+   "market": {
+    "title": "Violent Night 2 Rotten Tomatoes score?",
+    "ticker": "KXRT-VIO-55",
+    "subtitle": "Above 55",
+    "open_time": "2026-10-19T19:39:00Z",
+    "close_time": "2026-12-07T15:00:00Z",
+    "market_type": "binary",
+    "strike_type": "greater",
+    "floor_strike": 55,
+    "no_sub_title": "Above 55",
+    "rules_primary": "If Violent Night 2 has a Tomatometer score of above 55 on Dec 7, 2026 at 10:00 AM ET, then the market resolves to Yes.",
+    "yes_sub_title": "Above 55",
+    "can_close_early": true,
+    "expiration_time": "2026-12-14T15:00:00Z",
+    "rules_secondary": "The \"Fresh!\" and \"Certified Fresh!\" subtitles are meant for illustrative purposes only. The Tomatometer score must be above the strike value to resolve as YES (for example, a score of 75 would resolve \"Above 75\" as No.) The market will be determined the Monday after wide release at 10:00 AM ET.\n\nThis market and these products have not been endorsed by Rotten Tomatoes. Any references to Rotten Tomatoes or any associated marks are descriptive only and do not indicate an endorsement of this product or any affiliation between Rotten Tomatoes and Kalshi.",
+    "latest_expiration_time": "2026-12-14T15:00:00Z",
+    "expected_expiration_time": "2026-12-07T15:00:00Z",
+    "settlement_timer_seconds": 3598
+   }
+  }
+ },
+ "kalshi_vio_60_yes": {
+  "listing": "KXRT-VIO-60:yes",
+  "subject": "violent-night-2",
+  "fields": {
+   "low": null,
+   "high": null,
+   "kind": "THRESHOLD",
+   "unit": "percent",
+   "scope": null,
+   "value": 60,
+   "entity": null,
+   "scores": [],
+   "measure": "rt_score",
+   "negated": false,
+   "unknown": [
+    "window_start"
+   ],
+   "stability": "LIVE",
+   "comparator": "GT",
+   "window_end": "2026-12-07T15:00:00+00:00",
+   "observation": "AT_TIME",
+   "window_start": null,
+   "low_inclusive": false,
+   "high_inclusive": false,
+   "resolution_source": "rotten-tomatoes"
+  },
+  "source": {
+   "side": "yes",
+   "event": {
+    "title": "Violent Night 2 · Rotten Tomatoes score",
+    "category": "Entertainment",
+    "sub_title": "Violent Night 2",
+    "event_ticker": "KXRT-VIO",
+    "series_ticker": "KXRT",
+    "mutually_exclusive": false,
+    "settlement_sources": [
+     {
+      "url": "https://www.rottentomatoes.com/m/violent_night_2",
+      "name": "Rotten Tomatoes"
+     }
+    ]
+   },
+   "venue": "KALSHI",
+   "market": {
+    "title": "Violent Night 2 Rotten Tomatoes score?",
+    "ticker": "KXRT-VIO-60",
+    "subtitle": "Above 60",
+    "open_time": "2026-10-19T19:39:00Z",
+    "close_time": "2026-12-07T15:00:00Z",
+    "market_type": "binary",
+    "strike_type": "greater",
+    "floor_strike": 60,
+    "no_sub_title": "Above 60",
+    "rules_primary": "If Violent Night 2 has a Tomatometer score of above 60 on Dec 7, 2026 at 10:00 AM ET, then the market resolves to Yes.",
+    "yes_sub_title": "Above 60",
+    "can_close_early": true,
+    "expiration_time": "2026-12-14T15:00:00Z",
+    "rules_secondary": "The \"Fresh!\" and \"Certified Fresh!\" subtitles are meant for illustrative purposes only. The Tomatometer score must be above the strike value to resolve as YES (for example, a score of 75 would resolve \"Above 75\" as No.) The market will be determined the Monday after wide release at 10:00 AM ET.\n\nThis market and these products have not been endorsed by Rotten Tomatoes. Any references to Rotten Tomatoes or any associated marks are descriptive only and do not indicate an endorsement of this product or any affiliation between Rotten Tomatoes and Kalshi.",
+    "latest_expiration_time": "2026-12-14T15:00:00Z",
+    "expected_expiration_time": "2026-12-07T15:00:00Z",
+    "settlement_timer_seconds": 3598
+   }
+  }
+ },
+ "kalshi_vio_60_no": {
+  "listing": "KXRT-VIO-60:no",
+  "subject": "violent-night-2",
+  "fields": {
+   "low": null,
+   "high": null,
+   "kind": "THRESHOLD",
+   "unit": "percent",
+   "scope": null,
+   "value": 60,
+   "entity": null,
+   "scores": [],
+   "measure": "rt_score",
+   "negated": true,
+   "unknown": [
+    "window_start"
+   ],
+   "stability": "LIVE",
+   "comparator": "GT",
+   "window_end": "2026-12-07T15:00:00+00:00",
+   "observation": "AT_TIME",
+   "window_start": null,
+   "low_inclusive": false,
+   "high_inclusive": false,
+   "resolution_source": "rotten-tomatoes"
+  },
+  "source": {
+   "side": "no",
+   "event": {
+    "title": "Violent Night 2 · Rotten Tomatoes score",
+    "category": "Entertainment",
+    "sub_title": "Violent Night 2",
+    "event_ticker": "KXRT-VIO",
+    "series_ticker": "KXRT",
+    "mutually_exclusive": false,
+    "settlement_sources": [
+     {
+      "url": "https://www.rottentomatoes.com/m/violent_night_2",
+      "name": "Rotten Tomatoes"
+     }
+    ]
+   },
+   "venue": "KALSHI",
+   "market": {
+    "title": "Violent Night 2 Rotten Tomatoes score?",
+    "ticker": "KXRT-VIO-60",
+    "subtitle": "Above 60",
+    "open_time": "2026-10-19T19:39:00Z",
+    "close_time": "2026-12-07T15:00:00Z",
+    "market_type": "binary",
+    "strike_type": "greater",
+    "floor_strike": 60,
+    "no_sub_title": "Above 60",
+    "rules_primary": "If Violent Night 2 has a Tomatometer score of above 60 on Dec 7, 2026 at 10:00 AM ET, then the market resolves to Yes.",
+    "yes_sub_title": "Above 60",
+    "can_close_early": true,
+    "expiration_time": "2026-12-14T15:00:00Z",
+    "rules_secondary": "The \"Fresh!\" and \"Certified Fresh!\" subtitles are meant for illustrative purposes only. The Tomatometer score must be above the strike value to resolve as YES (for example, a score of 75 would resolve \"Above 75\" as No.) The market will be determined the Monday after wide release at 10:00 AM ET.\n\nThis market and these products have not been endorsed by Rotten Tomatoes. Any references to Rotten Tomatoes or any associated marks are descriptive only and do not indicate an endorsement of this product or any affiliation between Rotten Tomatoes and Kalshi.",
+    "latest_expiration_time": "2026-12-14T15:00:00Z",
+    "expected_expiration_time": "2026-12-07T15:00:00Z",
+    "settlement_timer_seconds": 3598
+   }
+  }
+ },
+ "kalshi_ipl_80_yes": {
+  "listing": "KXRT-IPL-80:yes",
+  "subject": "i-play-rocky",
+  "fields": {
+   "low": null,
+   "high": null,
+   "kind": "THRESHOLD",
+   "unit": "percent",
+   "scope": null,
+   "value": 80,
+   "entity": null,
+   "scores": [],
+   "measure": "rt_score",
+   "negated": false,
+   "unknown": [
+    "window_start"
+   ],
+   "stability": "LIVE",
+   "comparator": "GT",
+   "window_end": "2026-11-23T15:00:00+00:00",
+   "observation": "AT_TIME",
+   "window_start": null,
+   "low_inclusive": false,
+   "high_inclusive": false,
+   "resolution_source": "rotten-tomatoes"
+  },
+  "source": {
+   "side": "yes",
+   "event": {
+    "title": "I Play Rocky · Rotten Tomatoes score",
+    "category": "Entertainment",
+    "sub_title": "I Play Rocky",
+    "event_ticker": "KXRT-IPL",
+    "series_ticker": "KXRT",
+    "mutually_exclusive": false,
+    "settlement_sources": [
+     {
+      "url": "https://www.rottentomatoes.com/m/i_play_rocky",
+      "name": "Rotten Tomatoes"
+     }
+    ]
+   },
+   "venue": "KALSHI",
+   "market": {
+    "title": "I Play Rocky Rotten Tomatoes score?",
+    "ticker": "KXRT-IPL-80",
+    "subtitle": "Above 80",
+    "open_time": "2026-09-14T21:07:00Z",
+    "close_time": "2026-11-23T15:00:00Z",
+    "market_type": "binary",
+    "strike_type": "greater",
+    "floor_strike": 80,
+    "no_sub_title": "Above 80",
+    "rules_primary": "If I Play Rocky has a Tomatometer score of above 80 on Nov 23, 2026 at 10:00 AM ET, then the market resolves to Yes.",
+    "yes_sub_title": "Above 80",
+    "can_close_early": true,
+    "expiration_time": "2026-11-30T15:00:00Z",
+    "rules_secondary": "The \"Fresh!\" and \"Certified Fresh!\" subtitles are meant for illustrative purposes only. The Tomatometer score must be above the strike value to resolve as YES (for example, a score of 75 would resolve \"Above 75\" as No.) The market will be determined the Monday after wide release at 10:00 AM ET.\n\nThis market and these products have not been endorsed by Rotten Tomatoes. Any references to Rotten Tomatoes or any associated marks are descriptive only and do not indicate an endorsement of this product or any affiliation between Rotten Tomatoes and Kalshi.",
+    "latest_expiration_time": "2026-11-30T15:00:00Z",
+    "expected_expiration_time": "2026-11-23T15:00:00Z",
+    "settlement_timer_seconds": 3598
+   }
+  }
+ },
+ "kalshi_dune_monday": {
+  "listing": "KXRT-DUNE-90:yes",
+  "subject": "dune-part-three",
+  "fields": {
+   "low": null,
+   "high": null,
+   "kind": "THRESHOLD",
+   "unit": "percent",
+   "scope": null,
+   "value": 90,
+   "entity": null,
+   "scores": [],
+   "measure": "rt_score",
+   "negated": false,
+   "unknown": [
+    "window_end",
+    "window_start"
+   ],
+   "stability": "LIVE",
+   "comparator": "GT",
+   "window_end": null,
+   "observation": "AT_TIME",
+   "window_start": null,
+   "low_inclusive": false,
+   "high_inclusive": false,
+   "resolution_source": "rotten-tomatoes"
+  },
+  "source": {
+   "side": "yes",
+   "event": {
+    "title": "Dune: Part Three: Rotten Tomatoes score",
+    "category": "Entertainment",
+    "sub_title": "Dune: Part Three",
+    "event_ticker": "KXRT-DUNE",
+    "series_ticker": "KXRT",
+    "mutually_exclusive": false,
+    "settlement_sources": [
+     {
+      "url": "https://www.rottentomatoes.com/m/dune_part_three",
+      "name": "Rotten Tomatoes"
+     }
+    ]
+   },
+   "venue": "KALSHI",
+   "market": {
+    "title": "Dune: Part Three Rotten Tomatoes score?",
+    "ticker": "KXRT-DUNE-90",
+    "subtitle": "Above 90",
+    "open_time": "2026-03-18T14:00:00Z",
+    "close_time": "2026-12-21T15:00:00Z",
+    "market_type": "binary",
+    "strike_type": "greater",
+    "floor_strike": 90,
+    "no_sub_title": "Above 90",
+    "rules_primary": "If Dune: Part Three has a Tomatometer score of above 90 on the Monday after wide release at 10:00 AM ET, then the market resolves to Yes.",
+    "yes_sub_title": "Above 90",
+    "can_close_early": true,
+    "expiration_time": "2026-12-28T15:00:00Z",
+    "rules_secondary": "The \"Fresh!\" and \"Certified Fresh!\" subtitles are meant for illustrative purposes only. The Tomatometer score must be above the strike value to resolve as YES (for example, a score of 75 would resolve \"Above 75\" as No.) The market will be determined the Monday after wide release at 10:00 AM ET.\n\nThis market and these products have not been endorsed by Rotten Tomatoes. Any references to Rotten Tomatoes or any associated marks are descriptive only and do not indicate an endorsement of this product or any affiliation between Rotten Tomatoes and Kalshi.",
+    "latest_expiration_time": "2026-12-28T15:00:00Z",
+    "expected_expiration_time": "2026-12-21T15:00:00Z",
+    "settlement_timer_seconds": 3598
+   }
+  }
+ },
+ "pm_us_ipl_80_long": {
+  "listing": "rotc-t-ipla-2026-11-23-gte80:long",
+  "subject": "i-play-rocky",
+  "fields": {
+   "low": null,
+   "high": null,
+   "kind": "THRESHOLD",
+   "unit": "percent",
+   "scope": null,
+   "value": 80,
+   "entity": null,
+   "scores": [],
+   "measure": "rt_score",
+   "negated": false,
+   "unknown": [],
+   "stability": "LIVE",
+   "comparator": "GTE",
+   "window_end": "2026-11-23T15:00:00+00:00",
+   "observation": "AT_TIME",
+   "window_start": "2026-11-23T15:00:00+00:00",
+   "low_inclusive": false,
+   "high_inclusive": false,
+   "resolution_source": "rotten-tomatoes"
+  },
+  "source": {
+   "leg": "long",
+   "event": {
+    "slug": "t-ipla-2026-11-23",
+    "title": "I Play Rocky Rotten Tomatoes Score?",
+    "ticker": "t-ipla-2026-11-23",
+    "endDate": "2026-11-24T04:59:00Z",
+    "category": "culture",
+    "startDate": "2026-11-06T17:00:00Z",
+    "seriesSlug": "rotten-tomatoes",
+    "description": "I Play Rocky Rotten Tomatoes Score?"
+   },
+   "sides": [
+    {
+     "long": true,
+     "identifier": "rotc-t-ipla-2026-11-23-gte80",
+     "description": "Yes",
+     "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+    },
+    {
+     "long": false,
+     "identifier": "rotc-t-ipla-2026-11-23-gte80",
+     "description": "No",
+     "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+    }
+   ],
+   "venue": "POLYMARKET_US",
+   "market": {
+    "slug": "rotc-t-ipla-2026-11-23-gte80",
+    "title": "80+",
+    "endDate": "2026-12-08T04:00:00Z",
+    "outcomes": "[\"Yes\",\"No\"]",
+    "question": "I Play Rocky Rotten Tomatoes Score?",
+    "startDate": "2026-11-06T20:09:23Z",
+    "marketType": "futures",
+    "description": "This market will settle to Yes if I Play Rocky has a Rotten Tomatoes Tomatometer score of 80 or more on November 23, 2026 at 10:00 AM ET. Outcome sourced from Rotten Tomatoes.",
+    "gameStartTime": "2026-11-06T17:00:00Z",
+    "sportsMarketType": "futures",
+    "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE"
+   }
+  }
+ },
+ "pm_us_monday": {
+  "listing": "rotc-t-dune3-2026-12-21-gte95:long",
+  "subject": "dune-part-three",
+  "fields": {
+   "low": null,
+   "high": null,
+   "kind": "THRESHOLD",
+   "unit": "percent",
+   "scope": null,
+   "value": 95,
+   "entity": null,
+   "scores": [],
+   "measure": "rt_score",
+   "negated": false,
+   "unknown": [
+    "window_end",
+    "window_start"
+   ],
+   "stability": "LIVE",
+   "comparator": "GTE",
+   "window_end": null,
+   "observation": "AT_TIME",
+   "window_start": null,
+   "low_inclusive": false,
+   "high_inclusive": false,
+   "resolution_source": "rotten-tomatoes"
+  },
+  "source": {
+   "leg": "long",
+   "event": {
+    "slug": "t-dune3-2026-12-21",
+    "title": "Dune: Part Three Rotten Tomatoes Score?",
+    "ticker": "t-dune3-2026-12-21",
+    "endDate": "2026-12-22T04:59:00Z",
+    "category": "culture",
+    "startDate": "2026-09-18T04:00:00Z",
+    "description": "Dune: Part Three Rotten Tomatoes Score?"
+   },
+   "sides": [
+    {
+     "long": true,
+     "identifier": "rotc-t-dune3-2026-12-21-gte95",
+     "description": "Yes",
+     "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+    },
+    {
+     "long": false,
+     "identifier": "rotc-t-dune3-2026-12-21-gte95",
+     "description": "No",
+     "marketSideType": "MARKET_SIDE_TYPE_INSTRUMENT"
+    }
+   ],
+   "venue": "POLYMARKET_US",
+   "market": {
+    "slug": "rotc-t-dune3-2026-12-21-gte95",
+    "title": "95+",
+    "endDate": "2027-01-05T04:00:00Z",
+    "outcomes": "[\"Yes\",\"No\"]",
+    "question": "Dune: Part Three Rotten Tomatoes Score?",
+    "startDate": "2026-09-25T15:34:52Z",
+    "marketType": "futures",
+    "description": "This market will settle to Yes if Dune: Part Three has a Rotten Tomatoes Tomatometer score of 95 or more on the Monday following wide release at 10:00 AM ET. Outcome sourced from Rotten Tomatoes.",
+    "gameStartTime": "2026-09-18T04:00:00Z",
+    "sportsMarketType": "futures",
+    "sportsMarketTypeV2": "SPORTS_MARKET_TYPE_FUTURE"
+   }
+  }
+ },
+ "pm_intl_monday": {
+  "listing": "0x76a00eb5fac580b2a3518411d58cf7010b9a7b0bbe6b4d88a208c8c672871f34:15312969002535256328532189860398884101438546035378451491854789023627830806561",
+  "subject": "avengers-doomsday",
+  "fields": {
+   "low": null,
+   "high": null,
+   "kind": "THRESHOLD",
+   "unit": "percent",
+   "scope": null,
+   "value": 80,
+   "entity": null,
+   "scores": [],
+   "measure": "rt_score",
+   "negated": false,
+   "unknown": [
+    "window_end",
+    "window_start"
+   ],
+   "stability": "LIVE",
+   "comparator": "GTE",
+   "window_end": null,
+   "observation": "AT_TIME",
+   "window_start": null,
+   "low_inclusive": false,
+   "high_inclusive": false,
+   "resolution_source": "rotten-tomatoes"
+  },
+  "source": {
+   "event": {
+    "slug": "avengers-doomsday-rotten-tomatoes-score-20261221",
+    "title": "\"Avengers: Doomsday\" Rotten Tomatoes Score?",
+    "endDate": "2026-12-21T23:59:00Z",
+    "negRisk": false,
+    "startDate": "2026-10-01T14:59:49Z",
+    "seriesSlug": "rotten-tomatoes",
+    "description": "This market will resolve to \"Yes\" if the displayed Rotten Tomatoes \"All Critics\" Tomatometer score for Avengers: Doomsday is at least equal to the specified number at 10:00 AM ET on the Monday following the movie's wide theatrical release. Otherwise, this market will resolve to \"No\".\n\nIf, for any reason, the resolution data is unavailable at this market's specified check time, the resolution source will be checked until the relevant data is available. This market will resolve to \"No\" if no data is available by the Friday of that same week, 11:59 PM ET, or the movie does not release by December 31, 2027.",
+    "enableNegRisk": false,
+    "negRiskAugmented": false
+   },
+   "venue": "POLYMARKET_INTL",
+   "market": {
+    "slug": "will-avengers-doomsday-score-at-least-80-on-the-rotten-tomatoes-tomatometer-20261221",
+    "endDate": "2026-12-21T23:59:00Z",
+    "negRisk": false,
+    "outcomes": "[\"Yes\", \"No\"]",
+    "question": "Will \"Avengers: Doomsday\" score at least 80 on the Rotten Tomatoes Tomatometer?",
+    "startDate": "2026-10-01T14:59:50Z",
+    "conditionId": "0x76a00eb5fac580b2a3518411d58cf7010b9a7b0bbe6b4d88a208c8c672871f34",
+    "description": "This market will resolve to \"Yes\" if the displayed Rotten Tomatoes \"All Critics\" Tomatometer score for Avengers: Doomsday is at least equal to the specified number at 10:00 AM ET on the Monday following the movie's wide theatrical release. Otherwise, this market will resolve to \"No\".\n\nIf, for any reason, the resolution data is unavailable at this market's specified check time, the resolution source will be checked until the relevant data is available. This market will resolve to \"No\" if no data is available by the Friday of that same week, 11:59 PM ET, or the movie does not release by December 31, 2027.",
+    "groupItemTitle": "80+",
+    "groupItemThreshold": "1"
+   },
+   "outcome": "Yes",
+   "token_id": "15312969002535256328532189860398884101438546035378451491854789023627830806561"
+  }
+ }
+}

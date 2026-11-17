@@ -114,6 +114,33 @@ def rate_decision(bank: RateBank, meeting: date, fields: dict) -> Proposition:
     )
 
 
+RT_MEASURE = "rt_score"
+RT_SOURCE = "rotten-tomatoes"
+
+
+def release_monday(day: date, time_text: str) -> datetime | None:
+    """The Eastern `time_text` on `day`, when `day` is a Monday: the venues settle a film's score "the Monday after
+    wide release" and only their listed date says which Monday that is."""
+    if day.weekday() != 0:
+        return None
+    return eastern(day.strftime("%b %d, %Y"), time_text)
+
+
+def rt_threshold(proposition: Proposition, comparator: Comparator, value: float | None,
+                 at: datetime | None) -> Proposition:
+    """A Tomatometer rung ("above 60 on Dec 7, 2026 at 10:00 AM ET") as its rules write it, on the subject and side the
+    model read. The score at one moment has no window start; the model gives one to some rungs and leaves it unknown
+    on others, which keeps a film's rungs from comparing."""
+    unknown = (proposition.unknown & {"subject"}) | ({"value"} if value is None else set()) | (
+        {"window_end"} if at is None else set())
+    return dataclasses.replace(
+        proposition, kind=Kind.THRESHOLD, measure=RT_MEASURE, comparator=comparator, value=value, low=None, high=None,
+        low_inclusive=True, high_inclusive=True, unit="percent", observation=Observation.AT_TIME, window_start=None,
+        window_end=at, entity=None, scope=None, stability=Stability.LIVE, resolution_source=RT_SOURCE, scores=(),
+        unknown=frozenset(unknown),
+    )
+
+
 # Party names and the letters venues put after a candidate ("Pete Sessions (R)"), as the entity keys the extractor uses.
 PARTIES = {"democratic": "democratic", "democrat": "democratic", "republican": "republican",
            "independent": "independent", "libertarian": "libertarian", "green": "green"}

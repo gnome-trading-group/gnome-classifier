@@ -6,13 +6,13 @@ the venue is free text for the LLM.
 Game spreads are read by the LLM (only it can key the teams the way the game's other venues do) and corrected here:
 their title names whichever team the line favours ("NC State wins by over 10.5 points") while the market asks whether
 the event's first team covers it ("Will the California cover 10.5 vs the NC State"), so the model reads about half of
-them on the wrong side.
+them on the wrong side. Tomatometer rungs ("N or more") are corrected from their rules too.
 """
 import dataclasses
 import json
 import re
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability
 from classifier.propositions.venue.common import (
@@ -25,6 +25,8 @@ from classifier.propositions.venue.common import (
     names_team,
     number,
     price_rise,
+    release_monday,
+    rt_threshold,
     squash,
 )
 
@@ -70,6 +72,12 @@ _SPREAD_SLUG = re.compile(r"^[a-z]+-[a-z0-9]+-(?P<first>[a-z0-9]+)-(?P<second>[a
 _ESPORTS_SERIES = {"cs2": ("CS2", "cs2")}
 _ESPORTS_MATCH = "esports_match_winner"
 _ESPORTS_MAP = re.compile(r"^esports_map_winner_(?P<map>\d+)$")
+_RT_RULE = re.compile(
+    rf"has a Rotten Tomatoes Tomatometer score of (?P<v>\d+) or more on (?:(?P<date>{_DATE}) at|the Monday following "
+    rf"wide release at) (?P<time>{_TIME}) ET\b"
+)
+# The film's settlement date and the strike: rotc-t-avedoo-2026-12-21-gte90.
+_RT_SLUG = re.compile(r"^rotc-.+-(?P<date>\d{4}-\d{2}-\d{2})-gte(?P<v>\d+)$")
 _SOURCED_FROM = re.compile(r"\bOutcome sourced from (?P<source>[A-Za-z]+)\.")
 
 
@@ -216,7 +224,28 @@ def _spread_side(market: dict, key: str) -> tuple[str, float] | None:
     return ("first" if first > second else "second"), float(question.group("line"))
 
 
+def _rotten_tomatoes(source: dict, proposition: Proposition) -> Proposition:
+    """A film's Tomatometer rung ("60 or more on November 23, 2026 at 10:00 AM ET"), its strike as the slug also
+    gives it. A rung settled "the Monday following wide release" takes the slug's date, when that is a Monday."""
+    market = source.get("market") or {}
+    m = _RT_RULE.search(market.get("description") or "")
+    slug = _RT_SLUG.match(market.get("slug") or "")
+    if m is None or slug is None:
+        return proposition
+    value = float(m.group("v")) if m.group("v") == slug.group("v") else None
+    if m.group("date"):
+        at = eastern(m.group("date"), m.group("time"))
+    else:
+        at = release_monday(date.fromisoformat(slug.group("date")), m.group("time"))
+    return rt_threshold(proposition, Comparator.GTE, value, at)
+
+
 def correct(source: dict, proposition: Proposition) -> Proposition:
+    proposition = _rotten_tomatoes(source, proposition)
+    return _spread_correction(source, proposition)
+
+
+def _spread_correction(source: dict, proposition: Proposition) -> Proposition:
     """A game spread as its market asks it: Yes (the long side) when the event's first team covers the line, that is
     wins by more than minus the line; the short side is the No. The margin stays keyed by the team the model chose."""
     if proposition.kind != Kind.THRESHOLD or not (proposition.measure or "").startswith("margin:"):

@@ -37,7 +37,7 @@ from classifier.propositions.types import Comparator, Kind, Observation, Proposi
 
 logger = logging.getLogger(__name__)
 
-DERIVATION_VERSION = "d13"
+DERIVATION_VERSION = "d14"
 
 EQUIVALENT = "EQUIVALENT"
 IMPLIES = "IMPLIES"
@@ -253,22 +253,31 @@ def _contest_result(p: Proposition) -> bool:
     return not (head == "seats" and "senate" in p.subject)
 
 
+def _window_start(p: Proposition) -> datetime | None:
+    """When the reading's window starts. A snapshot whose window starts the moment it ends is one moment, read the
+    same as a snapshot with no start: readers give a level's snapshot either way."""
+    if p.observation == Observation.AT_TIME and p.window_start is not None and p.window_start == p.window_end:
+        return None
+    return p.window_start
+
+
 def _same_reading(a: Proposition, b: Proposition) -> tuple[bool, list[str]]:
     """Whether two measurements of the same measure are taken at the same time, and any caveat."""
     if _contest_result(a) and _contest_result(b):
         return True, _contest_deadline_flags(a, b)
     if a.observation != b.observation:
         return False, []
+    start_a, start_b = _window_start(a), _window_start(b)
     live_snapshots = a.observation == Observation.AT_TIME and not (a.stability == b.stability == Stability.SETTLED)
-    if live_snapshots and a.window_start != b.window_start:
+    if live_snapshots and start_a != start_b:
         # A live change over a window (up or down in 15 minutes vs in the hour ending at the same time) depends on
         # exactly when it starts.
         return False, []
     game_total = a.observation == Observation.CUMULATIVE and a.subject.startswith(GAME_SUBJECT_PREFIX)
     # A game's totals and margins are counted over the game: a window start on one is when the reader thought the game
     # began (kickoff, or the date's midnight), not a different period.
-    if not game_total and a.window_start != b.window_start and not (
-            a.window_start and b.window_start and abs(a.window_start - b.window_start) <= DEADLINE_TOLERANCE):
+    if not game_total and start_a != start_b and not (
+            start_a and start_b and abs(start_a - start_b) <= DEADLINE_TOLERANCE):
         # Different measurement periods (a year's growth vs one quarter's) are different readings.
         return False, []
     if a.observation == Observation.CUMULATIVE and (a.window_end is None or b.window_end is None):
@@ -697,7 +706,7 @@ def _candidate_groups(contracts: list[Contract]) -> list[list[Contract]]:
             keyed.setdefault(("value", p.observation, None), []).append(c)
         elif p.observation == Observation.AT_TIME and p.stability != Stability.SETTLED:
             # A live snapshot only matches one taken over exactly the same window.
-            keyed.setdefault(("value", p.observation, p.window_start, p.window_end), []).append(c)
+            keyed.setdefault(("value", p.observation, _window_start(p), p.window_end), []).append(c)
         else:
             chained.setdefault((p.observation, p.stability == Stability.SETTLED), []).append(c)
     groups = list(keyed.values())

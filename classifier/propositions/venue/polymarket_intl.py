@@ -28,6 +28,9 @@ a series' maps handicap ("Map Handicap: SAW.Y (-1.5) vs Four Magic (+1.5)") on t
 
 A map's winner ("Counter-Strike: KUUSAMO.gg vs maybe - Map 2 Winner") is the map's `winner`, scoped `map:2` as Kalshi
 reads its map markets: the model leaves the measure out or scopes it to the whole match.
+
+A film's Tomatometer rung ("Will "I Play Rocky" score at least 88 on the Rotten Tomatoes Tomatometer?") is put right
+from its question and rules, as the other venues' rungs are, so a film's rungs on every venue compare.
 """
 import dataclasses
 import json
@@ -41,12 +44,15 @@ from classifier.propositions.venue.common import (
     PARTY_LETTERS,
     RATE_BANKS,
     as_party_winner,
+    eastern,
     esports_game_subject,
     esports_winner,
     names_team,
     number,
     price_rise,
     rate_decision,
+    release_monday,
+    rt_threshold,
     squash,
 )
 
@@ -98,6 +104,12 @@ _FED_ROUNDING = "the change will be rounded up to the nearest 25"
 _MEETING = re.compile(
     r"(?:scheduled (?:for|to conclude on)|announced on) (?P<month>[A-Z][a-z]+) (?P<day>\d{1,2})"
     r"(?:(?:-| and (?:(?P<last_month>[A-Z][a-z]+) )?)(?P<last_day>\d{1,2}))?, (?P<year>\d{4})"
+)
+_RT_QUESTION = re.compile(r"^Will .+ score at least (?P<v>\d+) on the Rotten Tomatoes Tomatometer\?$")
+_RT_LABEL = re.compile(r"^(?P<v>\d+)\+$")
+_RT_RULE = re.compile(
+    r"Tomatometer score for .+? is at least equal to the specified number at (?P<time>\d{1,2}(?::\d{2})? ?[AP]M) ET "
+    r"on (?:(?P<date>[A-Z][a-z]+ \d{1,2}, \d{4})|the Monday following the movie's wide theatrical release)"
 )
 _BELOW = re.compile(r"^<\s?(?P<v>[\d,.]+)$")
 _ABOVE = re.compile(r"^>\s?(?P<v>[\d,.]+)$")
@@ -451,7 +463,27 @@ def _map_winner(source: dict, proposition: Proposition) -> Proposition:
                                unknown=proposition.unknown - {"measure", "scope"})
 
 
+def _rotten_tomatoes(source: dict, proposition: Proposition) -> Proposition:
+    """A film's Tomatometer rung: the question's "at least N", which its label "N+" must repeat, at the rules' time. A
+    rung settled "the Monday following the movie's wide theatrical release" takes the date of the market's end (late
+    that Monday, not the moment it settles on), when that is a Monday."""
+    market = source.get("market") or {}
+    question = _RT_QUESTION.match(market.get("question") or "")
+    m = _RT_RULE.search(market.get("description") or "")
+    if question is None or m is None:
+        return proposition
+    label = _RT_LABEL.match(market.get("groupItemTitle") or "")
+    value = float(question.group("v")) if label and label.group("v") == question.group("v") else None
+    if m.group("date"):
+        at = eastern(m.group("date"), m.group("time"))
+    else:
+        end = _utc(market.get("endDate"))
+        at = release_monday(end.astimezone(EASTERN).date(), m.group("time")) if end else None
+    return rt_threshold(proposition, Comparator.GTE, value, at)
+
+
 def correct(source: dict, proposition: Proposition) -> Proposition:
+    proposition = _rotten_tomatoes(source, proposition)
     proposition = _map_winner(source, _spread(source, as_party_winner(proposition, _party(source))))
     direction = _direction(source.get("market") or {})
     if direction is None or proposition.kind != Kind.THRESHOLD or proposition.comparator == direction:

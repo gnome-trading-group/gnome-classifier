@@ -6,7 +6,9 @@ with; `correct` keys the LLM's reading by that party. Head-to-head outcomes ("Wi
 2028 presidential election") are read by the LLM as `matchup_winner:<opponent>` won by the winner, and `correct` puts
 the two names back where the title has them: the model sometimes keys the winner as their own opponent, which makes two
 matchups read alike. A fight's round-of-finish ladder ("Fight ends before round 4?") is read by `correct` as the round
-the fight ended in under the title's number, so each rung implies the next. A game's markets share one
+the fight ended in under the title's number, so each rung implies the next. A film's or TV season's Tomatometer rung
+(KXRT, KXRTTV) is put right by `correct` from its rules, keeping the model's subject so the other venues' rungs on the
+film still meet it. A game's markets share one
 subject, `game:<league>:<date>:<teams>[-<hhmm>]`, so its ladders compare with each other; a rate decision's subject,
 measure and time come from the bank table Polymarket's reader shares (`common.RATE_BANKS`), so the venues' meetings
 compare.
@@ -19,6 +21,7 @@ from datetime import datetime
 from classifier.propositions.types import Comparator, Kind, Observation, Proposition, Stability, subject_key
 from classifier.propositions.venue.common import (
     CF_INDICES,
+    EASTERN,
     PARTIES,
     RATE_BANKS,
     as_party_winner,
@@ -28,6 +31,8 @@ from classifier.propositions.venue.common import (
     number,
     price_rise,
     rate_decision,
+    release_monday,
+    rt_threshold,
 )
 
 _MONTHS = {m: i for i, m in enumerate(("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"), 1)}
@@ -37,6 +42,11 @@ _MATCHUP_TITLE = re.compile(r"^Will (?P<winner>.+?) defeat (?P<loser>.+?) in the
 _MATCHUP_MEASURE = "matchup_winner"
 _FINISH_TITLE = re.compile(r"^Fight ends before round (?P<round>\d+)\?$")
 _FINISH_MEASURE = "end_round"
+_RT_SERIES = {"KXRT", "KXRTTV"}
+_RT_RULE = re.compile(
+    r"has a Tomatometer score of above (?P<v>\d+(?:\.\d+)?) on (?:(?P<date>\w{3} \d{1,2}, \d{4})|the Monday after wide "
+    r"release) at (?P<time>\d{1,2}(?::\d{2})? ?[AP]M) ET\b"
+)
 _KALSHI_CRYPTO_SERIES = re.compile(r"^KX(?P<asset>[A-Z]+?)D?$")
 _KALSHI_CRYPTO_15M_SERIES = re.compile(r"^KX(?P<asset>[A-Z]+)15M$")
 _KALSHI_INDEX = {"KXINXU": ("spx", "sp-dow-jones-indices"), "KXINX": ("spx", "sp-dow-jones-indices")}
@@ -366,7 +376,29 @@ def _round_of_finish(source: dict, proposition: Proposition) -> Proposition:
                                        "window_end"})
 
 
+def _rotten_tomatoes(source: dict, proposition: Proposition) -> Proposition:
+    """A film's or season's Tomatometer rung ("above 60 on Dec 7, 2026 at 10:00 AM ET"). A rung settled "the Monday
+    after wide release" names no date; its close, when that is a Monday at the stated time, is the moment."""
+    market = source.get("market") or {}
+    series = (market.get("ticker") or "").partition("-")[0]
+    m = _RT_RULE.search(market.get("rules_primary") or "")
+    if series not in _RT_SERIES or m is None:
+        return proposition
+    value = float(m.group("v"))
+    if not _agrees_with_strikes(market, {"kind": Kind.THRESHOLD, "comparator": Comparator.GT, "value": value}):
+        value = None
+    if m.group("date"):
+        at = eastern(m.group("date"), m.group("time"))
+    else:
+        close = market.get("close_time")
+        close_at = datetime.fromisoformat(close.replace("Z", "+00:00")) if close else None
+        monday = close_at and release_monday(close_at.astimezone(EASTERN).date(), m.group("time"))
+        at = monday if monday and monday == close_at else None
+    return rt_threshold(proposition, Comparator.GT, value, at)
+
+
 def correct(source: dict, proposition: Proposition) -> Proposition:
+    proposition = _rotten_tomatoes(source, proposition)
     m = _PARTY_RULE.search((source.get("market") or {}).get("rules_primary") or "")
     proposition = as_party_winner(proposition, PARTIES.get(m.group("party").lower()) if m else None)
     return _round_of_finish(source, _matchup(source, proposition))

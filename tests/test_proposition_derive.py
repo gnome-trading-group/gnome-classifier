@@ -96,6 +96,16 @@ class TestReadings:
     def test_different_snapshot_times_are_unrelated_for_live_measures(self):
         assert relation(threshold(GT, 100), threshold(GT, 90, end=T + timedelta(hours=2))) is None
 
+    def test_a_snapshot_starting_at_its_end_is_one_with_no_start(self):
+        a = threshold(GT, 60, measure="rt_score", window_start=T)
+        b = threshold(GT, 55, measure="rt_score", unknown=frozenset({"window_start"}))
+        assert relation(a, b) == ("1=>2", ())
+
+    def test_a_change_over_a_window_never_meets_a_snapshot(self):
+        change = threshold(GTE, 0, measure="change", window_start=T - timedelta(minutes=15))
+        assert relation(change, threshold(GTE, 0, measure="change")) is None
+        assert relation(change, threshold(GTE, 0, measure="change", window_start=T)) is None
+
     def test_settled_measures_on_the_same_day_compare_with_a_flag(self):
         a = threshold(GT, 50, measure="rt_score", stability=Stability.SETTLED)
         b = threshold(GTE, 35, measure="rt_score", stability=Stability.SETTLED, end=T + timedelta(hours=10))
