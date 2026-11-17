@@ -168,6 +168,8 @@ _KALSHI_ESPORTS_TICKER_PREFIX = (
 )
 _KALSHI_ESPORTS_TAG = "Esports"
 
+_TAG_WORD_SEPARATORS = re.compile(r"[\s_-]+")
+
 _TAG_SYNONYMS = {
     "counter strike 2": "cs2",
     "counter-strike": "cs2",
@@ -208,6 +210,7 @@ _TAG_SYNONYMS = {
     "acquisitions": "acquisition",
     "ipos": "ipo",
 }
+_TAG_SYNONYMS = {_TAG_WORD_SEPARATORS.sub(" ", k).strip(): v for k, v in _TAG_SYNONYMS.items()}
 # Tags that say nothing about the subject: exchange UI and market-mechanics labels, and words that fit any event.
 _IGNORED_TAGS = frozenset({
     "games", "hide from new", "recurring", "up or down", "daily", "weekly", "monthly", "props", "season stats",
@@ -221,6 +224,7 @@ _IGNORED_TAGS = frozenset({
     "prediction markets", "binary", "touch", "spread", "total points", "over/under",
     *(c.lower() for c in STANDARDIZED_CATEGORIES),
 })
+_IGNORED_TAGS = frozenset(_TAG_WORD_SEPARATORS.sub(" ", t).strip() for t in _IGNORED_TAGS)
 # Tags unique to one event (a threshold, a date, a time window) can't group events.
 _IGNORED_TAG_PATTERNS = tuple(re.compile(p) for p in (
     r"^(?=.*\d)[\d\s$%.,:/\-+]*(k|m|b|bn|t)?$",
@@ -236,13 +240,20 @@ _IGNORED_TAG_PATTERNS = tuple(re.compile(p) for p in (
 ))
 
 
+def tag_key(tag: str) -> str:
+    """A tag as it is stored: its words in lower case, joined by single spaces. The venues and the model join a tag's
+    words with spaces, hyphens or underscores ("rotten-tomatoes"), and the registry's readers match tags exactly."""
+    return _TAG_WORD_SEPARATORS.sub(" ", tag.lower()).strip()
+
+
 def clean_tags(raw_tags: Iterable, limit: int = MAX_TAGS) -> list[str]:
-    """Lowercase, apply synonyms, drop subject-less and event-specific tags, dedupe; keeps the first `limit`."""
+    """Each tag in its stored form (`tag_key`), synonyms applied, subject-less and event-specific tags dropped, deduped;
+    keeps the first `limit`."""
     tags: list[str] = []
     for raw in raw_tags:
         if not isinstance(raw, str):
             continue
-        tag = " ".join(raw.lower().strip(" #").split())
+        tag = tag_key(raw.strip(" #"))
         tag = _TAG_SYNONYMS.get(tag, tag)
         if not tag or tag in _IGNORED_TAGS or tag in tags or any(p.search(tag) for p in _IGNORED_TAG_PATTERNS):
             continue

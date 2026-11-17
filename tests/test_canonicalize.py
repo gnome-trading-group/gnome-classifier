@@ -175,9 +175,11 @@ def test_clean_tags_drops_event_specific_and_filler(tag):
     assert _parse_canonical_result({"category": "ECONOMICS", "tags": [tag]})["tags"] == []
 
 
-@pytest.mark.parametrize("tag", ["u-3", "s&p 500", "covid-19", "mi-08", "gpt-5"])
-def test_clean_tags_keeps_entities(tag):
-    assert _parse_canonical_result({"category": "ECONOMICS", "tags": [tag]})["tags"] == [tag]
+@pytest.mark.parametrize("tag, stored", [
+    ("u-3", "u 3"), ("s&p 500", "s&p 500"), ("covid-19", "covid 19"), ("mi-08", "mi 08"), ("gpt-5", "gpt 5"),
+])
+def test_clean_tags_keeps_entities(tag, stored):
+    assert _parse_canonical_result({"category": "ECONOMICS", "tags": [tag]})["tags"] == [stored]
 
 
 def test_clean_tags_normalizes_and_dedupes():

@@ -12,6 +12,13 @@ def test_matches_any_category_or_tag_ignoring_case():
     assert not scope.includes("POLITICS", ["nba"]) and not scope.includes(None, ())
 
 
+def test_config_tags_take_the_stored_form():
+    scope = LLMScope.of(tags=["Rotten-Tomatoes", "league_of legends", " "])
+    assert scope.tags == {"rotten tomatoes", "league of legends"}
+    assert scope.includes("ENTERTAINMENT", ["avengers doomsday", "rotten tomatoes"])
+    assert not scope.includes(None, ["rotten"])
+
+
 def test_fingerprint_ignores_order_and_case():
     assert LLMScope.of(["SPORTS", "politics"], ["nfl"]).fingerprint() == LLMScope.of(["Politics", "sports"], ["NFL"]).fingerprint()
     assert LLMScope.of(["SPORTS"]).fingerprint() != LLMScope.of(tags=["sports"]).fingerprint()

@@ -361,6 +361,10 @@ class TestEventMinVolume:
         assert event_min_volume(contract, 1000.0, {"CS2": 50.0}, {}) == 50.0
         assert event_min_volume(contract, 1000.0, {}, {"sports": 200.0}) == 200.0
 
+    def test_tag_keys_take_the_stored_form(self):
+        contract = _tagged("e", 1.0, ["rotten tomatoes"], "ENTERTAINMENT")
+        assert event_min_volume(contract, 1000.0, {"Rotten-Tomatoes": None}, {}) is None
+
 
 class TestVolumeOverridesInDiff:
     def _sent_events(self, contracts, default, by_tag=None, by_category=None):

@@ -120,7 +120,7 @@ def test_hyperliquid_tags():
 
 @pytest.mark.parametrize("tag", [
     "Games", "Hide From New", "Recurring", "5M", "Earn 3.25%", "Rewards 50, 4.5, 20", "Election Combos", "Week 6",
-    "KPIs", "Sports", "Finance Updown", "86232", "2026", "above 8.0%",
+    "KPIs", "Sports", "Finance Updown", "86232", "2026", "above 8.0%", "Pre-Market", "daily_close", "aug-22-2026",
 ])
 def test_clean_tags_drops_noise(tag):
     assert taxonomy.clean_tags([tag]) == []
@@ -129,9 +129,20 @@ def test_clean_tags_drops_noise(tag):
 @pytest.mark.parametrize("raw, expected", [
     ("Counter Strike 2", "cs2"), ("NFL (All)", "nfl"), ("EPL", "premier league"), ("UCL", "champions league"),
     ("BTC", "bitcoin"), ("Fed Rates", "fed"), ("International elections", "global elections"),
+    ("Counter-Strike", "cs2"), ("counter_strike-2", "cs2"), ("dota-2", "dota 2"),
 ])
 def test_clean_tags_synonyms(raw, expected):
     assert taxonomy.clean_tags([raw]) == [expected]
+
+
+def test_clean_tags_joins_words_with_spaces():
+    # The registry's readers (collection rules, the launcher, the controller's tag filter) match tags exactly.
+    assert taxonomy.clean_tags(["Rotten-Tomatoes", "avengers_doomsday", "Pac-12", " #Spider--Man "]) == [
+        "rotten tomatoes", "avengers doomsday", "pac 12", "spider man"]
+
+
+def test_clean_tags_dedupes_spellings_of_one_tag():
+    assert taxonomy.clean_tags(["college football", "college-football", "College_Football"]) == ["college football"]
 
 
 def test_merge_tags_keeps_exchange_tags_first():

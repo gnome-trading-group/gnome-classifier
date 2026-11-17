@@ -3,6 +3,8 @@ readers and derivation are free, so they cover every event whatever the scope.""
 import dataclasses
 from collections.abc import Iterable
 
+from classifier.taxonomy import tag_key
+
 
 @dataclasses.dataclass(frozen=True)
 class LLMScope:
@@ -12,9 +14,9 @@ class LLMScope:
 
     @classmethod
     def of(cls, categories: Iterable[str] = (), tags: Iterable[str] = ()) -> "LLMScope":
-        # The registry stores categories upper case and tags lower case; config is typed by hand.
+        # The registry stores categories upper case and tags in their stored form (`tag_key`); config is typed by hand.
         return cls(frozenset(c.strip().upper() for c in categories if c.strip()),
-                   frozenset(t.strip().lower() for t in tags if t.strip()))
+                   frozenset(key for t in tags if (key := tag_key(t))))
 
     @property
     def unlimited(self) -> bool:
@@ -25,7 +27,7 @@ class LLMScope:
             return True
         if category and category.upper() in self.categories:
             return True
-        return any(t.lower() in self.tags for t in tags)
+        return any(t in self.tags for t in tags)
 
     def fingerprint(self) -> str:
         """Stored on securities parked out of scope, so a scope change looks at them again."""

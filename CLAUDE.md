@@ -207,6 +207,10 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   Every key expires, since the node's `volatile-lru` only evicts keys that do. No bastion, SSM or ECS Exec reaches it, and
   `poetry run tunnel` is broken. TODO(verify): current access path; previously a temporary EC2 in the worker subnet/SG
   running a script from user-data.
+- Event tags are stored in one form (`taxonomy.tag_key`): lower case, words joined by single spaces ("rotten
+  tomatoes", never "rotten-tomatoes"), since every reader matches them exactly (the registry's `?tag=` filter, market
+  data collection rules, the launcher's game scanner, `relationship_scope`). `clean_tags` writes that form for venue and
+  Claude tags alike; hand-typed config tags (`relationship_scope.tags`, `min_event_volume_by_tag`) are read into it.
 - `security_symbol` is computed at fetch and baked into ContractsQueue messages, and `contract_hash` excludes it: a
   symbol fix doesn't repair queued or DLQ'd messages, and DLQ'd contracts are not resent on their own (they are
   already in `fetch:known_contracts`).

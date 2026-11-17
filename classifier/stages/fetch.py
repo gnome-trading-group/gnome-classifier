@@ -4,6 +4,7 @@ import logging
 
 from classifier.adapters import ADAPTERS
 from classifier.adapters.types import AdapterContract, proposition_source_hash
+from classifier.taxonomy import tag_key
 from gnomepy.registry import RegistryClient
 from gnomepy.registry.types import Exchange
 
@@ -57,7 +58,8 @@ def event_min_volume(
     by_category: dict[str, float | None],
 ) -> float | None:
     """The volume an event needs: the smallest matching tag/category override, else the default. None is ungated."""
-    matches = [v for tag, v in by_tag.items() if tag.lower() in contract.event_tags]
+    # Config keys are typed by hand; an event's tags are already in their stored form.
+    matches = [v for tag, v in by_tag.items() if tag_key(tag) in contract.event_tags]
     if contract.mapped_category:
         matches += [v for cat, v in by_category.items() if cat.upper() == contract.mapped_category]
     if not matches:
