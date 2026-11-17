@@ -9,7 +9,7 @@ from classifier.propositions.drift import check_drift, sample
 from classifier.propositions.extract import extract_propositions
 from classifier.propositions.inputs import ExtractionInput
 from classifier.propositions.llm import PropositionExtractor
-from classifier.propositions.venue import claims
+from classifier.propositions.venue import claims, extract_venue
 
 BTC_RULES = ("If the simple average of the sixty seconds of CF Benchmarks' Bitcoin Real-Time Index (BRTI) before 3 PM EDT "
              "is above 79899.99 at 3 PM EDT on Oct 29, 2026, then the market resolves to Yes.")
@@ -71,3 +71,23 @@ def test_readings_that_depend_on_prices_are_not_sampled():
         "name": "template:priceTouch", "description": "perp:BTC|seconds:3|target:65000|time:20261201-0000"}}
     items = [btc(1), ExtractionInput(2, "HYPERLIQUID", 2, ContractType.BINARY, "BTC", "Yes", None, None, touch, "h")]
     assert [i.security_id for i in sample(items, 10, date(2026, 11, 3))] == [1]
+
+
+BOK_RULES = ("This market will resolve according to the change in basis points in the base rate resulting from the April "
+             "2027 meeting of the Bank of Korea's Monetary Policy Board, relative to the level it was prior to this "
+             "meeting. The resolution source will be official information from the Bank of Korea's Monetary Policy "
+             "Board, including the statement or release from its April 2027 meeting, scheduled for April 9, 2027. "
+             "Increases or decreases of less than 25 bps will be rounded to 25 bps (e.g. an increase or decrease of "
+             "10 bps would be considered to be an increase or decrease of 25 bps). Increases or decreases of greater "
+             "than 25 bps will be rounded to the nearest 25 bps and will be rounded away from 0 in cases of "
+             "equidistance (e.g., an increase or decrease of 37.5 bps would be considered to be an increase or "
+             "decrease of 50 bps).")
+
+
+def test_rate_brackets_rounded_by_the_rules_are_not_sampled():
+    bracket = {"venue": "POLYMARKET_INTL", "outcome": "Yes",
+               "event": {"slug": "bank-of-korea-decision-in-april-2027", "seriesSlug": "bank-of-korea-decision"},
+               "market": {"groupItemTitle": "25 bps increase", "description": BOK_RULES}}
+    rate = ExtractionInput(2, "POLYMARKET_INTL", 2, ContractType.BINARY, "BOK", "Yes", None, None, bracket, "h")
+    assert extract_venue(bracket) is not None
+    assert [i.security_id for i in sample([btc(1), rate], 10, date(2027, 1, 3))] == [1]

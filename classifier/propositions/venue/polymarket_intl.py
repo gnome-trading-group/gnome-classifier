@@ -157,6 +157,12 @@ def claims(source: dict) -> bool:
             or _esports_family(source) is not None)
 
 
+def rounds_by_rules(source: dict) -> bool:
+    """Whether the reading widens the outcome's label by the rounding the rules state: a rate bracket labelled "25 bps
+    increase" holds every rise under 37.5, which the model, reading the label, gives as 25."""
+    return _rate_series(source) is not None
+
+
 def scoped_by_rules(source: dict) -> bool:
     """Whether the reader's scope comes from the rules, which name the match or the map exactly; an event title naming a
     map then doesn't re-scope it."""

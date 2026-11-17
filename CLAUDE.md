@@ -268,6 +268,8 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
     now reads differently; no version bump).
   - `Classifier--WorkerHealth-PropositionDrift-Warning`: any `proposition drift`: the daily re-read by Claude disagreed
     with a code reader on a field. Read the line (family, field, both values) and the contract's stored source.
+    The sample leaves out price-dependent readings and Polymarket Intl rate brackets (`rounds_by_rules`: the reader
+    widens "25 bps increase" to the rules' rounding, under 37.5, while the model reads the label as 25).
   - `Classifier--WorkerHealth-PropositionCollisions-Warning`: two outcomes of one event were read as the same
     proposition (two candidates given one name), so derivation left both out. Read the `proposition collision` line
     and the two contracts' sources; a code reader for a fixed-template family (no version bump), else a prompt fix

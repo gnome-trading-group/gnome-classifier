@@ -54,6 +54,11 @@ def needs_prices(source: dict) -> bool:
     return source.get("venue") == "HYPERLIQUID" and hyperliquid.is_touch(source)
 
 
+def rounds_by_rules(source: dict) -> bool:
+    """Whether the reading applies a rounding the rules state to the outcome's label, which the model doesn't."""
+    return getattr(_READERS.get(source.get("venue")), "rounds_by_rules", lambda _: False)(source)
+
+
 def claims(source: dict) -> bool:
     """Whether a source belongs to a family the readers handle, so a None from `extract_venue` means the venue changed
     its wording (or a field) rather than that the market is one the LLM is meant to read."""
