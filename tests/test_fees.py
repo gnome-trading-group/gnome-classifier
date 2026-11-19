@@ -208,7 +208,7 @@ def _contract(outcome: str, **fees) -> AdapterContract:
         exchange_id=2, exchange_security_id=f"T-1:{outcome.lower()}", exchange_security_symbol=f"T -- {outcome}",
         base_currency="USDC", quote_currency="USDC", settle_currency="USDC",
         security_type=SecurityType.EVENT_CONTRACT, contract_type=ContractType.BINARY, asset_class=AssetClass.PREDICTION,
-        inverse=False, is_quanto=False, tick_size=1.0, lot_size=1.0, min_notional=0.0, contract_multiplier=1.0,
+        inverse=False, is_quanto=False, 
         event_title="T?", outcome_label=outcome, exchange_event_native_id="T-1", security_symbol=f"KX-T-1-{outcome}".upper(),
         **fees,
     )

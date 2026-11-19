@@ -5,7 +5,6 @@ import pytest
 
 from classifier.adapters.polymarket_intl import PolymarketIntlAdapter, _with_sources
 from classifier.stages.entities import create_entities
-from classifier.stages.fetch import contract_hash
 from gnomepy.registry.types import ContractType
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "polymarket_intl_events.json").read_text())
@@ -346,101 +345,6 @@ def test_market_end_date_takes_precedence_over_event_end_date():
 
 # ── Tick size and min notional ────────────────────────────────────────────────
 
-def test_binary_tick_size():
-    contracts = _map("elon-mars")
-    assert all(c.tick_size == 10_000_000 for c in contracts)  # 0.01 * 1e9
-
-
-def test_binary_min_notional_is_zero():
-    contracts = _map("elon-mars")
-    assert all(c.min_notional == 0 for c in contracts)
-
-
-def test_neg_risk_tick_size():
-    contracts = _map("harvey-weinstein-prison-time")
-    assert all(c.tick_size == 10_000_000 for c in contracts)
-
-
-def test_neg_risk_min_notional_is_zero():
-    contracts = _map("harvey-weinstein-prison-time")
-    assert all(c.min_notional == 0 for c in contracts)
-
-
-def test_ladder_per_market_tick_size():
-    contracts = _map("kraken-ipo-by")
-    markets = EVENTS_BY_SLUG["kraken-ipo-by"]["markets"]
-    expected = {
-        markets[0]["conditionId"]: 10_000_000,   # 0.01 * 1e9
-        markets[1]["conditionId"]: 1_000_000,    # 0.001 * 1e9
-        markets[2]["conditionId"]: 10_000_000,
-    }
-    for c in contracts:
-        assert c.tick_size == expected[c.exchange_event_native_id]
-
-
-def test_ladder_min_notional_is_zero():
-    contracts = _map("kraken-ipo-by")
-    assert all(c.min_notional == 0 for c in contracts)
-
-
-def test_sports_tick_size():
-    contracts = _map("wnba-sea-nyl-2026-08-05")
-    assert all(c.tick_size == 1_000_000 for c in contracts)  # 0.001 * 1e9
-
-
-def test_missing_tick_size_falls_back_to_default():
-    contracts = _map("bitcoin-200k")
-    assert all(c.tick_size == 10_000_000 for c in contracts)
-
-
-def test_min_size_from_order_min_size():
-    contracts = _map("elon-mars")
-    assert all(c.min_size == 5_000_000 for c in contracts)  # 5 shares * 1e6
-
-
-def test_ladder_per_market_min_size():
-    contracts = _map("kraken-ipo-by")
-    markets = EVENTS_BY_SLUG["kraken-ipo-by"]["markets"]
-    assert {c.min_size for c in contracts} == {round(float(m["orderMinSize"]) * 1_000_000) for m in markets}
-    assert {c.min_size for c in contracts} == {5_000_000, 10_000_000}
-
-
-def test_missing_min_size_falls_back_to_default():
-    contracts = _map("bitcoin-200k")
-    assert all(c.min_size == 5_000_000 for c in contracts)
-
-
-def test_lot_size_unchanged():
-    for slug in ["elon-mars", "kraken-ipo-by", "harvey-weinstein-prison-time", "wnba-sea-nyl-2026-08-05"]:
-        contracts = _map(slug)
-        assert all(c.lot_size == 10_000 for c in contracts)
-
-
-# ── Listing spec update detection ─────────────────────────────────────────────
-
-def test_listing_spec_updated_on_tick_size_change(stub_registry, stub_db, mock_canonicalizer):
-    contracts = _map("elon-mars")
-    result1 = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
-    assert result1.listing_specs_created == 2
-    assert result1.listing_specs_updated == 0
-
-    for c in contracts:
-        c.tick_size = 1_000_000  # changed from 10_000_000
-    result2 = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
-    assert result2.listing_specs_updated == 2
-    assert result2.listing_specs_created == 0
-
-
-def test_listing_spec_not_updated_when_unchanged(stub_registry, stub_db, mock_canonicalizer):
-    contracts = _map("elon-mars")
-    create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
-    result = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
-    assert result.listing_specs_created == 0
-    assert result.listing_specs_updated == 0
-
-
-# ── Security symbols ──────────────────────────────────────────────────────────
-
 def test_binary_symbol_uses_market_slug_and_outcome():
     event = json.loads(json.dumps(EVENTS_BY_SLUG["elon-mars"]))
     event["markets"][0]["slug"] = "will-elon-land-on-mars"
@@ -473,26 +377,6 @@ def test_closed_event_resolves_all_its_markets(monkeypatch):
     monkeypatch.setattr(adapter, "_fetch_all_events", lambda: iter([]))
     assert adapter.fetch_resolved(EXCHANGE_ID, 3) == {"0xclosed:1", "0xclosed:2", "0xarchived:3", "0xarchived:4"}
 
-
-def test_listing_spec_updated_on_min_size_change(stub_registry, stub_db, mock_canonicalizer):
-    contracts = _map("elon-mars")
-    create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
-
-    for c in contracts:
-        c.min_size = 10_000_000
-    result = create_entities(stub_registry, mock_canonicalizer, contracts, db=stub_db)
-    assert result.listing_specs_updated == 2
-    assert result.listing_specs_created == 0
-
-
-def test_contract_hash_changes_with_min_size():
-    contract = _map("elon-mars")[0]
-    before = contract_hash(contract)
-    contract.min_size = 10_000_000
-    assert contract_hash(contract) != before
-
-
-# ── Grouping follows the event's flag, not which markets are still open ──────
 
 def test_neg_risk_event_stays_grouped_when_markets_close():
     event = EVENTS_BY_SLUG["iowa-governor-2026"]

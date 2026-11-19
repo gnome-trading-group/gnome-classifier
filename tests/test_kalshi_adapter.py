@@ -148,31 +148,6 @@ def test_sub_market_description_uses_rules_primary():
 
 # ── Listing spec values ───────────────────────────────────────────────────────
 
-def test_binary_tick_size_linear_cent():
-    # KXELONMARS-99 has price_ranges with step=0.01 (linear_cent)
-    contracts = _map("KXELONMARS-99")
-    assert all(c.tick_size == 10_000_000 for c in contracts)  # 0.01 * 1e9
-
-
-def test_multi_outcome_tick_size_tapered_deci_cent():
-    # KXNEWPOPE-70 has price_ranges with steps 0.001 and 0.01 — coarsest wins
-    contracts = _map("KXNEWPOPE-70")
-    assert all(c.tick_size == 10_000_000 for c in contracts)  # 0.01 * 1e9
-
-
-def test_lot_size():
-    for ticker in ["KXELONMARS-99", "KXNEWPOPE-70", "KXRAMPBREX-40"]:
-        contracts = _map(ticker)
-        assert all(c.lot_size == 10_000 for c in contracts)  # 0.01 * 1e6
-
-
-def test_min_notional_is_zero():
-    contracts = _map("KXELONMARS-99")
-    assert all(c.min_notional == 0.0 for c in contracts)
-
-
-# ── Volume ───────────────────────────────────────────────────────────────────
-
 def _dollar_volume_24h(market: dict) -> float:
     return float(market["volume_24h_fp"]) * float(market["last_price_dollars"])
 

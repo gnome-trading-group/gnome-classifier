@@ -59,10 +59,10 @@ def _make_adapter_contract(
         asset_class=AssetClass.PREDICTION,
         inverse=False,
         is_quanto=False,
-        tick_size=0.01,
-        lot_size=1.0,
-        min_notional=1.0,
-        contract_multiplier=1.0,
+        
+        
+        
+        
         event_title=event_title,
         outcome_label=outcome_label,
         exchange_event_native_id=native_event_id,

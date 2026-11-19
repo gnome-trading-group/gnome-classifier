@@ -16,10 +16,6 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.hyperliquid.xyz/info"
 
-CONTRACT_MULTIPLIER = 1_000_000_000
-TICK_SIZE = 1_000_000
-LOT_SIZE = 1_000_000
-
 # settledOutcome is one request per outcome and info requests share a per-IP weight budget, so each settle cycle
 # looks up at most this many; the rest wait for the next cycle.
 MAX_SETTLEMENT_LOOKUPS = 40
@@ -369,10 +365,6 @@ class HyperliquidAdapter:
             asset_class=AssetClass.PREDICTION,
             inverse=False,
             is_quanto=False,
-            tick_size=TICK_SIZE,
-            lot_size=LOT_SIZE,
-            min_notional=0.0,
-            contract_multiplier=CONTRACT_MULTIPLIER,
             event_title=rendered.title,
             outcome_label=label,
             event_description=rendered.description,

@@ -22,10 +22,6 @@ class AdapterContract:
     asset_class: AssetClass
     inverse: bool
     is_quanto: bool
-    tick_size: float
-    lot_size: float
-    min_notional: float
-    contract_multiplier: float
     event_title: str
     outcome_label: str
     exchange_event_native_id: str
@@ -48,7 +44,6 @@ class AdapterContract:
     # game's core markets in together (`stages.fetch.GameCore`). Gate inputs only, not part of the contract.
     game_id: str | None = None
     game_core: bool = False
-    min_size: float = 0.0
     # The venue's keys that fee schedules target (sm.listing.fee_group / fee_event), e.g. a Kalshi series and event.
     # Set only where a schedule other than the exchange's default can apply.
     fee_group: str | None = None

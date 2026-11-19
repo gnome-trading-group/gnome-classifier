@@ -292,22 +292,6 @@ class ClassifierDB:
                             (list(listing_ids),))
                 return {row[0]: row[1] for row in cur.fetchall()}
 
-    def get_existing_listing_specs(self, listing_ids: list[int]) -> dict[int, tuple[int, int, int, int, int]]:
-        """Returns mapping of listing_id -> (tick_size, lot_size, min_notional, contract_multiplier, min_size)."""
-        if not listing_ids:
-            return {}
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT DISTINCT ON (listing_id)"
-                    " listing_id, tick_size, lot_size, min_notional, contract_multiplier, min_size"
-                    " FROM sm.listing_spec"
-                    " WHERE listing_id = ANY(%s) AND effective_from <= NOW()"
-                    " ORDER BY listing_id, effective_from DESC, recorded_at DESC",
-                    (listing_ids,),
-                )
-                return {row[0]: (row[1], row[2], row[3], row[4], row[5]) for row in cur.fetchall()}
-
     def get_listing_fee_keys(self, listing_ids: list[int]) -> dict[int, tuple[str | None, str | None]]:
         """Returns mapping of listing_id -> (fee_group, fee_event)."""
         if not listing_ids:

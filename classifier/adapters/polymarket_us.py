@@ -20,11 +20,6 @@ GATEWAY_URL = "https://gateway.polymarket.us/v1"
 # The gateway silently caps pages at 500.
 PAGE_SIZE = 500
 
-CONTRACT_MULTIPLIER = 1_000_000_000
-SIZE_SCALE = 1_000_000
-TICK_SIZE = 10_000_000
-LOT_SIZE = 10_000
-
 MARKET_STATUS_OPEN = "MARKET_STATUS_OPEN"
 # Closed and resolving markets have no side prices yet; only a resolved market's are what each side paid.
 MARKET_STATUS_RESOLVED = "MARKET_STATUS_RESOLVED"
@@ -41,26 +36,6 @@ FULL_EVENT_TTL_SECONDS = 300
 # Shares x an assumed mid price of 0.5 approximates the one-sided dollar volume the other
 # adapters report, so the shared min_event_volume threshold applies across exchanges.
 ASSUMED_PRICE = 0.5
-
-
-def _market_tick_size(market: dict) -> int:
-    raw = market.get("orderPriceMinTickSize")
-    if raw is None:
-        return TICK_SIZE
-    try:
-        return round(float(raw) * CONTRACT_MULTIPLIER)
-    except (ValueError, TypeError):
-        return TICK_SIZE
-
-
-def _market_lot_size(market: dict) -> int:
-    raw = market.get("minimumTradeQty")
-    if raw is None:
-        return LOT_SIZE
-    try:
-        return round(float(raw) * SIZE_SCALE)
-    except (ValueError, TypeError):
-        return LOT_SIZE
 
 
 def _normalize(text: str) -> str:
@@ -323,10 +298,6 @@ class PolymarketUsAdapter:
                     asset_class=AssetClass.PREDICTION,
                     inverse=False,
                     is_quanto=False,
-                    tick_size=_market_tick_size(market),
-                    lot_size=_market_lot_size(market),
-                    min_notional=0.0,
-                    contract_multiplier=CONTRACT_MULTIPLIER,
                     event_title=market_event_title,
                     outcome_label=outcome,
                     event_description=market.get("description") or event.get("description") or None,

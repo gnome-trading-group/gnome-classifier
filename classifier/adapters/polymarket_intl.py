@@ -29,35 +29,6 @@ CLOB_LOOKUPS_PER_HOUR = 2_000
 # A market closes before its result is final: UMA proposes one, which can be disputed, before it resolves.
 FINAL_UMA_STATUS = "resolved"
 
-CONTRACT_MULTIPLIER = 1e9
-SIZE_SCALE = 1_000_000
-TICK_SIZE = 10_000_000
-LOT_SIZE = 10_000
-MIN_SIZE = 5 * SIZE_SCALE
-
-
-def _market_tick_size(market: dict) -> int:
-    raw = market.get("orderPriceMinTickSize")
-    if raw is None:
-        return TICK_SIZE
-    try:
-        return round(float(raw) * CONTRACT_MULTIPLIER)
-    except (ValueError, TypeError):
-        return TICK_SIZE
-
-
-# The CLOB also rejects marketable orders under $1, but the OMS cannot tell a marketable order from a resting
-# one, so min_notional stays 0 rather than rejecting valid 5-share resting orders priced under $0.20.
-def _market_min_size(market: dict) -> int:
-    raw = market.get("orderMinSize")
-    if raw is None:
-        return MIN_SIZE
-    try:
-        return round(float(raw) * SIZE_SCALE)
-    except (ValueError, TypeError):
-        return MIN_SIZE
-
-
 def _build_sports_event_title(event_title: str, market: dict) -> str | None:
     question = market.get("question", "")
     if question and question != event_title:
@@ -464,11 +435,6 @@ class PolymarketIntlAdapter:
                 asset_class=AssetClass.PREDICTION,
                 inverse=False,
                 is_quanto=False,
-                tick_size=_market_tick_size(market),
-                lot_size=LOT_SIZE,
-                min_notional=0.0,
-                min_size=_market_min_size(market),
-                contract_multiplier=CONTRACT_MULTIPLIER,
                 event_title=event_title,
                 outcome_label=outcome_label,
                 event_description=event_description,
@@ -532,11 +498,6 @@ class PolymarketIntlAdapter:
                 asset_class=AssetClass.PREDICTION,
                 inverse=False,
                 is_quanto=False,
-                tick_size=_market_tick_size(market),
-                lot_size=LOT_SIZE,
-                min_notional=0.0,
-                min_size=_market_min_size(market),
-                contract_multiplier=CONTRACT_MULTIPLIER,
                 event_title=event_title_override or question,
                 outcome_label=outcome,
                 event_description=market.get("description") or event_description,

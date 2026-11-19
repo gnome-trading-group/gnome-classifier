@@ -32,7 +32,8 @@ Each prediction market exchange has its own schema, naming conventions and contr
 **What it produces:**
 - `sm.event` rows (exchange title, category, tags, native exchange/event ID and URL)
 - `sm.security` rows, one per outcome contract (e.g. `KX-KXWTI15M-26AUG240015-15-YES`)
-- `sm.listing` / `sm.listing_spec` rows mapping each security to its exchange identifiers and trading parameters
+- `sm.listing` rows mapping each security to its exchange identifiers (its spec, the prices and sizes it trades at, is
+  written by the registry's spec sync, not here)
 - `sm.event_contract` rows linking events to their outcome securities
 - `sm.contract_relationship` rows (equivalence, implication), derived from `sm.contract_proposition`
 
@@ -89,7 +90,7 @@ All four run as ECS services on a single EC2 auto-scaling group (spot t3.medium,
 1. Loads the last-seen contract hashes from Redis (`fetch:known_contracts`, `"exchange_id:exchange_security_id"` → hash).
 2. Looks up exchanges in the registry by `exchange_code` and, for each adapter, streams pages from `adapter.fetch(exchange_id)`.
 3. For each page, `diff_contracts()` (`classifier/stages/fetch.py`):
-   - Hashes every contract (`contract_hash`: exchange/security IDs, outcome label, event title, native event ID, tick/lot size, min notional, contract multiplier, min size, fee keys, listing fee schedule).
+   - Hashes every contract (`contract_hash`: exchange/security IDs, outcome label, event title, native event ID, fee keys, listing fee schedule).
    - Groups contracts by `(exchange_id, exchange_event_native_id)`.
    - Drops groups whose `event_volume` is below `min_event_volume` (when set).
    - Emits one `{"type": "new", "contracts": [...]}` message per group in which any contract is new or changed, capped at `fetch_max_sqs_messages` per cycle.
@@ -228,7 +229,6 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 | `security_type` / `asset_class` | Always `EVENT_CONTRACT` / `PREDICTION` |
 | `contract_type` | `BINARY` or `MULTI_OUTCOME` |
 | `inverse` / `is_quanto` | Always `False` |
-| `tick_size`, `lot_size`, `min_notional`, `contract_multiplier` | Listing spec values (scaled integers) |
 | `event_title` | Event title as reported by the adapter |
 | `outcome_label` | Outcome name (e.g. "Yes", "Trump") |
 | `exchange_event_native_id` | Native event ID (event identity and grouping key) |
@@ -246,7 +246,6 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 - **Neg-risk groups** (all open markets have `negRisk`): one `MULTI_OUTCOME` contract per market using the YES token, `outcome_label = groupItemTitle`, `exchange_event_native_id = event slug`, event title = event title, volume summed across markets.
 - **Other markets**: each market is its own binary event with one contract per outcome token. `exchange_event_native_id = conditionId`, event title = market question (sports spread/total/prop markets that reuse the event title get a suffix such as `": Spread -3.5"`).
 - `exchange_security_id = "{conditionId}:{tokenId}"`. Native URL is `https://polymarket.com/event/{slug}`.
-- Tick size comes from `orderPriceMinTickSize` (default 10,000,000); lot size 10,000; contract multiplier 1e9.
 - `fetch_resolved` returns tokens of recently closed events plus closed markets inside active events.
 
 ### Polymarket US (`classifier/adapters/polymarket_us.py`)
@@ -257,7 +256,7 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 - Every market is one book priced in long (YES) terms with exactly two `marketSides` (one `long: true`). Each market is its own binary event: `exchange_event_native_id = market slug`, `exchange_security_id = "{slug}:long"` / `"{slug}:short"`, `outcome_label` = the side's description ("Yes", "Over", "+17.50", a team name).
 - Title is `"{event title}: {market title}"`, or the event title alone when the market title only repeats it (moneylines).
 - **Volume:** the gateway documents `volume*` fields but never returns them; it does honour `volumeNumMin`/`volumeNumMax` (shares) on `/markets`. The adapter queries disjoint share ranges (`VOLUME_BUCKETS_SHARES`) and sets `event_volume = range floor x 0.5` (assumed mid price) so `min_event_volume` applies in dollars. The underlying figure looks lifetime rather than 24h.
-- Tick size from `orderPriceMinTickSize`, lot size from `minimumTradeQty`; contract multiplier 1e9. Currency `USD`. Native URL `https://polymarket.us/event/{event slug}`.
+- Currency `USD`. Native URL `https://polymarket.us/event/{event slug}`.
 - `fetch_resolved` returns IDs of recently closed markets plus non-open markets inside active events (teams get eliminated before `endDate`).
 
 ### Kalshi (`classifier/adapters/kalshi.py`)
@@ -268,7 +267,7 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 - **Binary with sub-markets** (not mutually exclusive, >1 market): each market is its own event, `exchange_event_native_id = market ticker`, title `"{event title}: {yes_sub_title}"`.
 - **Simple binary** (single market): `exchange_event_native_id = event_ticker`; the market's `yes_sub_title` is appended to the title when not already in it.
 - Binary contracts are Yes/No pairs with `exchange_security_id = "{ticker}:yes"` / `"{ticker}:no"`.
-- Tick size from `price_ranges` (default 10,000,000); lot size 10,000; contract multiplier 1e9. Native URL built from the series ticker and a title slug.
+- Native URL built from the series ticker and a title slug.
 - `fetch_resolved` returns IDs from settled events plus non-active markets inside open events.
 
 ### Hyperliquid (`classifier/adapters/hyperliquid.py`)
@@ -276,7 +275,7 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 - **API:** `POST https://api.hyperliquid.xyz/info` with `{"type": "outcomeMeta"}`; one page per fetch.
 - **Questions with >1 active outcome** (excluding fallback and settled outcomes): one `MULTI_OUTCOME` contract per outcome, `exchange_event_native_id = "q:{first_active_outcome_id}"`, `exchange_security_id = "@{outcome_id}"`. `class:priceBucket` questions get a generated title (`"{underlying} price range on {expiry}"`) and range labels (`"< $X"`, `"$X - $Y"`, `"> $Y"`).
 - **Questions with one active outcome and orphan outcomes**: binary, `exchange_event_native_id = "o:{outcome_id}"`, `exchange_security_id = "@{outcome_id}:0"` / `":1"`, labels from `sideSpecs`. `class:priceBinary` orphans get a generated title (`"Will {underlying} be above ${target}? ({expiry})"`).
-- Expiry is parsed from structured description fields; category and tags come from the template id and values (`classifier/taxonomy.py`). Tick and lot size are fixed at 1,000,000; contract multiplier 1e9. No volume or native URL.
+- Expiry is parsed from structured description fields; category and tags come from the template id and values (`classifier/taxonomy.py`). No volume or native URL.
 - `fetch_resolved` returns `@{oid}`, `@{oid}:0` and `@{oid}:1` for each question's `settledNamedOutcomes` (the lookback is not used).
 
 ---
@@ -327,8 +326,6 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 | `exchange_security_id` | text | Exchange's market/token ID |
 | `exchange_security_symbol` | text | Exchange's human-readable symbol |
 | `active` | bool | False when deactivated |
-
-**`sm.listing_spec`** — `listing_id`, `tick_size`, `lot_size`, `min_notional`, `contract_multiplier`.
 
 **`sm.event_contract`** — links an event to its outcome securities: `event_contract_id`, `event_id`, `security_id`, `outcome_label`.
 
@@ -385,7 +382,6 @@ If disabled, events keep whatever their labels gave: the mapped category (or `"O
 4. **Securities**: one per unlisted contract, using `AdapterContract.security_symbol`. A security with that symbol that has no listing at all (left behind by an earlier failed attempt, found via `get_unlisted_securities`) is reused. Any other symbol clash fails on the registry's unique symbol constraint rather than reusing a security.
 5. **Listings**: one `sm.listing` per unlisted contract.
 6. **Event contracts**: creates missing `(event_id, security_id)` links with the outcome label.
-7. **Listing specs**: creates or updates `sm.listing_spec` when tick size, lot size, min notional or contract multiplier changed.
 
 ### Step 4: Reconcile removed contracts
 

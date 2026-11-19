@@ -30,7 +30,7 @@ def _listing_key(c: AdapterContract) -> ListingKey:
 def _empty_result() -> EntityResult:
     return EntityResult(
         events_created=0, securities_created=0, listings_created=0,
-        event_contracts_created=0, listing_specs_created=0, listing_specs_updated=0,
+        event_contracts_created=0,
         event_contracts_relabelled=0, securities_renamed=0, listings_renamed=0,
         new_security_ids=[], new_security_symbols=[],
         created_event_ids=[], created_event_names=[],
@@ -118,10 +118,6 @@ def create_entities_from_canonical(
     )
     renames = find_renames(db, unique_contracts, event_id_by_native, security_id_by_key, listing_id_by_key)
     apply_renames(registry, renames)
-    spec_by_listing_id = db.get_existing_listing_specs(list(set(listing_id_by_key.values())))
-    listing_specs_created, listing_specs_updated = _sync_listing_specs(
-        registry, unique_contracts, listing_id_by_key, spec_by_listing_id,
-    )
     _sync_listing_fee_keys(registry, db, unique_contracts, listing_id_by_key)
     _sync_listing_partitions(registry, db, unique_contracts, listing_id_by_key)
     changed_sources = _sync_contract_sources(registry, db, unique_contracts, security_id_by_key)
@@ -145,8 +141,6 @@ def create_entities_from_canonical(
         securities_created=securities_created,
         listings_created=listings_created,
         event_contracts_created=event_contracts_created,
-        listing_specs_created=listing_specs_created,
-        listing_specs_updated=listing_specs_updated,
         event_contracts_relabelled=len(renames.labels),
         securities_renamed=len(renames.securities),
         listings_renamed=len(renames.listings),
@@ -489,42 +483,6 @@ def split_merged_securities(
     apply_renames(registry, find_renames(db, affected, event_id_by_native, security_id_by_key, listing_id_by_key))
     _sync_contract_sources(registry, db, affected, security_id_by_key)
     return splits
-
-
-def _sync_listing_specs(
-    registry: RegistryClient,
-    contracts: list[AdapterContract],
-    listing_id_by_key: dict[ListingKey, int],
-    spec_by_listing_id: dict[int, tuple[int, int, int, int, int]],
-) -> tuple[int, int]:
-    pending_specs: list[dict] = []
-    updates = 0
-    for c in contracts:
-        listing_id = listing_id_by_key.get(_listing_key(c))
-        if listing_id is None:
-            continue
-        new_vals = (int(c.tick_size), int(c.lot_size), int(c.min_notional), int(c.contract_multiplier), int(c.min_size))
-        existing = spec_by_listing_id.get(listing_id)
-        if existing == new_vals:
-            continue
-        if existing is not None:
-            updates += 1
-        pending_specs.append(dict(
-            listing_id=listing_id,
-            tick_size=c.tick_size,
-            lot_size=c.lot_size,
-            min_notional=c.min_notional,
-            contract_multiplier=c.contract_multiplier,
-            min_size=c.min_size,
-        ))
-
-    posted = 0
-    for _, chunk in bulk_create_chunked(pending_specs, "listing specs"):
-        try:
-            posted += len(registry.bulk_create_listing_specs(chunk))
-        except Exception as e:
-            logger.error("Bulk listing_spec creation failed: %s", e)
-    return posted - updates, updates
 
 
 def _sync_listing_fee_keys(

@@ -26,7 +26,7 @@ def _contract(exchange_id: int, native_id: str, label: str | None, mapped: str |
         exchange_id=exchange_id, exchange_security_id=f"{native_id}:yes", exchange_security_symbol=native_id,
         base_currency="USD", quote_currency="USD", settle_currency="USD", security_type=SecurityType.EVENT_CONTRACT,
         contract_type=ContractType.BINARY, asset_class=AssetClass.PREDICTION, inverse=False, is_quanto=False,
-        tick_size=1.0, lot_size=1.0, min_notional=0.0, contract_multiplier=1.0, event_title=native_id,
+        event_title=native_id,
         outcome_label="yes", exchange_event_native_id=native_id, security_symbol=native_id,
         event_category=label, mapped_category=mapped, event_tags=tags,
     )

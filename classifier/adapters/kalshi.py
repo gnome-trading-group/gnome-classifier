@@ -34,27 +34,6 @@ MILESTONE_REFRESH_SECONDS = 300
 MILESTONE_PAGE_SIZE = 500
 MILESTONE_SOURCE = "kalshi-milestone"
 
-CONTRACT_MULTIPLIER = 1_000_000_000
-SIZE_SCALE = 1_000_000
-TICK_SIZE = 10_000_000
-LOT_SIZE = 10_000
-
-
-def _market_tick_size(market: dict) -> int:
-    ranges = market.get("price_ranges")
-    if not ranges:
-        return TICK_SIZE
-    try:
-        steps = [float(r["step"]) for r in ranges if "step" in r]
-        if not steps:
-            return TICK_SIZE
-        # Tapered markets tick finer at the edges than in the middle; the listing spec holds one tick,
-        # so use the coarsest step, which every band accepts, rather than one the middle band rejects.
-        return round(max(steps) * CONTRACT_MULTIPLIER)
-    except (ValueError, TypeError):
-        return TICK_SIZE
-
-
 def _dollar_volume_24h(market: dict) -> float:
     # Kalshi reports volume in contracts; contracts x last price approximates the one-sided dollar
     # notional that Polymarket and Hyperliquid report, so one volume threshold fits all three.
@@ -462,10 +441,6 @@ class KalshiAdapter:
                     asset_class=AssetClass.PREDICTION,
                     inverse=False,
                     is_quanto=False,
-                    tick_size=_market_tick_size(market),
-                    lot_size=LOT_SIZE,
-                    min_notional=0.0,
-                    contract_multiplier=CONTRACT_MULTIPLIER,
                     event_title=event_title,
                     outcome_label=outcome,
                     event_description=event_description,
@@ -510,10 +485,6 @@ class KalshiAdapter:
                         asset_class=AssetClass.PREDICTION,
                         inverse=False,
                         is_quanto=False,
-                        tick_size=_market_tick_size(market),
-                        lot_size=LOT_SIZE,
-                        min_notional=0.0,
-                        contract_multiplier=CONTRACT_MULTIPLIER,
                         event_title=market_event_title,
                         outcome_label=side,
                         event_description=market_description,

@@ -28,10 +28,10 @@ def _make_contract(
         asset_class=AssetClass.PREDICTION,
         inverse=False,
         is_quanto=False,
-        tick_size=1.0,
-        lot_size=1.0,
-        min_notional=0.0,
-        contract_multiplier=1.0,
+        
+        
+        
+        
         event_title=title,
         outcome_label=outcome,
         exchange_event_native_id=native_id,

@@ -23,7 +23,6 @@ from gnomepy.registry.types import (
     EventContract,
     Exchange,
     Listing,
-    ListingSpec,
     Security,
 )
 
@@ -76,8 +75,6 @@ class StubRegistry(RegistryClient):
         self._events: list[Event] = []
         self._securities: list[Security] = []
         self._listings: list[Listing] = []
-        self._listing_specs: list[ListingSpec] = []
-        self._min_size_by_spec_id: dict[int, int] = {}
         # Fee state lives beside the gnomepy dataclasses, which may predate these fields.
         self._fee_keys_by_listing: dict[int, tuple[str | None, str | None]] = {}
         self._partition_by_listing: dict[int, str | None] = {}
@@ -119,9 +116,6 @@ class StubRegistry(RegistryClient):
 
     def get_listing(self) -> list[Listing]:
         return list(self._listings)
-
-    def get_listing_spec(self) -> list[ListingSpec]:
-        return list(self._listing_specs)
 
     def get_event(self, resolved: bool | None = None) -> list[Event]:
         if resolved is None:
@@ -222,24 +216,6 @@ class StubRegistry(RegistryClient):
                 "date_created": "",
             }
             self._event_contracts.append(EventContract(**d))
-            results.append(d)
-        return results
-
-    def bulk_create_listing_specs(self, items: list[dict]) -> list[dict]:
-        results = []
-        for item in items:
-            spec_id = self._alloc_id()
-            d = {
-                "id": spec_id,
-                "listing_id": item["listing_id"],
-                "tick_size": item["tick_size"],
-                "lot_size": item["lot_size"],
-                "min_notional": item["min_notional"],
-                "contract_multiplier": item["contract_multiplier"],
-                "recorded_at": "",
-            }
-            self._listing_specs.append(ListingSpec(**d))
-            self._min_size_by_spec_id[spec_id] = item.get("min_size", 0)
             results.append(d)
         return results
 
@@ -593,15 +569,6 @@ class StubDB:
     def get_listing_symbols(self, listing_ids: list[int]) -> dict[int, str]:
         id_set = set(listing_ids)
         return {l.listing_id: l.exchange_security_symbol for l in self._r._listings if l.listing_id in id_set}
-
-    def get_existing_listing_specs(self, listing_ids: list[int]) -> dict[int, tuple[int, int, int, int, int]]:
-        id_set = set(listing_ids)
-        seen: dict[int, tuple[int, int, int, int, int]] = {}
-        for s in self._r._listing_specs:
-            if s.listing_id in id_set:
-                min_size = self._r._min_size_by_spec_id.get(s.id, 0)
-                seen[s.listing_id] = (s.tick_size, s.lot_size, s.min_notional, s.contract_multiplier, min_size)
-        return seen
 
     def get_listing_fee_keys(self, listing_ids: list[int]) -> dict[int, tuple[str | None, str | None]]:
         return {lid: self._r._fee_keys_by_listing.get(lid, (None, None))

@@ -102,26 +102,6 @@ def test_native_url_uses_event_slug():
 
 # ── Specs ─────────────────────────────────────────────────────────────────────
 
-def test_tick_size_per_market():
-    ticks = {c.exchange_event_native_id: c.tick_size for c in _map(GAME)}
-    assert ticks["aec-cfb-librty-del-2026-10-02"] == 5_000_000
-    assert ticks["tsc-cfb-librty-del-2026-10-02-2q-10pt5"] == 10_000_000
-
-
-def test_lot_size_from_minimum_trade_qty():
-    assert all(c.lot_size == 1_000_000 for c in _map(POLITICS))
-    assert all(c.lot_size == 10_000 for c in _map(GAME))
-
-
-def test_missing_tick_size_falls_back_to_default():
-    event = json.loads(json.dumps(EVENTS_BY_SLUG[POLITICS]))
-    for m in event["markets"]:
-        m.pop("orderPriceMinTickSize")
-    assert all(c.tick_size == polymarket_us.TICK_SIZE for c in adapter._map_event(EXCHANGE_ID, event, {}))
-
-
-# ── Symbols ───────────────────────────────────────────────────────────────────
-
 def test_symbol_uses_prefix_slug_and_leg():
     contracts = [c for c in _map(POLITICS) if c.exchange_security_id == "paccc-usho-midterms-2026-11-03-dem:long"]
     assert contracts[0].security_symbol == "PM_US-PACCC-USHO-MIDTERMS-2026-11-03-DEM-LONG"
