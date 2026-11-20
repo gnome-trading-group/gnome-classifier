@@ -44,8 +44,8 @@ class AdapterContract:
     # game's core markets in together (`stages.fetch.GameCore`). Gate inputs only, not part of the contract.
     game_id: str | None = None
     game_core: bool = False
-    # The venue's keys that fee schedules target (sm.listing.fee_group / fee_event), e.g. a Kalshi series and event.
-    # Set only where a schedule other than the exchange's default can apply.
+    # The venue's keys that fee schedules target (sm.listing.fee_group / fee_event), e.g. a Kalshi series and event;
+    # a key with no schedule pays the exchange's default.
     fee_group: str | None = None
     fee_event: str | None = None
     # The venue partition whose cash backs the contract's orders (sm.listing.venue_partition), as the venue names it:

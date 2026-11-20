@@ -11,7 +11,6 @@ from classifier import taxonomy
 from classifier.adapters.settlement import CLOSED, OPEN, MarketState, chunked, settled, to_price
 from classifier.adapters.types import AdapterContract, pick_source_fields, polymarket_game, utc_iso
 from classifier.client.http import RateLimitedSession
-from classifier.stages.fees import polymarket_intl_definition, polymarket_intl_schedules
 from classifier.types import ExchangeId
 from classifier.utils import format_security_symbol
 
@@ -123,24 +122,15 @@ class PolymarketIntlAdapter:
                  clob_lookups_per_hour: int | None = CLOB_LOOKUPS_PER_HOUR):
         self._session = session or RateLimitedSession(min_request_interval=0.1)
         self._clob_lookups_per_hour = clob_lookups_per_hour
-        self._fee_definitions: dict[str, dict] = {}
         self._clob_window_start = -float("inf")
         self._clob_lookups = 0
 
-    def fetch_fee_schedules(self, exchange_id: ExchangeId) -> list[dict]:
-        return polymarket_intl_schedules(exchange_id, dict(self._fee_definitions), datetime.now(timezone.utc))
-
-    def _fee_group(self, market: dict) -> str | None:
-        """The market's fee type, remembering the schedule it carries for fetch_fee_schedules. Markets without fees
-        have none, and pay the exchange's default (nothing)."""
-        fee_type, definition = market.get("feeType"), polymarket_intl_definition(market)
-        if not isinstance(fee_type, str) or definition is None:
-            return None
-        if self._fee_definitions.get(fee_type, definition) != definition:
-            logger.warning("Polymarket International fee type %s changed from %s to %s", fee_type,
-                           self._fee_definitions[fee_type]["components"], definition["components"])
-        self._fee_definitions[fee_type] = definition
-        return fee_type
+    @staticmethod
+    def _fee_group(market: dict) -> str | None:
+        """The market's fee type, the key the registry's fee schedules target. Markets with fees off have none, and
+        pay the exchange's default (nothing)."""
+        fee_type = market.get("feeType")
+        return fee_type if isinstance(fee_type, str) and fee_type and market.get("feesEnabled") else None
 
     def fetch(self, exchange_id: ExchangeId):
         after_cursor: str | None = None

@@ -77,7 +77,6 @@ DEFAULT_FETCH_INTERVAL_SECONDS = 60
 DEFAULT_RESOLVE_INTERVAL_SECONDS = 1800
 DEFAULT_STALE_INTERVAL_SECONDS = 3600
 DEFAULT_SETTLE_SWEEP_INTERVAL_SECONDS = 3600
-DEFAULT_FEE_SYNC_INTERVAL_SECONDS = 3600
 # Events' 24h volume goes to the registry at most this often, after a fetch (classifier.stages.volume).
 DEFAULT_VOLUME_INTERVAL_SECONDS = 900
 # Start times are checked against the registry this often (Kalshi re-reads its milestones every 300 s).

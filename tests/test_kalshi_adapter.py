@@ -408,11 +408,9 @@ def _page(body: dict) -> MagicMock:
     return page
 
 
-def _fetch_pages(series: list[dict], event_overrides: list[dict], milestones: list[dict] | None = None) -> list[MagicMock]:
+def _fetch_pages(series: list[dict], milestones: list[dict] | None = None) -> list[MagicMock]:
     return [
         _page({"series": series, "cursor": ""}),
-        _page({"series_fee_change_arr": []}),
-        _page({"event_fee_changes": event_overrides, "cursor": ""}),
         _page({"milestones": milestones or [], "cursor": ""}),
         _page({"milestones": [], "cursor": ""}),
         _page({"events": [EVENTS_BY_TICKER["KXRAMPBREX-40"]], "cursor": ""}),
@@ -425,7 +423,7 @@ MILESTONE = {"start_date": "2026-11-04T02:00:00Z", "title": "TYLOO vs Liquid",
 
 def test_fetch_takes_each_events_start_from_its_milestone():
     session = MagicMock()
-    session.get.side_effect = _fetch_pages([], [], [MILESTONE])
+    session.get.side_effect = _fetch_pages([], [MILESTONE])
     contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
     assert contracts and all((c.event_start_time, c.event_start_source) == ("2026-11-04T02:00:00+00:00", "kalshi-milestone")
                              for c in contracts)
@@ -435,7 +433,7 @@ def test_fetch_takes_each_events_start_from_its_milestone():
 
 def test_an_event_without_a_milestone_gets_no_start():
     session = MagicMock()
-    session.get.side_effect = _fetch_pages([], [], [{**MILESTONE, "related_event_tickers": ["OTHER-1"]}])
+    session.get.side_effect = _fetch_pages([], [{**MILESTONE, "related_event_tickers": ["OTHER-1"]}])
     contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
     assert contracts and all(c.event_start_time is None and c.event_start_source is None for c in contracts)
 
@@ -443,18 +441,18 @@ def test_an_event_without_a_milestone_gets_no_start():
 def test_a_milestone_outage_keeps_the_last_starts_and_the_cycle():
     session = MagicMock()
     adapter = KalshiAdapter(session=session)
-    session.get.side_effect = _fetch_pages([], [], [MILESTONE])
+    session.get.side_effect = _fetch_pages([], [MILESTONE])
     list(adapter.fetch(EXCHANGE_ID))
     adapter._starts_read_at = -float("inf")
-    pages = _fetch_pages([], [])
-    session.get.side_effect = pages[:3] + [requests.exceptions.ConnectionError("down")] + pages[-1:]
+    pages = _fetch_pages([])
+    session.get.side_effect = pages[:1] + [requests.exceptions.ConnectionError("down")] + pages[-1:]
     contracts = [c for page in adapter.fetch(EXCHANGE_ID) for c in page]
     assert contracts and all(c.event_start_time == "2026-11-04T02:00:00+00:00" for c in contracts)
 
 
 def test_fetch_joins_series_tags():
     session = MagicMock()
-    session.get.side_effect = _fetch_pages([{"ticker": "KXRAMPBREX", "tags": ["IPOs"]}], [])
+    session.get.side_effect = _fetch_pages([{"ticker": "KXRAMPBREX", "tags": ["IPOs"]}])
     contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
     assert contracts and all(c.event_tags == ["ipo"] for c in contracts)
 
@@ -471,18 +469,8 @@ def test_an_event_without_a_shard_leaves_it_unknown():
     assert contracts and all(c.venue_partition is None for c in contracts)
 
 
-def test_fetch_sets_fee_keys_only_where_a_schedule_applies():
-    session = MagicMock()
-    session.get.side_effect = _fetch_pages([{"ticker": "KXRAMPBREX", "fee_type": "quadratic", "fee_multiplier": 1}], [])
-    contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
-    assert contracts and all((c.fee_group, c.fee_event) == (None, None) for c in contracts)
-
-    session.get.side_effect = _fetch_pages(
-        [{"ticker": "KXRAMPBREX", "fee_type": "quadratic_with_maker_fees", "fee_multiplier": 1}],
-        [{"id": "e", "event_ticker": "KXRAMPBREX-40", "series_ticker": "KXRAMPBREX", "fee_type_override": "quadratic",
-          "fee_multiplier_override": 1, "scheduled_ts": "2026-10-18T00:00:00Z"}],
-    )
-    contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
+def test_every_contract_is_keyed_to_its_series_and_event_for_fees():
+    contracts = adapter._map_event(EXCHANGE_ID, EVENTS_BY_TICKER["KXRAMPBREX-40"])
     assert contracts and all((c.fee_group, c.fee_event) == ("KXRAMPBREX", "KXRAMPBREX-40") for c in contracts)
 
 
@@ -512,23 +500,13 @@ def test_malformed_series_entries_are_skipped():
     assert KalshiAdapter(session=session)._fetch_series_tags() == {"KXRAMPBREX": ["IPOs"]}
 
 
-def test_series_outage_still_maps_events_with_the_last_fee_scopes():
+def test_series_outage_still_maps_events_with_their_fee_keys():
     session = MagicMock()
-    adapter = KalshiAdapter(session=session)
-    session.get.side_effect = _fetch_pages(
-        [{"ticker": "KXRAMPBREX", "tags": ["IPOs"], "fee_type": "quadratic_with_maker_fees", "fee_multiplier": 1}], [])
-    list(adapter.fetch(EXCHANGE_ID))
-    session.get.side_effect = [requests.exceptions.ConnectionError("down"), _fetch_pages([], [])[-1]]
-    contracts = [c for page in adapter.fetch(EXCHANGE_ID) for c in page]
+    pages = _fetch_pages([])
+    session.get.side_effect = [requests.exceptions.ConnectionError("down")] + pages[1:]
+    contracts = [c for page in KalshiAdapter(session=session).fetch(EXCHANGE_ID) for c in page]
     assert contracts and all(c.mapped_category == "FINANCE" and c.event_tags == [] for c in contracts)
-    assert all(c.fee_group == "KXRAMPBREX" for c in contracts)
-
-
-def test_series_outage_before_any_fee_scopes_fails_the_cycle():
-    session = MagicMock()
-    session.get.side_effect = [requests.exceptions.ConnectionError("down")]
-    with pytest.raises(requests.exceptions.ConnectionError):
-        list(KalshiAdapter(session=session).fetch(EXCHANGE_ID))
+    assert all((c.fee_group, c.fee_event) == ("KXRAMPBREX", "KXRAMPBREX-40") for c in contracts)
 
 
 @pytest.mark.parametrize("series, event, expected", [

@@ -4,7 +4,8 @@ The classifier pulls every open market from the prediction venues (Kalshi, Polym
 Hyperliquid), writes them into the registry's security master as events, securities, listings and event contracts,
 reads what each security asks (`sm.contract_proposition`) and derives relationships between them
 (`sm.contract_relationship`). It also retires closed markets, records
-settlement values, syncs venue fee schedules, and publishes resolved/new events on SNS. Dependents: the launcher (stops
+settlement values, keys listings to the venue fee schedules the registry syncs, and publishes resolved/new events on
+SNS. Dependents: the launcher (stops
 sessions on resolved events via the exported `ClassifierNotificationsTopicArn`), Slack (Notify worker), anything that
 trades or records the listings it creates, and the registry's settlement sweeper (reads the settlement values).
 
@@ -172,7 +173,7 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
 - Bulk "closed" feeds only ever deactivate listings; an event resolves only when every outcome has a settlement value,
   or after a day missing from its feed (stale). Polymarket US once listed every open market as closed (2026-10-22).
 - Feature flags (`feature_flags.*` in the controller service config `classifier`, all default false): `fetch_enabled`,
-  `resolve_enabled`, `settlement_enabled`, `reactivation_enabled`, `stale_cleanup_enabled`, `fee_sync_enabled`,
+  `resolve_enabled`, `settlement_enabled`, `reactivation_enabled`, `stale_cleanup_enabled`,
   `canonicalization_enabled`, `game_core_markets_enabled` (see Volume gate), `relationships_enabled`, `proposition_llm_enabled` (Claude for what the code readers
   can't read, plus the drift check; paid per contract, keep off in dev), `subject_merge_enabled` (the subject merge
   pass in Relationships, every 15 minutes while idle: Claude judges duplicate subjects, held-back merges go to the

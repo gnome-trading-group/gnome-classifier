@@ -78,7 +78,6 @@ class StubRegistry(RegistryClient):
         # Fee state lives beside the gnomepy dataclasses, which may predate these fields.
         self._fee_keys_by_listing: dict[int, tuple[str | None, str | None]] = {}
         self._partition_by_listing: dict[int, str | None] = {}
-        self._fee_schedules: list[dict] = []
         self._event_contracts: list[EventContract] = []
         self._contract_sources: dict[int, dict] = {}
         # Proposition state as the registry keeps it; `_clock` stands in for now() so "changed since derived" is
@@ -217,14 +216,6 @@ class StubRegistry(RegistryClient):
             }
             self._event_contracts.append(EventContract(**d))
             results.append(d)
-        return results
-
-    def bulk_create_fee_schedules(self, items: list[dict]) -> list[dict]:
-        results = []
-        for item in items:
-            row = {"fee_schedule_id": self._alloc_id(), "recorded_at": len(self._fee_schedules), **item}
-            self._fee_schedules.append(row)
-            results.append(row)
         return results
 
     def patch_event_contract(self, event_contract_id: int, **kwargs) -> dict:
@@ -577,10 +568,6 @@ class StubDB:
     def get_listing_partitions(self, listing_ids: list[int]) -> dict[int, str | None]:
         return {lid: self._r._partition_by_listing.get(lid)
                 for lid in listing_ids if any(l.listing_id == lid for l in self._r._listings)}
-
-    def get_fee_source_refs(self, exchange_id: int) -> set[str]:
-        return {row["source_ref"] for row in self._r._fee_schedules
-                if row.get("exchange_id") == exchange_id and row.get("source_ref")}
 
     def get_unresolved_events(self) -> list[Event]:
         return self._r.get_event(resolved=False)

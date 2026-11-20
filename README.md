@@ -154,16 +154,12 @@ Handles events that an exchange silently stops listing without marking them reso
 
 ---
 
-### Fee Sync (`FetchRunner._run_fee_sync`)
+### Fee keys
 
-**Every `fee_sync_interval_seconds` (default 3600s).** Skipped when `fee_sync_enabled` is false.
-
-`sync_venue_fee_schedules()` (`classifier/stages/fees.py`) asks each adapter with `fetch_fee_schedules` for the fee schedules its venue publishes and writes those the registry doesn't hold yet (`sm.fee_schedule`, matched by `source_ref`):
-
-- **Kalshi:** every recorded series change (`/series/fee_changes?show_historical=true`, since 2025-10-04), a row from 2025-07-01 for each series charging other than the default with no recorded change (`/series`), and the event overrides listed now (`/events/fee_changes`, which keeps no history). Schedules from before Kalshi's 2026-03-03 rounding change get a second row from that date with the new rounding. A fee type no definition expresses (e.g. a flat fee table) is recorded with no definition, so the target falls through to the next scope down, and the registry's `FEE_TYPE_UNSUPPORTED` finding flags it.
-- **Polymarket International:** one row per Gamma `feeType` the fetch cycle has seen (every market of a type carries the same `feeSchedule`), from the type's rollout date in `POLYMARKET_INTL_FEE_TYPES`, or from the sync that first sees it when the type or its rates aren't listed there. A type whose rates change gets a new row from then. The registry's `FEE_SCHEDULE_CHANGED` finding lists a day's new fee-group rows on the attention list.
-
-Listings only carry fee keys where one of these schedules can apply: a Kalshi series or event with schedules, a Polymarket International market's fee type. Everything else pays its exchange's default. A listing's fee event is never cleared, since Kalshi stops listing an override once it is lifted.
+The registry's fees sync writes venue fee schedules (`sm.fee_schedule`); the classifier only keys listings to them, as
+venue facts: every Kalshi listing to its series (`fee_group`) and event (`fee_event`), a Polymarket International
+market with fees on to its Gamma `feeType`. A key with no schedule pays its exchange's default. A listing's fee event
+is never cleared, since Kalshi stops listing an override once it is lifted.
 
 ---
 
@@ -237,7 +233,7 @@ Symbols are built by `classifier.utils.format_security_symbol(prefix, *parts)`, 
 | `mapped_category` | Registry category from the exchange's labels (`classifier/taxonomy.py`), or `None` when they leave it open |
 | `event_tags` | Normalized exchange tags, led by the esports game (`cs2`, `dota 2`, …) when there is one |
 | `event_volume` | Volume used for `min_event_volume` filtering, when available |
-| `fee_group` / `fee_event` | Venue keys that fee schedules target (`sm.listing.fee_group` / `fee_event`): Kalshi series and event ticker (only those with schedules), Polymarket International fee type, Polymarket US sport, Hyperliquid `outcome` |
+| `fee_group` / `fee_event` | Venue keys that fee schedules target (`sm.listing.fee_group` / `fee_event`): Kalshi series and event ticker, Polymarket International fee type (markets with fees on), Polymarket US sport, Hyperliquid `outcome` |
 
 ### Polymarket International (`classifier/adapters/polymarket_intl.py`)
 

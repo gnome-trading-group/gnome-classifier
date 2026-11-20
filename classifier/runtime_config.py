@@ -14,7 +14,6 @@ from classifier.constants import (
     DEFAULT_DRIFT_SAMPLE_SIZE,
     DEFAULT_BULK_CREATE_BATCH_SIZE,
     DEFAULT_CLAUDE_PROVIDER,
-    DEFAULT_FEE_SYNC_INTERVAL_SECONDS,
     DEFAULT_SCHEDULE_INTERVAL_SECONDS,
     DEFAULT_VOLUME_INTERVAL_SECONDS,
     DEFAULT_VOLUME_MAX_AGE_SECONDS,
@@ -77,7 +76,6 @@ class FeatureFlags:
     stale_cleanup_enabled: bool = False
     settlement_enabled: bool = False
     reactivation_enabled: bool = False
-    fee_sync_enabled: bool = False
     # Lets a game's core markets (moneyline, spreads, totals, map winners, exact score) past the volume gate once any
     # of the game's events is in (`stages.fetch.GameCore`).
     game_core_markets_enabled: bool = False
@@ -153,7 +151,6 @@ class WorkerParams:
     resolve_interval_seconds: int = DEFAULT_RESOLVE_INTERVAL_SECONDS
     stale_interval_seconds: int = DEFAULT_STALE_INTERVAL_SECONDS
     settle_sweep_interval_seconds: int = DEFAULT_SETTLE_SWEEP_INTERVAL_SECONDS
-    fee_sync_interval_seconds: int = DEFAULT_FEE_SYNC_INTERVAL_SECONDS
     volume_interval_seconds: int = DEFAULT_VOLUME_INTERVAL_SECONDS
     schedule_interval_seconds: int = DEFAULT_SCHEDULE_INTERVAL_SECONDS
     volume_min_change: float = DEFAULT_VOLUME_MIN_CHANGE

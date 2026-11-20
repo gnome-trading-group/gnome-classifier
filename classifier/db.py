@@ -318,15 +318,6 @@ class ClassifierDB:
                 )
                 return {row[0]: row[1] for row in cur.fetchall()}
 
-    def get_fee_source_refs(self, exchange_id: int) -> set[str]:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT source_ref FROM sm.fee_schedule WHERE exchange_id = %s AND source_ref IS NOT NULL",
-                    (exchange_id,),
-                )
-                return {row[0] for row in cur.fetchall()}
-
     def get_unresolved_events(self) -> list[Event]:
         with self._conn() as conn:
             with conn.cursor() as cur:

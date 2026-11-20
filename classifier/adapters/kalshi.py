@@ -12,7 +12,6 @@ from classifier import taxonomy
 from classifier.adapters.settlement import CLOSED, OPEN, PRICE_SCALE, MarketState, chunked, settled, to_price
 from classifier.adapters.types import AdapterContract, pick_source_fields, utc_iso
 from classifier.client.http import RateLimitedSession
-from classifier.stages.fees import kalshi_fee_scopes, kalshi_schedules
 from classifier.types import ExchangeId
 from classifier.utils import format_security_symbol
 
@@ -134,7 +133,6 @@ class KalshiAdapter:
 
     def __init__(self, session: RateLimitedSession | None = None):
         self._session = session or RateLimitedSession(min_request_interval=0.15)
-        self._fee_scopes: tuple[set[str], set[str]] | None = None
         # {event ticker: start}, from the last milestone read, and when it was read.
         self._starts: dict[str, str] = {}
         self._starts_read_at = -float("inf")
@@ -144,16 +142,9 @@ class KalshiAdapter:
         # not the cycle, so a series outage doesn't stop Kalshi events from flowing.
         try:
             series = self._fetch_series()
-            fee_scopes = kalshi_fee_scopes(series, *self._fetch_fee_changes())
         except requests.exceptions.RequestException:
-            # Mapping without the fee scopes would strip the fee keys off every listing that has them, so this falls
-            # back to the last cycle's, and has nothing to fall back to before the first.
-            if self._fee_scopes is None:
-                raise
             logger.warning("Kalshi series unavailable this cycle; mapping events without tags", exc_info=True)
             series = []
-            fee_scopes = self._fee_scopes
-        self._fee_scopes = fee_scopes
         series_tags = _series_tags(series)
         starts = self._start_times()
         cursor = ""
@@ -173,7 +164,7 @@ class KalshiAdapter:
                 raise
             page = [c for event in data.get("events", [])
                     for c in _with_start(starts.get(event.get("event_ticker", "")),
-                                         _with_sources(event, self._map_event(exchange_id, event, series_tags, fee_scopes)))]
+                                         _with_sources(event, self._map_event(exchange_id, event, series_tags)))]
             if page:
                 yield page
             cursor = data.get("cursor", "")
@@ -235,25 +226,6 @@ class KalshiAdapter:
 
     def _fetch_series_tags(self) -> dict[str, list[str]]:
         return _series_tags(self._fetch_series())
-
-    def _fetch_fee_changes(self) -> tuple[list[dict], list[dict]]:
-        """Every series fee change Kalshi has recorded, and the event overrides it lists now (it keeps no history of
-        those, so overrides already lifted are only known from earlier syncs)."""
-        series = self._get_json("/series/fee_changes", {"show_historical": "true"}).get("series_fee_change_arr") or []
-        events: list[dict] = []
-        cursor = ""
-        while True:
-            params: dict = {"limit": SERIES_PAGE_SIZE}
-            if cursor:
-                params["cursor"] = cursor
-            data = self._get_json("/events/fee_changes", params)
-            events.extend(data.get("event_fee_changes") or [])
-            cursor = data.get("cursor", "")
-            if not cursor:
-                return series, events
-
-    def fetch_fee_schedules(self, exchange_id: ExchangeId) -> list[dict]:
-        return kalshi_schedules(exchange_id, self._fetch_series(), *self._fetch_fee_changes())
 
     def _get_json(self, path: str, params: dict) -> dict:
         try:
@@ -379,7 +351,6 @@ class KalshiAdapter:
 
     def _map_event(
         self, exchange_id: ExchangeId, event: dict, series_tags: dict[str, list[str]] | None = None,
-        fee_scopes: tuple[set[str], set[str]] = (set(), set()),
     ) -> list[AdapterContract]:
         markets = event.get("markets", [])
         if not markets:
@@ -397,9 +368,9 @@ class KalshiAdapter:
             event_description = markets[0].get("rules_secondary") or markets[0].get("rules_primary") or event_description
 
         series_ticker = event.get("series_ticker", "")
-        fee_groups, fee_events = fee_scopes
-        fee_group = series_ticker if series_ticker in fee_groups else None
-        fee_event = event_ticker if event_ticker in fee_events else None
+        # The keys Kalshi's fee schedules target, a series and an event; one with no schedule pays the exchange default.
+        fee_group = series_ticker or None
+        fee_event = event_ticker
         # Every market of an event trades on the event's shard.
         exchange_index = event.get("exchange_index")
         venue_partition = None if exchange_index is None else str(exchange_index)
