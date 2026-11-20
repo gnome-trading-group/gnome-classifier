@@ -165,6 +165,10 @@ CDK (TypeScript), from `cdk/` (`npm ci` needs a GitHub Packages token for `@gnom
   shard, and the registry's launch checks and treasury alerts read it. Set on create and patched onto existing listings, never cleared. It is in
   `contract_hash` only where set, so adding it resent Kalshi's contracts once and no other venue's. Needs registry
   migration 067 applied first (the listing patch fails on a registry without the column).
+- Recent settlements and reactivation (after every fetch) and the settle sweep find retired, unsettled listings through
+  the registry's `sm.listing.awaiting_settlement` flag and its partial index (migration 085): the registry sets it when a
+  listing is turned off before its outcome settles and clears it on a settlement value or reactivation. Without it they
+  read every listing of an exchange each minute. Apply 085 in the registry before a classifier that reads the flag.
 - Bulk "closed" feeds only ever deactivate listings; an event resolves only when every outcome has a settlement value,
   or after a day missing from its feed (stale). Polymarket US once listed every open market as closed (2026-10-22).
 - Feature flags (`feature_flags.*` in the controller service config `classifier`, all default false): `fetch_enabled`,

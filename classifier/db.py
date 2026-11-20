@@ -157,7 +157,9 @@ class ClassifierDB:
         self, exchange_id: int, max_age: timedelta, after_id: int, limit: int, include_active: bool = False,
     ) -> list[tuple[int, str]]:
         """Returns up to `limit` [(event_contract_id, exchange_security_id)], in id order after `after_id`, for outcomes
-        with no settlement value yet whose listing was deactivated within `max_age` (or is active, if asked)."""
+        with no settlement value yet whose listing was deactivated within `max_age` (or is active, if asked). The
+        registry flags a listing turned off before it settles (`awaiting_settlement`) and indexes only those, so this
+        reads a few hundred listings rather than every listing of the exchange."""
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -165,7 +167,7 @@ class ClassifierDB:
                     " FROM sm.listing l"
                     " JOIN sm.event_contract ec ON ec.security_id = l.security_id"
                     " WHERE l.exchange_id = %s AND ec.settlement_price IS NULL"
-                    " AND ((NOT l.active AND l.date_modified > NOW() - %s) OR (l.active AND %s))"
+                    " AND ((l.awaiting_settlement AND l.date_modified > NOW() - %s) OR (l.active AND %s))"
                     " AND ec.event_contract_id > %s"
                     " ORDER BY ec.event_contract_id LIMIT %s",
                     (exchange_id, max_age, include_active, after_id, limit),
@@ -226,14 +228,14 @@ class ClassifierDB:
 
     def get_retired_unsettled_listings(self, exchange_id: int, max_age: timedelta) -> list[tuple[int, int, str]]:
         """Returns [(listing_id, security_id, exchange_security_id)] for inactive listings deactivated within `max_age`
-        whose outcome has no settlement value."""
+        whose outcome has no settlement value: the registry's `awaiting_settlement` listings, which it indexes."""
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT l.listing_id, l.security_id, l.exchange_security_id"
                     " FROM sm.listing l"
                     " JOIN sm.event_contract ec ON ec.security_id = l.security_id"
-                    " WHERE l.exchange_id = %s AND NOT l.active AND ec.settlement_price IS NULL"
+                    " WHERE l.exchange_id = %s AND l.awaiting_settlement AND ec.settlement_price IS NULL"
                     " AND l.date_modified > NOW() - %s",
                     (exchange_id, max_age),
                 )
