@@ -294,6 +294,19 @@ class ClassifierDB:
                             (list(listing_ids),))
                 return {row[0]: row[1] for row in cur.fetchall()}
 
+    def get_listed_contracts(self, exchange_id: int, exchange_security_ids: list[str]) -> set[str]:
+        """Of these contracts of one exchange, the ones with an active listing."""
+        if not exchange_security_ids:
+            return set()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT exchange_security_id FROM sm.listing"
+                    " WHERE exchange_id = %s AND exchange_security_id = ANY(%s) AND active",
+                    (exchange_id, exchange_security_ids),
+                )
+                return {row[0] for row in cur.fetchall()}
+
     def get_listing_fee_keys(self, listing_ids: list[int]) -> dict[int, tuple[str | None, str | None]]:
         """Returns mapping of listing_id -> (fee_group, fee_event)."""
         if not listing_ids:

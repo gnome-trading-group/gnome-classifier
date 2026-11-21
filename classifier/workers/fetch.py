@@ -23,6 +23,9 @@ from classifier.workers.config import init_db, init_registry, init_runtime_confi
 
 logger = logging.getLogger(__name__)
 
+# Contracts per lookup: an index scan of the listing table's (exchange_id, exchange_security_id) key.
+_LISTED_LOOKUP_BATCH = 5000
+
 # Redis keys
 _REDIS_KNOWN_CONTRACTS_KEY = "fetch:known_contracts"
 _REDIS_SENT_RESOLVED_KEY = "fetch:sent_resolved"
@@ -123,6 +126,39 @@ class FetchResult:
     starts: dict[tuple[int, str], tuple[str, str]] = dataclasses.field(default_factory=dict)
 
 
+class ListedEvents:
+    """Which quiet events the registry lists a contract of, for the volume gate (`diff_contracts`' `listed`): each
+    event is looked up once per process, so after the first cycle only events never seen before cost a read. An event
+    found unlisted stays so: a quiet event is only ever listed by this classifier sending it, which records it in
+    known_contracts. A read that fails leaves its events unknown, gated as before, and asked again next cycle."""
+
+    def __init__(self, db_getter):
+        self._db_getter = db_getter
+        self._listed: dict[tuple[int, str], bool] = {}
+
+    def __call__(self, exchange_id: int, events: dict[str, list[str]]) -> set[str]:
+        unknown = [native_id for native_id in events if (exchange_id, native_id) not in self._listed]
+        batch: list[str] = []
+        for i, native_id in enumerate(unknown):
+            batch.append(native_id)
+            size = sum(len(events[n]) for n in batch)
+            if size >= _LISTED_LOOKUP_BATCH or i == len(unknown) - 1:
+                self._look_up(exchange_id, {n: events[n] for n in batch})
+                batch = []
+        return {native_id for native_id in events if self._listed.get((exchange_id, native_id))}
+
+    def _look_up(self, exchange_id: int, events: dict[str, list[str]]) -> None:
+        contracts = [esid for esids in events.values() for esid in esids]
+        try:
+            found = self._db_getter().get_listed_contracts(exchange_id, contracts)
+        except Exception:
+            logger.warning("Couldn't look up %d quiet events of exchange %d; gating them this cycle",
+                           len(events), exchange_id, exc_info=True)
+            return
+        for native_id, esids in events.items():
+            self._listed[(exchange_id, native_id)] = any(e in found for e in esids)
+
+
 class FetchRunner:
     def __init__(self):
         self._running = False
@@ -131,6 +167,7 @@ class FetchRunner:
         self._sns = None
         self._settle_cursors: dict[str, int] = {}
         self._volumes = VolumeWriter()
+        self._listed = ListedEvents(self._get_db)
 
     def _handle_shutdown(self, signum, frame):
         logger.info("FetchRunner shutting down (signal %d)", signum)
@@ -268,6 +305,7 @@ class FetchRunner:
                         min_volume_by_tag=thresholds.min_event_volume_by_tag,
                         min_volume_by_category=thresholds.min_event_volume_by_category,
                         game_core=game_core,
+                        listed=self._listed,
                     )
                     if new_msgs:
                         sqs_send_batch(sqs, queue_url, new_msgs)

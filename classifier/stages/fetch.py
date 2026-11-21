@@ -1,6 +1,7 @@
 import dataclasses
 import hashlib
 import logging
+from collections.abc import Callable
 
 from classifier.adapters import ADAPTERS
 from classifier.adapters.types import AdapterContract, proposition_source_hash
@@ -9,6 +10,10 @@ from gnomepy.registry import RegistryClient
 from gnomepy.registry.types import Exchange
 
 logger = logging.getLogger(__name__)
+
+# Of these events of one exchange ({native event id: its contracts' exchange_security_ids}), the ones the registry
+# already lists a contract of.
+Listed = Callable[[int, dict[str, list[str]]], set[str]]
 
 
 @dataclasses.dataclass
@@ -75,9 +80,12 @@ def diff_contracts(
     min_volume_by_tag: dict[str, float | None] | None = None,
     min_volume_by_category: dict[str, float | None] | None = None,
     game_core: GameCore | None = None,
+    listed: Listed | None = None,
 ) -> tuple[list[dict], dict[str, str], dict[int, set[str]], set[int]]:
     """Returns (new_messages, updated_hashes, active_by_exchange, successful_exchange_ids). With `game_core`, quiet core
-    markets of a game already let in pass, and those of a game not (yet) in are held there."""
+    markets of a game already let in pass, and those of a game not (yet) in are held there. With `listed`, a quiet
+    event the registry already lists a contract of passes like one already sent: the hashes of what was sent can be
+    lost, and the event would otherwise never be updated again while it stays quiet."""
     contracts_by_native: dict[tuple[int, str], list[AdapterContract]] = {}
     current_hashes: dict[str, str] = {}
     active_by_exchange: dict[int, set[str]] = {}
@@ -96,7 +104,7 @@ def diff_contracts(
     by_tag = min_volume_by_tag or {}
     by_category = min_volume_by_category or {}
     if min_event_volume is not None or by_tag or by_category:
-        quiet: list[tuple[int, str]] = []
+        below: list[tuple[int, str]] = []
         for nk, group in contracts_by_native.items():
             # Volume only gates ingesting new events; an event fetch has already sent keeps
             # flowing so quiet markets still pick up added and removed contracts.
@@ -104,6 +112,14 @@ def diff_contracts(
             vol = group[0].event_volume
             threshold = event_min_volume(group[0], min_event_volume, by_tag, by_category)
             if not already_sent and vol is not None and threshold is not None and vol < threshold:
+                below.append(nk)
+            elif game_core is not None and group[0].game_id:
+                game_core.admitted.add(group[0].game_id)
+        ingested = _listed_events(below, contracts_by_native, listed) if listed else set()
+        quiet: list[tuple[int, str]] = []
+        for nk in below:
+            group = contracts_by_native[nk]
+            if nk not in ingested:
                 quiet.append(nk)
             elif game_core is not None and group[0].game_id:
                 game_core.admitted.add(group[0].game_id)
@@ -151,6 +167,18 @@ def diff_contracts(
             updated_hashes[ck] = known_hashes[ck]
 
     return new_messages, updated_hashes, active_by_exchange, successful_exchange_ids
+
+
+def _listed_events(
+    keys: list[tuple[int, str]], contracts_by_native: dict[tuple[int, str], list[AdapterContract]], listed: Listed,
+) -> set[tuple[int, str]]:
+    """Of these events, the ones the registry lists a contract of."""
+    by_exchange: dict[int, dict[str, list[str]]] = {}
+    for exchange_id, native_id in keys:
+        by_exchange.setdefault(exchange_id, {})[native_id] = [
+            c.exchange_security_id for c in contracts_by_native[(exchange_id, native_id)]]
+    return {(exchange_id, native_id) for exchange_id, events in by_exchange.items()
+            for native_id in listed(exchange_id, events)}
 
 
 def fetch_exchanges(

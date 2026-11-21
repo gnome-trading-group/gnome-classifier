@@ -9,7 +9,7 @@ from classifier.adapters.types import AdapterContract
 from classifier.runtime_config import ClassifierConfig, FeatureFlags, Thresholds
 from classifier.stages.fetch import diff_contracts, event_min_volume, fetch_all
 from classifier.stages.settle import empty_counts
-from classifier.workers.fetch import FetchResult, FetchRunner
+from classifier.workers.fetch import FetchResult, FetchRunner, ListedEvents
 from gnomepy.registry.types import AssetClass, ContractType, Exchange, SecurityType
 
 
@@ -110,6 +110,14 @@ def _make_contract(
     )
 
 
+def _runner(listed=()) -> FetchRunner:
+    """A runner whose database lists these exchange_security_ids (the volume gate's lookup), and nothing else."""
+    runner = FetchRunner()
+    runner._db = MagicMock()
+    runner._db.get_listed_contracts.side_effect = lambda exchange_id, esids: {e for e in esids if e in set(listed)}
+    return runner
+
+
 def _make_fetch_rc(min_event_volume: float | None = None, by_tag=None, by_category=None):
     rc = MagicMock()
     rc.config = ClassifierConfig(
@@ -127,7 +135,7 @@ def _run_fetch(moto_env, contracts, min_event_volume=None, by_tag=None, by_categ
     rc = _make_fetch_rc(min_event_volume, by_tag, by_category)
     r = MagicMock()
     r.get.return_value = None
-    runner = FetchRunner()
+    runner = _runner()
     mock_adapter = MagicMock()
     mock_adapter.exchange_code = "POLYMARKET_INTL"
     mock_adapter.fetch.return_value = iter([contracts] if contracts else [])
@@ -181,7 +189,7 @@ def _run_fetch_pages(moto_env, pages, known_contracts=None, raise_after_pages=Fa
     rc = _make_fetch_rc()
     r = MagicMock()
     r.get.return_value = json.dumps(known_contracts).encode() if known_contracts is not None else None
-    runner = FetchRunner()
+    runner = _runner()
 
     def fetch(exchange_id):
         yield from pages
@@ -228,7 +236,7 @@ class TestPaginatedFetch:
 
 
 
-def _run_fetch_with_known(moto_env, contracts, known_contracts, min_event_volume):
+def _run_fetch_with_known(moto_env, contracts, known_contracts, min_event_volume, listed=()):
     rc = _make_fetch_rc(min_event_volume)
     r = MagicMock()
     r.get.return_value = json.dumps(known_contracts).encode()
@@ -239,7 +247,7 @@ def _run_fetch_with_known(moto_env, contracts, known_contracts, min_event_volume
         patch("classifier.workers.fetch.fetch_exchanges", return_value={"POLYMARKET_INTL": MagicMock(exchange_id=1)}),
         patch("classifier.workers.fetch.ADAPTERS", [mock_adapter]),
     ):
-        FetchRunner()._run_fetch(rc, r, moto_env["sqs"], MagicMock())
+        _runner(listed)._run_fetch(rc, r, moto_env["sqs"], MagicMock())
     resp = moto_env["sqs"].receive_message(QueueUrl=moto_env["contracts_queue"], MaxNumberOfMessages=10, WaitTimeSeconds=0)
     return [json.loads(m["Body"]) for m in resp.get("Messages", [])], json.loads(r.set.call_args[0][1])
 
@@ -258,6 +266,47 @@ class TestVolumeGateOnlyForNewEvents:
         assert msgs == []
         assert "1:sec-9" not in saved
 
+    def test_quiet_event_the_registry_lists_passes_though_its_hashes_were_lost(self, moto_env):
+        contracts = [_make_contract("evt-3", "sec-5", event_volume=10.0), _make_contract("evt-3", "sec-6", event_volume=10.0)]
+        msgs, saved = _run_fetch_with_known(moto_env, contracts, {}, min_event_volume=1000.0, listed=["sec-5"])
+        assert len(msgs) == 1
+        assert {c["exchange_security_id"] for c in msgs[0]["contracts"]} == {"sec-5", "sec-6"}
+        assert {"1:sec-5", "1:sec-6"} <= set(saved)
+
+
+class TestListedEvents:
+    def test_asks_the_database_once_per_event(self):
+        db = MagicMock()
+        db.get_listed_contracts.return_value = {"a1"}
+        listed = ListedEvents(lambda: db)
+        assert listed(1, {"A": ["a1", "a2"], "B": ["b1"]}) == {"A"}
+        assert listed(1, {"A": ["a1", "a2"], "B": ["b1"]}) == {"A"}
+        assert db.get_listed_contracts.call_count == 1
+        db.get_listed_contracts.return_value = set()
+        assert listed(1, {"C": ["c1"]}) == set()
+        assert db.get_listed_contracts.call_args.args == (1, ["c1"])
+
+    def test_keys_by_exchange(self):
+        db = MagicMock()
+        db.get_listed_contracts.side_effect = lambda exchange_id, esids: {"a1"} if exchange_id == 1 else set()
+        listed = ListedEvents(lambda: db)
+        assert (listed(1, {"A": ["a1"]}), listed(2, {"A": ["a1"]})) == ({"A"}, set())
+
+    def test_reads_in_batches_of_whole_events(self, monkeypatch):
+        monkeypatch.setattr("classifier.workers.fetch._LISTED_LOOKUP_BATCH", 3)
+        db = MagicMock()
+        db.get_listed_contracts.side_effect = lambda exchange_id, esids: {"c1"}
+        listed = ListedEvents(lambda: db)
+        assert listed(1, {"A": ["a1", "a2"], "B": ["b1", "b2"], "C": ["c1"]}) == {"C"}
+        assert [call.args[1] for call in db.get_listed_contracts.call_args_list] == [["a1", "a2", "b1", "b2"], ["c1"]]
+
+    def test_a_failed_read_gates_as_before_and_is_asked_again(self):
+        db = MagicMock()
+        db.get_listed_contracts.side_effect = [RuntimeError("db down"), {"a1"}]
+        listed = ListedEvents(lambda: db)
+        assert listed(1, {"A": ["a1"]}) == set()
+        assert listed(1, {"A": ["a1"]}) == {"A"}
+
 
 def _game_contract(native_id, security_id, core, event_volume, game_id="bun-hof-s04-2026-11-08"):
     return dataclasses.replace(_make_contract(native_id, security_id, event_volume=event_volume),
@@ -269,7 +318,7 @@ def _sent(msgs):
     return {c["exchange_event_native_id"] for b in bodies for c in b["contracts"]}
 
 
-def _run_game_fetch(moto_env, pages, known=None, enabled=True):
+def _run_game_fetch(moto_env, pages, known=None, enabled=True, listed=()):
     rc = _make_fetch_rc(1000.0)
     rc.config.feature_flags.game_core_markets_enabled = enabled
     r = MagicMock()
@@ -281,7 +330,7 @@ def _run_game_fetch(moto_env, pages, known=None, enabled=True):
         patch("classifier.workers.fetch.fetch_exchanges", return_value={"POLYMARKET_INTL": MagicMock(exchange_id=1)}),
         patch("classifier.workers.fetch.ADAPTERS", [mock_adapter]),
     ):
-        FetchRunner()._run_fetch(rc, r, moto_env["sqs"], MagicMock())
+        _runner(listed)._run_fetch(rc, r, moto_env["sqs"], MagicMock())
     messages = []
     while batch := moto_env["sqs"].receive_message(QueueUrl=moto_env["contracts_queue"], MaxNumberOfMessages=10,
                                                    WaitTimeSeconds=0).get("Messages", []):
@@ -412,7 +461,7 @@ class TestLeftFeed:
             patch("classifier.workers.fetch.fetch_exchanges", return_value={"POLYMARKET_INTL": _make_exchange("POLYMARKET_INTL")}),
             patch("classifier.workers.fetch.ADAPTERS", [mock_adapter]),
         ):
-            return FetchRunner()._run_fetch(rc, r, moto_env["sqs"], MagicMock())
+            return _runner()._run_fetch(rc, r, moto_env["sqs"], MagicMock())
 
     def test_contracts_missing_from_this_fetch_left_the_feed(self, moto_env):
         known = {"1:cond:tok-a": "h", "1:cond:tok-b": "h", "2:other": "h"}
@@ -448,7 +497,7 @@ class TestAfterFetch:
         monkeypatch.setattr("classifier.workers.fetch.check_closures", lambda *a: calls.append(("closures", a[2])) or resolved)
         monkeypatch.setattr("classifier.workers.fetch.record_settlements", lambda *a: calls.append(("recent", a[4])) or empty_counts())
         monkeypatch.setattr("classifier.workers.fetch.reactivate_listings", lambda *a: calls.append(("reactivate", a[0])))
-        runner = FetchRunner()
+        runner = _runner()
         runner._db = "db"
         runner._sns = MagicMock()
         monkeypatch.setenv("NOTIFICATIONS_TOPIC_ARN", "arn:topic")
@@ -464,7 +513,7 @@ class TestAfterFetch:
         calls = []
         for name in ("check_closures", "record_settlements", "reactivate_listings"):
             monkeypatch.setattr(f"classifier.workers.fetch.{name}", lambda *a: calls.append(a))
-        runner = FetchRunner()
+        runner = _runner()
         runner._sns = MagicMock()
         runner._run_after_fetch(self._rc(), MagicMock(), self._fetched())
         runner._run_after_fetch(self._rc(settlement_enabled=True, reactivation_enabled=True), MagicMock(),
@@ -480,7 +529,7 @@ class TestAfterFetch:
         monkeypatch.setattr("classifier.workers.fetch.check_closures", boom)
         monkeypatch.setattr("classifier.workers.fetch.record_settlements", lambda *a: calls.append("recent") or empty_counts())
         monkeypatch.setattr("classifier.workers.fetch.reactivate_listings", lambda *a: calls.append("reactivate"))
-        runner = FetchRunner()
+        runner = _runner()
         runner._db = "db"
         runner._run_after_fetch(self._rc(settlement_enabled=True, reactivation_enabled=True), MagicMock(), self._fetched())
         assert calls == ["recent", "reactivate"]
@@ -496,7 +545,14 @@ def test_resolve_cycle_reports_closed_contracts_once(moto_env):
         patch("classifier.workers.fetch.fetch_resolved_outcomes",
               return_value=({1: {"already-sent", "cond:tok"}}, [])),
     ):
-        FetchRunner()._run_resolve(rc, r, moto_env["sqs"], MagicMock())
+        _runner()._run_resolve(rc, r, moto_env["sqs"], MagicMock())
     resp = moto_env["sqs"].receive_message(QueueUrl=moto_env["contracts_queue"], MaxNumberOfMessages=10, WaitTimeSeconds=0)
     assert [json.loads(m["Body"]) for m in resp.get("Messages", [])] == [
         {"type": "closed", "exchange_id": 1, "native_id": "cond:tok"}]
+
+
+def test_a_quiet_event_the_registry_lists_lets_its_game_in(moto_env):
+    listed_event = _game_contract("game-a", "sec-a", core=False, event_volume=10.0)
+    core = _game_contract("game-core", "sec-c", core=True, event_volume=10.0)
+    sent, _ = _run_game_fetch(moto_env, [[listed_event, core]], listed=["sec-a"])
+    assert sent == {"game-a", "game-core"}
